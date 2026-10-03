@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/JohnDuprey/kinwall-mobile/compare/v1.1.0...v1.1.1) (2026-10-03)
+
+
+### Fixed
+
+* **shell:** recover the web view instead of leaving a blank screen ([1ed1221](https://github.com/JohnDuprey/kinwall-mobile/commit/1ed122151da50bb78f2a312b079c07c2dc6fa007))
+
 ## [1.1.0](https://github.com/JohnDuprey/kinwall-mobile/compare/v1.0.0...v1.1.0) (2026-10-02)
 
 
