@@ -42,7 +42,17 @@ export default function App() {
   const tapped = Notifications.useLastNotificationResponse()
 
   // The demo is never saved, so a fresh launch clears anything it left for the widgets and reminders.
-  useEffect(() => { leaveDemo(); loadServer().then(async (s) => { setSession(s ? await launchSession(s) : null); setServer(s) }) }, [])
+  // The saved server and sign-in come from the Keychain, which refuses while the phone is locked:
+  // iOS can start the app in the background then (its reminder refresh), and the first read failing
+  // left a blank screen until the app was closed. So a failed read tries again when it's opened.
+  useEffect(() => {
+    leaveDemo()
+    let done = false
+    const load = () => { if (!done) loadServer().then(async (s) => { const ses = s ? await launchSession(s) : null; done = true; setSession(ses); setServer(s) }).catch(() => {}) }
+    load()
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') load() })
+    return () => sub.remove()
+  }, [])
   // The native screens (address, sign-in) are ready as soon as they're shown; the web view hides
   // the launch screen itself once the page has painted (src/WebShell.tsx).
   useEffect(() => { if (server === null || (server && !session)) hideSplash() }, [server, session])

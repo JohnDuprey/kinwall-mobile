@@ -34,16 +34,17 @@ export async function choosePairing(): Promise<Session> {
 export const needsRefresh = (t: Tokens) => t.expiresAt - Date.now() < 5 * 60_000
 
 let refreshing: Promise<Tokens | null> | null = null
-/** Tokens good for at least five minutes, refreshing if needed. Null when the grant is gone
- * (revoked, or the refresh token expired): the caller signs out. */
-export function freshTokens(t: Tokens): Promise<Tokens | null> {
-  if (!needsRefresh(t)) return Promise.resolve(t)
+/** Tokens good for at least five minutes, refreshing if needed (`force`: now, e.g. the server
+ * rejected keys that look fine). Null when the grant is gone (revoked, or the refresh token
+ * expired): the caller signs out. */
+export function freshTokens(t: Tokens, force = false): Promise<Tokens | null> {
+  if (!force && !needsRefresh(t)) return Promise.resolve(t)
   if (refreshing) return refreshing // one refresh at a time: refresh tokens rotate
   refreshing = (async () => {
     // The share extension may have refreshed them since (refresh tokens rotate): start from the saved ones.
     const saved = await loadTokens()
     const cur = saved?.baseURL === t.baseURL ? saved : t
-    if (!needsRefresh(cur)) return cur
+    if (!needsRefresh(cur) && !(force && cur.accessToken === t.accessToken)) return cur // forced: newer saved ones will do
     const next = await refresh(cur)
     await saveTokens(next)
     return next

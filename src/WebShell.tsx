@@ -105,6 +105,33 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   const origin = new URL(url).origin
   const token = session.mode === 'oauth' ? session.tokens.accessToken : null
 
+  // The page can go blank under the app: iOS ends a background web view's process to free memory
+  // (it comes back white), Android's renderer can go, a script can fail to load at launch. So the
+  // app asks the page (on every return, and once it has loaded) and starts a fresh web view where it
+  // was if it doesn't answer or drew nothing. `here`: its last URL, with its #/ route.
+  const [mount, setMount] = useState<{ n: number; at: string | null }>({ n: 0, at: null })
+  const here = useRef<string | null>(null)
+  const answered = useRef(true)
+  const blankRestarts = useRef(0)
+  const loadCheck = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const restart = (at?: string) => setMount((m) => ({ n: m.n + 1, at: at && isKinwall(at) ? at : here.current }))
+  const probe = () => {
+    if (!web.current) return
+    answered.current = false
+    web.current.injectJavaScript(`try { var r = document.getElementById('root'); window.webkit.messageHandlers.kinwall.postMessage({ type: 'alive', blank: !!r && !r.firstElementChild }) } catch (e) {} true;`)
+    setTimeout(() => { if (!answered.current) restart() }, 3000)
+  }
+  useEffect(() => {
+    if (loading || failed) return
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') probe() })
+    return () => sub.remove()
+  }, [loading, failed])
+  useEffect(() => () => clearTimeout(loadCheck.current), [])
+  // A refreshed key reaches the page through the bridge script, so reload only once it has the new one.
+  const reloadOnToken = useRef(false)
+  const lastRejected = useRef(0)
+  useEffect(() => { if (reloadOnToken.current) { reloadOnToken.current = false; web.current?.reload() } }, [token])
+
   // The launch screen waits for the page (onLoadEnd, its look, or a failed load), but not forever.
   useEffect(() => { const t = setTimeout(hideSplash, 3000); return () => clearTimeout(t) }, [])
 
@@ -116,7 +143,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   }, [])
 
   // Chose "Pair with a code": open the page on its pairing code (web/src/App.tsx reads ?start=pair).
-  useEffect(() => { widgetConnection().then((c) => setStartsPairing(session.mode === 'paired' && !c)) }, [session.mode])
+  useEffect(() => { widgetConnection().then((c) => setStartsPairing(session.mode === 'paired' && !c), () => setStartsPairing(false)) }, [session.mode])
 
   // OAuth keys last an hour: refresh ahead of time while the app is open, and on every return.
   useEffect(() => {
@@ -176,9 +203,16 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   const syncKey = () => web.current?.injectJavaScript(`try { window.webkit.messageHandlers.kinwall.postMessage({ type: 'key', key: localStorage.getItem('kinwall.apiKey') }) } catch (e) {} true;`)
 
   const onMessage = async (e: WebViewMessageEvent) => {
-    const m = bridgeMessage(e.nativeEvent.data, NONCE, e.nativeEvent.url, url) as { type?: string; reason?: string; color?: string; key?: string | null; on?: boolean; kind?: unknown; payload?: unknown; channel?: unknown; tile?: unknown; facing?: unknown } | null
+    const m = bridgeMessage(e.nativeEvent.data, NONCE, e.nativeEvent.url, url) as { type?: string; reason?: string; color?: string; key?: string | null; on?: boolean; kind?: unknown; payload?: unknown; channel?: unknown; tile?: unknown; facing?: unknown; blank?: boolean } | null
     if (!m) return
+    here.current = e.nativeEvent.url
     switch (m.type) {
+      case 'alive': // probe(): a page that drew nothing gets two fresh starts, then the error screen
+        answered.current = true
+        if (!m.blank) blankRestarts.current = 0
+        else if (blankRestarts.current++ < 2) restart()
+        else { blankRestarts.current = 0; setFailed("Kinwall didn't finish loading.") }
+        break
       case 'theme': if (m.color) setTheme(m.color); break
       case 'appearance': { // web/src/native.ts: the page's look changed
         const a = parseAppearance(m)
@@ -208,10 +242,15 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       // web/src/native.ts (window.kinwallNative.barcodeScanner): the camera, for a book's ISBN; the answer is a 'kinwall:barcode' event.
       case 'scanBarcode': setScanning(scanFacing(m)); break
       case 'signedOut': // web/src/native.ts: the page cleared its key
-        // `rejected` (a 401): after a sleep the OAuth key may simply have lapsed, so refresh and carry on.
+        // `rejected` (a 401): after a sleep the OAuth key may simply have lapsed, so refresh it (even
+        // if it looks current: the server just turned it down) and carry on. Turned down again
+        // within a minute: say so rather than reload forever.
         if (m.reason === 'rejected' && session.mode === 'oauth') {
-          const next = await freshTokens(session.tokens)
-          if (next) { onTokens(next); web.current?.reload(); return }
+          const again = Date.now() - lastRejected.current < 60_000
+          lastRejected.current = Date.now()
+          if (again) { setFailed("Kinwall didn't accept this phone's sign-in."); return }
+          const next = await freshTokens(session.tokens, true)
+          if (next) { reloadOnToken.current = true; onTokens(next); if (next.accessToken === token) { reloadOnToken.current = false; web.current?.reload() } return }
         }
         endAllActivities(); setActivityDevice(null)
         onSignedOut(); break
@@ -243,15 +282,18 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
     <WebView
       ref={web}
       style={styles.web}
-      source={{ uri: startsPairing ? `${url}?start=pair` : url }}
+      key={mount.n}
+      source={{ uri: mount.at ?? (startsPairing ? `${url}?start=pair` : url) }}
       applicationNameForUserAgent={`KinwallApp/${VERSION}`}
       injectedJavaScriptBeforeContentLoaded={bridge(origin, token, frame)}
       injectedJavaScriptBeforeContentLoadedForMainFrameOnly // the default, and required: the nonce is in here
       onMessage={onMessage}
-      onLoadStart={() => setLoading(true)}
-      onLoadEnd={() => { hideSplash(); setLoading(false); syncKey(); if (pending.current) { go(pending.current); pending.current = null } }}
+      onLoadStart={() => { setLoading(true); clearTimeout(loadCheck.current) }}
+      onLoadEnd={() => { hideSplash(); setLoading(false); syncKey(); if (pending.current) { go(pending.current); pending.current = null }; clearTimeout(loadCheck.current); loadCheck.current = setTimeout(probe, 15_000) }}
       onNavigationStateChange={(s) => { canGoBack.current = s.canGoBack }}
       onError={(e) => { hideSplash(); setFailed(e.nativeEvent.description) }}
+      onContentProcessDidTerminate={(e) => restart(e.nativeEvent.url)} // iOS
+      onRenderProcessGone={(e) => restart((e.nativeEvent as { url?: string }).url)} // Android: this web view can't be used again
       // Other schemes (tel:, mailto:) go straight to Linking without reaching the handler below;
       // intent: (the contact sheet's Video call, which Linking can't open) comes here for openOutside.
       originWhitelist={['http://*', 'https://*', 'intent:*']}
