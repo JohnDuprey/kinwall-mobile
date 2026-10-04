@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { ActivityIndicator, Pressable, Text, View } from 'react-native'
+import { ActivityIndicator, Image, Pressable, ScrollView, Text, View } from 'react-native'
 import { signIn } from './oauth'
-import { useUi } from './theme'
+import { logo, useUi } from './theme'
 import { type Session, choosePairing, signedIn } from './session'
 
 /** Sign in with Kinwall's OAuth in the system's auth sheet (passkeys work there on any domain), or
@@ -22,8 +22,9 @@ export function SignIn({ server, onSession, onChangeServer }: { server: string; 
   }
 
   return (
-    <View style={ui.screen}>
-      <Text style={ui.title}>Sign in to Kinwall</Text>
+    <ScrollView contentContainerStyle={ui.scroll}><View style={ui.screen}>
+      <Image source={logo(ui.dark)} style={ui.logo} accessibilityIgnoresInvertColors accessible={false} />
+      <Text style={ui.title} accessibilityRole="header">Sign in to Kinwall</Text>
       <Text style={ui.muted}>{new URL(server).host}</Text>
       <Pressable style={ui.button} onPress={start} disabled={busy}>
         {busy ? <ActivityIndicator color={ui.c.ink} /> : <Text style={ui.buttonText}>Sign in</Text>}
@@ -35,6 +36,6 @@ export function SignIn({ server, onSession, onChangeServer }: { server: string; 
       </Pressable>
       <Text style={[ui.muted, ui.footnote]}>For a child's phone or a wall tablet: this device shows a code, and an admin approves it in Kinwall under Settings → Access.</Text>
       <Pressable onPress={onChangeServer}><Text style={ui.link}>Use a different server</Text></Pressable>
-    </View>
+    </View></ScrollView>
   )
 }

@@ -14,7 +14,14 @@ export type Palette = typeof LIGHT
 
 const make = (c: Palette) => StyleSheet.create({
   root: { flex: 1, backgroundColor: c.bg },
-  screen: { flex: 1, justifyContent: 'center', padding: 24, gap: 16, maxWidth: 520, width: '100%', alignSelf: 'center' },
+  // The native screens scroll when they don't fit (landscape, keyboard up), centered when they do.
+  scroll: { flexGrow: 1, justifyContent: 'center' },
+  screen: { flexGrow: 1, justifyContent: 'center', padding: 24, gap: 16, maxWidth: 520, width: '100%', alignSelf: 'center' },
+  // Wide and short (a tablet in landscape): the logo and welcome on the left, the form on the right.
+  wide: { flexDirection: 'row', alignItems: 'center', maxWidth: 960, gap: 48 },
+  column: { flex: 1, gap: 16 },
+  screenPart: { gap: 16 },
+  logo: { width: 120, height: 71, alignSelf: 'center' },
   title: { fontSize: 32, fontWeight: '700', textAlign: 'center', color: c.text },
   muted: { color: c.dim, textAlign: 'center', fontSize: 16, lineHeight: 22 },
   footnote: { fontSize: 14, lineHeight: 20 },
@@ -29,6 +36,9 @@ const make = (c: Palette) => StyleSheet.create({
   problem: { color: c.problem, fontSize: 15, textAlign: 'center' },
   link: { color: c.text, fontSize: 15, textAlign: 'center', padding: 8, textDecorationLine: 'underline' },
 })
+
+/** The Kinwall mark, as on the launch screen and the web app's sign-in. */
+export const logo = (dark: boolean) => dark ? require('../assets/splash-icon-dark.png') : require('../assets/splash-icon.png')
 
 const STYLES = { light: make(LIGHT), dark: make(DARK) }
 
