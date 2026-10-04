@@ -34,7 +34,8 @@ const make = (c: Palette) => StyleSheet.create({
   secondary: { backgroundColor: c.field, borderWidth: 1.5, borderColor: c.border },
   secondaryText: { color: c.text },
   problem: { color: c.problem, fontSize: 15, textAlign: 'center' },
-  link: { color: c.text, fontSize: 15, textAlign: 'center', padding: 8, textDecorationLine: 'underline' },
+  // 12 + 20 + 12: a 44pt touch target (Use a different server, Change server, Cancel).
+  link: { color: c.text, fontSize: 15, lineHeight: 20, textAlign: 'center', paddingVertical: 12, paddingHorizontal: 8, textDecorationLine: 'underline' },
 })
 
 /** The Kinwall mark, as on the launch screen and the web app's sign-in. */
