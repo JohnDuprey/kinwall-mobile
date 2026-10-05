@@ -17,7 +17,7 @@ export KINWALL_UPLOAD_KEYSTORE="$KEYSTORE" KINWALL_UPLOAD_PASSWORD
 export JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk@17}" ANDROID_HOME="${ANDROID_HOME:-/opt/homebrew/share/android-commandlinetools}"
 # Minutes since 1970, like the iOS build number: every upload goes up, from any checkout.
 VERSION_CODE="${VERSION_CODE:-$(( $(date -u +%s) / 60 ))}"
-npm ci --silent
+[ "${NPM_CI:-1}" = 0 ] || npm ci --silent
 CI=1 npx expo prebuild -p android --clean >/dev/null
 # Release builds sign with the upload key instead of the template's debug key.
 perl -0pi -e '

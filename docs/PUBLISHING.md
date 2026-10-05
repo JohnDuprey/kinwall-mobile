@@ -57,8 +57,10 @@ it), account deletion info (in iPhone Settings → Kinwall), no purchases or pri
    test with at least 12 testers opted in for 14 days in a row before they can publish to
    production. Plan for this; an organization account doesn't have the rule.
 3. In Play Console, create the app with package `family.kinwall.app`.
-4. Turn on Play App Signing (Google holds the app signing key; you keep an upload key, which EAS can
-   manage with `eas credentials`).
+4. Turn on Play App Signing (Google holds the app signing key; you keep an upload key). Make the
+   upload key once with the `keytool` line at the top of `scripts/play-bundle.sh`, at
+   `~/.kinwall/kinwall-upload.jks`, and back it and its password up: every upload must be signed
+   with it. Lost or leaked, Play Console → App integrity → **Request upload key reset**.
 5. Store listing: title, short and full description, icon, feature graphic, phone and tablet
    screenshots, privacy policy URL.
 6. App content forms:
@@ -83,9 +85,13 @@ it), account deletion info (in iPhone Settings → Kinwall), no purchases or pri
 
 **Each release**
 
-1. Build an Android App Bundle: `eas build --platform android --profile production` (AAB, not APK;
-   `versionCode` must go up).
-2. Upload: `eas submit --platform android`, or upload the AAB in Play Console to a track.
+1. Automatic: merging the release PR runs `.github/workflows/play.yml`, which builds the bundle and
+   uploads it to the internal testing track (as a draft until the app's first review; then set the
+   repository variable `PLAY_RELEASE_STATUS` to `completed`). It's skipped until the secrets listed at
+   its top are set: the upload key (base64), its password, and a service account's JSON key.
+2. By hand: `scripts/play-bundle.sh` writes a signed `.aab` to the Desktop (it asks for the upload
+   key password); upload it in Play Console to a track. Version codes are minutes since 1970 in
+   both, so they always go up.
 3. Tracks: internal testing, then closed testing, then production (staged rollout is a good
    default).
 4. Release notes from the changelog; submit for review (usually hours to a few days).

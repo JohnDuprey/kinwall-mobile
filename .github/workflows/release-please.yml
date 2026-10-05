@@ -2,7 +2,8 @@
 # next version and CHANGELOG.md from Conventional Commits on main. Merging it tags vX.Y.Z and makes
 # the GitHub Release. A release made with GITHUB_TOKEN starts no other workflows, so the unsigned
 # app builds are called from here (build.yml) and attached to it, and the TestFlight upload
-# (testflight.yml, skipped until its secrets are set) runs beside them.
+# (testflight.yml) and the Google Play upload (play.yml), each skipped until its secrets are set,
+# run beside them.
 # Repo setting needed: Settings -> Actions -> General -> "Allow GitHub Actions to create and
 # approve pull requests".
 name: Release
@@ -36,6 +37,15 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/testflight.yml
+    secrets: inherit
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+  play:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/play.yml
     secrets: inherit
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
