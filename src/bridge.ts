@@ -17,3 +17,11 @@ export function bridgeMessage(data: string, nonce: string, pageUrl: string, serv
   if (!m || typeof m !== 'object' || (m as { nonce?: unknown }).nonce !== nonce) return null
   return m as Record<string, unknown>
 }
+
+/** A navigation that stays on the same page and only changes its #/ route (a tab tap). Android
+ * reports those as a load start, often with no load end (src/WebShell.tsx). A reload (the same
+ * URL) or a first load (no `from`) is a real load. */
+export function sameDocument(from: string | null, to: string): boolean {
+  if (!from || from === to) return false
+  return from.split('#')[0] === to.split('#')[0]
+}

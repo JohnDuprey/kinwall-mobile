@@ -19,7 +19,7 @@ import { syncSpotlight } from './spotlight'
 import KinwallNative from '../modules/kinwall-native'
 import * as Crypto from 'expo-crypto'
 import * as Speech from 'expo-speech'
-import { bridgeMessage, sameOrigin } from './bridge'
+import { bridgeMessage, sameDocument, sameOrigin } from './bridge'
 import { importContactsScript, meetCall } from './links'
 import { barcodeScript, scanFacing } from './barcode'
 import { Scanner } from './Scanner'
@@ -112,10 +112,12 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   // was if it doesn't answer or drew nothing. `here`: its last URL, with its #/ route.
   const [mount, setMount] = useState<{ n: number; at: string | null }>({ n: 0, at: null })
   const here = useRef<string | null>(null)
+  // The web view's current URL, to tell a real page load from a #/ route change (sameDocument).
+  const pageUrl = useRef<string | null>(null)
   const answered = useRef(true)
   const blankRestarts = useRef(0)
   const loadCheck = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const restart = (at?: string) => setMount((m) => ({ n: m.n + 1, at: at && isKinwall(at) ? at : here.current }))
+  const restart = (at?: string) => { pageUrl.current = null; setMount((m) => ({ n: m.n + 1, at: at && isKinwall(at) ? at : here.current })) }
   const probe = () => {
     if (!web.current) return
     answered.current = false
@@ -200,6 +202,10 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
     : `location.hash = ${JSON.stringify('#/' + to)}; true;`)
   const isKinwall = (u: string) => sameOrigin(u, url)
 
+  // What the last 'key' synced (server and key): Android ends a load on every tab tap, so the same
+  // key comes back each time; only a new one (or the first) redoes the widgets, reminders, Watch and Spotlight.
+  const synced = useRef<string | null>(null)
+
   /** Once the page is signed in (its key is in localStorage 'kinwall.apiKey'), make sure the widgets have their own key. */
   const syncKey = () => web.current?.injectJavaScript(`try { window.webkit.messageHandlers.kinwall.postMessage({ type: 'key', key: localStorage.getItem('kinwall.apiKey') }) } catch (e) {} true;`)
 
@@ -264,18 +270,22 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
           const next = await freshTokens(session.tokens, true)
           if (next) { reloadOnToken.current = true; onTokens(next); if (next.accessToken === token) { reloadOnToken.current = false; web.current?.reload() } return }
         }
-        endAllActivities(); setActivityDevice(null)
+        endAllActivities(); setActivityDevice(null); synced.current = null
         onSignedOut(); break
       case 'key':
         if (!m.key || session.mode === 'demo') return // the demo's sample key never reaches the widgets, Watch or reminders
-        setActivityDevice({ baseURL: url, key: m.key })
-        if (session.mode === 'paired') await shareKey({ baseURL: url, key: m.key })
-        await ensureWidgetKey(url, m.key)
-        reloadWidgets()
-        await requestPermission() // first time signed in: ask, then schedule
-        await refreshReminders()
-        await syncWatch()
-        syncSpotlight(true)
+        if (synced.current === `${url} ${m.key}`) return
+        synced.current = `${url} ${m.key}`
+        try {
+          setActivityDevice({ baseURL: url, key: m.key })
+          if (session.mode === 'paired') await shareKey({ baseURL: url, key: m.key })
+          await ensureWidgetKey(url, m.key)
+          reloadWidgets()
+          await requestPermission() // first time signed in: ask, then schedule
+          await refreshReminders()
+          await syncWatch()
+          syncSpotlight(true)
+        } catch (err) { synced.current = null; throw err } // try again on the next load
         break
     }
   }
@@ -300,10 +310,11 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       injectedJavaScriptBeforeContentLoaded={bridge(origin, token, frame)}
       injectedJavaScriptBeforeContentLoadedForMainFrameOnly // the default, and required: the nonce is in here
       onMessage={onMessage}
-      onLoadStart={() => { setLoading(true); clearTimeout(loadCheck.current) }}
-      onLoadEnd={() => { hideSplash(); setLoading(false); syncKey(); if (pending.current) { go(pending.current); pending.current = null }; clearTimeout(loadCheck.current); loadCheck.current = setTimeout(probe, 15_000) }}
-      onNavigationStateChange={(s) => { canGoBack.current = s.canGoBack }}
-      onError={(e) => { hideSplash(); setFailed(e.nativeEvent.description) }}
+      // Android sends a load start for a #/ route change, often with no end: only a real load counts.
+      onLoadStart={(e) => { const was = pageUrl.current; pageUrl.current = e.nativeEvent.url; if (sameDocument(was, e.nativeEvent.url)) return; setLoading(true); clearTimeout(loadCheck.current) }}
+      onLoadEnd={(e) => { pageUrl.current = e.nativeEvent.url; hideSplash(); setLoading(false); syncKey(); if (pending.current) { go(pending.current); pending.current = null }; clearTimeout(loadCheck.current); loadCheck.current = setTimeout(probe, 15_000) }}
+      onNavigationStateChange={(s) => { canGoBack.current = s.canGoBack; pageUrl.current = s.url }}
+      onError={(e) => { pageUrl.current = null; hideSplash(); setFailed(e.nativeEvent.description) }}
       onContentProcessDidTerminate={(e) => restart(e.nativeEvent.url)} // iOS
       onRenderProcessGone={(e) => restart((e.nativeEvent as { url?: string }).url)} // Android: this web view can't be used again
       // Other schemes (tel:, mailto:) go straight to Linking without reaching the handler below;

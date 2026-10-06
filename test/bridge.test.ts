@@ -2,7 +2,7 @@
 // messages that carry this launch's nonce.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { bridgeMessage, sameOrigin } from '../src/bridge.ts'
+import { bridgeMessage, sameDocument, sameOrigin } from '../src/bridge.ts'
 
 const server = 'https://sam.kinwall.family'
 
@@ -24,4 +24,13 @@ test('bridgeMessage: needs the nonce, from a Kinwall page that is not a plugin',
   assert.equal(bridgeMessage(ok, 'n1', 'http://sam.kinwall.family/', server), null)
   assert.equal(bridgeMessage('{', 'n1', `${server}/`, server), null)
   assert.equal(bridgeMessage('null', 'n1', `${server}/`, server), null)
+})
+
+test('sameDocument: only a #/ route change on the same page', () => {
+  assert.equal(sameDocument(`${server}/#/today`, `${server}/#/chores`), true)
+  assert.equal(sameDocument(`${server}/`, `${server}/#/chores`), true)
+  assert.equal(sameDocument(`${server}/#/today`, `${server}/#/today`), false) // a reload
+  assert.equal(sameDocument(null, `${server}/#/today`), false) // the first load
+  assert.equal(sameDocument(`${server}/?start=pair`, `${server}/#/today`), false)
+  assert.equal(sameDocument(`${server}/#/today`, `${server}/auth/callback?code=x`), false)
 })
