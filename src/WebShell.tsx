@@ -18,6 +18,7 @@ import { reloadWidgets } from './widgets'
 import { syncSpotlight } from './spotlight'
 import KinwallNative from '../modules/kinwall-native'
 import * as Crypto from 'expo-crypto'
+import * as Speech from 'expo-speech'
 import { bridgeMessage, sameOrigin } from './bridge'
 import { importContactsScript, meetCall } from './links'
 import { barcodeScript, scanFacing } from './barcode'
@@ -50,7 +51,7 @@ const NONCE = Array.from(Crypto.getRandomValues(new Uint8Array(16)), (b) => b.to
  * the page's first frame ("Loading…") is already in them; the page's own theme takes over once
  * its settings load (web/src/useTheme.ts). */
 const bridge = (origin: string, token: string | null, frame: (Surface & { dark: boolean }) | null) => `
-window.kinwallNative = { platform: ${JSON.stringify(Platform.OS)}, version: ${JSON.stringify(VERSION)}, providerReturn: true, liveActivities: ${JSON.stringify(activitiesEnabled())}, notificationSettings: ${JSON.stringify(Platform.OS === 'android')}, quickSettingsTiles: ${JSON.stringify(Platform.OS === 'android' && Number(Platform.Version) >= 33)}, videoCall: ${JSON.stringify(Platform.OS === 'android')}, barcodeScanner: true };
+window.kinwallNative = { platform: ${JSON.stringify(Platform.OS)}, version: ${JSON.stringify(VERSION)}, providerReturn: true, liveActivities: ${JSON.stringify(activitiesEnabled())}, notificationSettings: ${JSON.stringify(Platform.OS === 'android')}, quickSettingsTiles: ${JSON.stringify(Platform.OS === 'android' && Number(Platform.Version) >= 33)}, videoCall: ${JSON.stringify(Platform.OS === 'android')}, barcodeScanner: true, speech: true };
 ${token ? `if (location.origin === ${JSON.stringify(origin)}) try { localStorage.setItem('kinwall.apiKey', ${JSON.stringify(token)}) } catch (e) {}` : ''}
 ${frame ? `try { var r = document.documentElement; r.setAttribute('data-theme', ${JSON.stringify(frame.dark ? 'dark' : 'light')}); r.style.setProperty('--bg', ${JSON.stringify(frame.bg)}); r.style.setProperty('--card', ${JSON.stringify(frame.card)}) } catch (e) {}` : ''}
 (function () {
@@ -203,7 +204,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   const syncKey = () => web.current?.injectJavaScript(`try { window.webkit.messageHandlers.kinwall.postMessage({ type: 'key', key: localStorage.getItem('kinwall.apiKey') }) } catch (e) {} true;`)
 
   const onMessage = async (e: WebViewMessageEvent) => {
-    const m = bridgeMessage(e.nativeEvent.data, NONCE, e.nativeEvent.url, url) as { type?: string; reason?: string; color?: string; key?: string | null; on?: boolean; kind?: unknown; payload?: unknown; channel?: unknown; tile?: unknown; facing?: unknown; blank?: boolean } | null
+    const m = bridgeMessage(e.nativeEvent.data, NONCE, e.nativeEvent.url, url) as { type?: string; reason?: string; color?: string; key?: string | null; on?: boolean; kind?: unknown; payload?: unknown; channel?: unknown; tile?: unknown; facing?: unknown; blank?: boolean; id?: unknown; text?: unknown; rate?: unknown; lang?: unknown } | null
     if (!m) return
     here.current = e.nativeEvent.url
     switch (m.type) {
@@ -241,6 +242,17 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       case 'addTile': if (typeof m.tile === 'string') KinwallNative?.addTile?.(m.tile).catch(() => {}); break
       // web/src/native.ts (window.kinwallNative.barcodeScanner): the camera, for a book's ISBN; the answer is a 'kinwall:barcode' event.
       case 'scanBarcode': setScanning(scanFacing(m)); break
+      // web/src/native.ts (window.kinwallNative.speech): say a word for an activity plugin (Kinwall.speak).
+      // Android's WebView has no Web Speech, so the system voice speaks; the page hears 'spoken' back.
+      case 'speak': {
+        if (typeof m.text !== 'string') break
+        const id = JSON.stringify(m.id ?? null)
+        const done = () => web.current?.injectJavaScript(`window.dispatchEvent(new CustomEvent('kinwall-native', { detail: { type: 'spoken', id: ${id} } })); true;`)
+        const rate = typeof m.rate === 'number' && m.rate > 0 && m.rate <= 2 ? m.rate : 1
+        Speech.speak(m.text.slice(0, 500), { rate, language: typeof m.lang === 'string' ? m.lang : 'en-US', onDone: done, onStopped: done, onError: done })
+        break
+      }
+      case 'stopSpeaking': Speech.stop(); break
       case 'signedOut': // web/src/native.ts: the page cleared its key
         // `rejected` (a 401): after a sleep the OAuth key may simply have lapsed, so refresh it (even
         // if it looks current: the server just turned it down) and carry on. Turned down again
