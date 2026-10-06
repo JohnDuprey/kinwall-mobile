@@ -36,9 +36,14 @@ Notifications.setNotificationHandler({
   },
 })
 
-/** Asks once; later calls return the saved answer without a prompt. */
+/** Asks once: only while the answer is still unknown. Called on every page load (WebShell's 'key'),
+ * and on Android even an answered request opens the system's see-through permission screen,
+ * which pauses the app and swallows taps for a moment, and its resume probes the page
+ * (WebShell's 'alive'), restarting a page still busy starting up. */
 export async function requestPermission(): Promise<void> {
   await ensureChannels()
+  const now = await Notifications.getPermissionsAsync().catch(() => null)
+  if (now && now.status !== 'undetermined') return
   await Notifications.requestPermissionsAsync().catch(() => {})
 }
 
