@@ -12,17 +12,16 @@ import { useUi } from './theme'
 const TYPES = ['ean13', 'ean8', 'upc_a', 'upc_e'] as const
 
 // The beep (assets/sounds/scan-beep.wav, made for Kinwall, soft): on unless turned off on the scanner,
-// kept on this device. It plays with the silent switch on too (like a store scanner; the Beep button is
-// the off switch) and mixes with music or an audiobook instead of pausing it. One player for the app,
-// so the beep isn't cut off when the scanner closes.
+// kept on this device. iOS "ambient": it mixes with music or an audiobook instead of pausing it, never
+// pulls AirPods over from another device, and follows the silent switch. Set before every beep (speech
+// for activities sets its own), and expo-audio lets the audio go again once it's played. One player
+// for the app, so the beep isn't cut off when the scanner closes.
 const BEEP_KEY = 'scanBeep'
 let beepPlayer: AudioPlayer | null = null
 function beep() {
-  if (!beepPlayer) {
-    setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'mixWithOthers' }).catch(() => {})
-    beepPlayer = createAudioPlayer(require('../assets/sounds/scan-beep.wav'))
-  }
-  beepPlayer.seekTo(0).then(() => beepPlayer?.play()).catch(() => {})
+  beepPlayer ??= createAudioPlayer(require('../assets/sounds/scan-beep.wav'))
+  setAudioModeAsync({ playsInSilentMode: false, interruptionMode: 'mixWithOthers' }).catch(() => {})
+    .then(() => beepPlayer?.seekTo(0)).then(() => beepPlayer?.play()).catch(() => {})
 }
 
 /** Full-screen barcode scanner (the page's Scan buttons: Add a book, and shopping lists; web/src/native.ts): the first barcode it

@@ -19,6 +19,7 @@ import { syncSpotlight } from './spotlight'
 import KinwallNative from '../modules/kinwall-native'
 import * as Crypto from 'expo-crypto'
 import * as Speech from 'expo-speech'
+import { setAudioModeAsync, setIsAudioActiveAsync } from 'expo-audio'
 import { bridgeMessage, sameDocument, sameOrigin } from './bridge'
 import { importContactsScript, meetCall } from './links'
 import { barcodeScript, scanFacing } from './barcode'
@@ -252,10 +253,17 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       // Android's WebView has no Web Speech, so the system voice speaks; the page hears 'spoken' back.
       case 'speak': {
         if (typeof m.text !== 'string') break
-        const id = JSON.stringify(m.id ?? null)
-        const done = () => web.current?.injectJavaScript(`window.dispatchEvent(new CustomEvent('kinwall-native', { detail: { type: 'spoken', id: ${id} } })); true;`)
+        const id = JSON.stringify(m.id ?? null), text = m.text.slice(0, 500)
+        // iOS: the phone's audio only while it talks. Music elsewhere ducks (not pauses) and comes back
+        // up when the last word is done and the audio is let go.
+        const done = () => {
+          if (Platform.OS === 'ios') Speech.isSpeakingAsync().then(more => { if (!more) return setIsAudioActiveAsync(false) }).catch(() => {})
+          web.current?.injectJavaScript(`window.dispatchEvent(new CustomEvent('kinwall-native', { detail: { type: 'spoken', id: ${id} } })); true;`)
+        }
         const rate = typeof m.rate === 'number' && m.rate > 0 && m.rate <= 2 ? m.rate : 1
-        Speech.speak(m.text.slice(0, 500), { rate, language: typeof m.lang === 'string' ? m.lang : 'en-US', onDone: done, onStopped: done, onError: done })
+        const say = () => Speech.speak(text, { rate, language: typeof m.lang === 'string' ? m.lang : 'en-US', useApplicationAudioSession: true, onDone: done, onStopped: done, onError: done })
+        if (Platform.OS === 'ios') setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'duckOthers' }).catch(() => {}).then(say)
+        else say()
         break
       }
       case 'stopSpeaking': Speech.stop(); break
