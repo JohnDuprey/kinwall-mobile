@@ -325,19 +325,42 @@ enum ShareKindEnum: String, AppEnum {
     var kind: Share.Kind? { Share.Kind(rawValue: rawValue) }
 }
 
+/// A calendar Add to Kinwall can save an event to: the family's calendars this phone can add to, with
+/// the app's own sign-in (KinwallKit Share.calendars), the first the one the app's event sheet picks.
+struct ShareCalendarEntity: AppEntity {
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Calendar"
+    static let defaultQuery = ShareCalendarQuery()
+    let id: String
+    let name: String
+    var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(name)") }
+}
+
+struct ShareCalendarQuery: EntityStringQuery {
+    func all() async throws -> [ShareCalendarEntity] {
+        if DemoFamily.isOn { return [] }
+        guard let calendars = await Share.calendars() else { throw KinwallIntentError.said(Share.signInMessage) }
+        return calendars.map { ShareCalendarEntity(id: $0.id, name: $0.name) }
+    }
+    func entities(for identifiers: [String]) async throws -> [ShareCalendarEntity] { try await all().filter { identifiers.contains($0.id) } }
+    func entities(matching string: String) async throws -> [ShareCalendarEntity] { try await all().filter { $0.name.localizedCaseInsensitiveContains(string) } }
+    func suggestedEntities() async throws -> [ShareCalendarEntity] { try await all() }
+}
+
 /// Add to Kinwall (kinwall's docs/using/share-to-kinwall.md): a link, a place, a photo or some text to
 /// the family's Kinwall, much as the share sheet does (here the model's guess is taken without asking;
 /// Kinwall's answer says where it went) (KinwallKit Share.swift, ShareReader.swift). Signed in
 /// as the app is, so it's for a parent's phone; never the widgets' key. Answers with Kinwall's one
 /// line and a link that opens the app at what was added, or at what to check (an event, a book to pick).
+/// With a Calendar, an event is saved there straight away.
 struct AddToKinwallIntent: AppIntent {
     static let title: LocalizedStringResource = "Add to Kinwall"
-    static let description = IntentDescription("Adds a recipe or restaurant link, a place, a photo of a menu, book or flyer, or some text to Kinwall. With Apple Intelligence it tells what a photo or text is; otherwise it asks. Returns a link that opens the Kinwall app at it.")
+    static let description = IntentDescription("Adds a recipe or restaurant link, a place, a photo of a menu, book or flyer, or some text to Kinwall. With Apple Intelligence it tells what a photo or text is; otherwise it asks. An event is added to the Calendar you pick, or without one opens to check first. Returns a link that opens the Kinwall app at it.")
     @Parameter(title: "What it is", default: .automatic) var kind: ShareKindEnum
     @Parameter(title: "Photo") var photo: IntentFile? // supportedContentTypes: [.image] is iOS 18+
     @Parameter(title: "Text or link") var text: String?
+    @Parameter(title: "Calendar", description: "For an event: the calendar to add it to. Without one, it opens to check first.") var calendar: ShareCalendarEntity?
 
-    static var parameterSummary: some ParameterSummary { Summary("Add \(\.$photo) \(\.$text) to Kinwall as \(\.$kind)") }
+    static var parameterSummary: some ParameterSummary { Summary("Add \(\.$photo) \(\.$text) to Kinwall as \(\.$kind)") { \.$calendar } }
 
     func perform() async throws -> some IntentResult & ReturnsValue<URL?> & ProvidesDialog {
         if DemoFamily.isOn { throw KinwallIntentError.said("Kinwall is showing the demo, so nothing was added. Sign in to your family in Kinwall first.") }
@@ -363,8 +386,11 @@ struct AddToKinwallIntent: AppIntent {
                 }
                 if let kind { content = await ShareReader.tidied(words, kind: kind) ?? words }
             }
+            // An event goes with the words as read under the model's lines (a street it left out).
+            if kind == .event { content = Share.eventText(content, raw: words) }
         }
-        guard let request = Share.request(kind: kind, text: content) else { throw KinwallIntentError.said("Nothing to add.") }
+        guard var request = Share.request(kind: kind, text: content) else { throw KinwallIntentError.said("Nothing to add.") }
+        if request.kind == .event, let calendar { request.save = true; request.calendarId = calendar.id }
         switch await Share.send(request) {
         case .failed(let message): throw KinwallIntentError.said(message)
         case .done(let r): return .result(value: Share.appLink(r.link), dialog: IntentDialog(stringLiteral: r.summary))

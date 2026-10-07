@@ -5,6 +5,7 @@
   <color name="kinwall_share_text">#102A43</color>
   <color name="kinwall_share_dim">#4A6078</color>
   <color name="kinwall_share_accent">#123857</color>
+  <color name="kinwall_share_error">#B42318</color>
   <color name="kinwall_share_fill">#123857</color>
   <style name="KinwallShare" parent="Theme.AppCompat.DayNight.Dialog">
     <item name="windowNoTitle">true</item>

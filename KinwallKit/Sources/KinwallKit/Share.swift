@@ -19,7 +19,23 @@ public enum Share {
         public var url: String?
         public var text: String?
         public var name: String?
-        public init(kind: Kind? = nil, url: String? = nil, text: String? = nil, name: String? = nil) { self.kind = kind; self.url = url; self.text = text; self.name = name }
+        /// An event as the person checked it in the sheet; sent instead of text.
+        public var event: EventDraft?
+        /// Adds the event to `calendarId` now, instead of answering with a link to check it.
+        public var save: Bool?
+        public var calendarId: String?
+        public init(kind: Kind? = nil, url: String? = nil, text: String? = nil, name: String? = nil, event: EventDraft? = nil, save: Bool? = nil, calendarId: String? = nil) {
+            self.kind = kind; self.url = url; self.text = text; self.name = name; self.event = event; self.save = save; self.calendarId = calendarId
+        }
+    }
+
+    /// An event as Kinwall read it (or as the person changed it): a YYYY-MM-DD date and HH:MM times on
+    /// the household's clock; no time is all day.
+    public struct EventDraft: Codable, Equatable, Sendable {
+        public var title: String?, date: String?, time: String?, end: String?, place: String?
+        public init(title: String? = nil, date: String? = nil, time: String? = nil, end: String? = nil, place: String? = nil) {
+            self.title = title; self.date = date; self.time = time; self.end = end; self.place = place
+        }
     }
 
     public struct Result: Decodable, Equatable, Sendable {
@@ -27,8 +43,58 @@ public enum Share {
         public let summary: String
         public let link: String
         public let review: Bool
-        /// Nothing saved yet (a book to pick) or an event: it's checked in Kinwall.
-        public var needsReview: Bool { review || kind == .event }
+        /// An event to check: what Kinwall read, for the sheet's fields (older servers leave it out).
+        public var event: EventDraft? = nil
+        /// Nothing saved yet (an event or a book to pick): it's checked in Kinwall.
+        public var needsReview: Bool { review }
+    }
+
+    /// One of the family's calendars (GET /api/calendars).
+    public struct FamilyCalendar: Decodable, Equatable, Sendable, Identifiable {
+        public let id: String
+        public let name: String
+        public let writable: Bool
+        public let enabled: Bool
+        public let canEditEvents: Bool?
+        public init(id: String, name: String, writable: Bool = true, enabled: Bool = true, canEditEvents: Bool? = true) {
+            self.id = id; self.name = name; self.writable = writable; self.enabled = enabled; self.canEditEvents = canEditEvents
+        }
+    }
+
+    /// The calendars this phone can add an event to, in Kinwall's order: the first is the one the app's
+    /// event sheet picks for a new event (web Calendar.tsx editableCalendars).
+    public static func addable(_ calendars: [FamilyCalendar]) -> [FamilyCalendar] {
+        calendars.filter { $0.writable && $0.enabled && $0.canEditEvents != false }
+    }
+
+    /// What to send for an event: the model's lines, a "---" line, then the words as read, so Kinwall
+    /// takes the model's lines first and can fill in what it left out (a street) from the words.
+    public static func eventText(_ lines: String?, raw: String) -> String {
+        guard let lines = lines?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty, lines != raw.trimmingCharacters(in: .whitespacesAndNewlines) else { return raw }
+        return "\(lines)\n---\n\(raw)"
+    }
+
+    // The sheet's date and time pickers hold the household's wall-clock time as if it were UTC, so
+    // nothing shifts with the phone's own time zone.
+    public static let utc = TimeZone(identifier: "UTC")!
+    private static func formatter(_ format: String) -> DateFormatter {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = utc
+        f.dateFormat = format
+        return f
+    }
+    /// A draft's day and time for a picker; nil when it has no such day or time.
+    public static func pickerDate(_ date: String?, _ time: String? = nil) -> Date? {
+        guard let date else { return nil }
+        return formatter("yyyy-MM-dd HH:mm").date(from: "\(date) \(time ?? "00:00")")
+    }
+    /// The pickers' values as a draft to send: no times when it's all day.
+    public static func draft(title: String, place: String, day: Date, start: Date, end: Date, allDay: Bool) -> EventDraft {
+        let hm = formatter("HH:mm")
+        return EventDraft(title: title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty, date: formatter("yyyy-MM-dd").string(from: day),
+                          time: allDay ? nil : hm.string(from: start), end: allDay ? nil : hm.string(from: end),
+                          place: place.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty)
     }
 
     public enum Outcome: Equatable, Sendable { case done(Result), failed(String) }
@@ -119,7 +185,7 @@ public enum Share {
             Title: a short name for the event
             Date: its date, like Saturday, May 9, 2026
             Time: its start and end time, like 10:00 AM - 2:00 PM
-            Place: where it is
+            Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield
             """
         case .recipe: nil
         }
@@ -253,10 +319,15 @@ public enum AppSignIn {
 
     /// POSTs JSON to the family's server, signed in: the reply and its status, or nil when signed out.
     public static func post(_ path: String, json body: Data, timeout: TimeInterval) async throws -> (Data, Int)? {
+        try await request(path, json: body, timeout: timeout)
+    }
+
+    /// GETs (no body) or POSTs JSON to the family's server, signed in: the reply and its status, or nil when signed out.
+    public static func request(_ path: String, json body: Data? = nil, timeout: TimeInterval) async throws -> (Data, Int)? {
         guard let c = try await credential() else { return nil }
         var req = URLRequest(url: c.baseURL.appending(path: path), timeoutInterval: timeout)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpMethod = body == nil ? "GET" : "POST"
+        if body != nil { req.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         req.setValue("Bearer \(c.key)", forHTTPHeaderField: "Authorization")
         req.httpBody = body
         let (data, response) = try await URLSession.shared.data(for: req)
@@ -275,6 +346,13 @@ extension Share {
         } catch {
             return .failed("Can't reach Kinwall. Check your connection and try again.")
         }
+    }
+
+    /// The calendars this phone can add an event to (`addable`), or nil when they can't be read.
+    public static func calendars() async -> [FamilyCalendar]? {
+        guard let (data, status) = try? await AppSignIn.request("api/calendars", timeout: 20), status == 200,
+              let all = try? JSONDecoder().decode([FamilyCalendar].self, from: data) else { return nil }
+        return addable(all)
     }
 }
 #endif

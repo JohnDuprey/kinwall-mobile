@@ -14,17 +14,59 @@ object Share {
   /** What a photo or some text is. A link goes without one: the server reads the page. */
   enum class Kind { RECIPE, RESTAURANT, BOOK, EVENT; val wire get() = name.lowercase() }
 
-  data class Request(val kind: Kind? = null, val url: String? = null, val text: String? = null) {
+  /** `event` is an event as the person checked it in the sheet (sent instead of text); `save` adds it
+   * to `calendarId` now instead of answering with a link to check it. */
+  data class Request(val kind: Kind? = null, val url: String? = null, val text: String? = null, val event: EventDraft? = null, val save: Boolean = false, val calendarId: String? = null) {
     fun json(): String = JSONObject().apply {
       kind?.let { put("kind", it.wire) }
       url?.let { put("url", it) }
       text?.let { put("text", it) }
+      event?.let { put("event", it.json()) }
+      if (save) put("save", true)
+      calendarId?.let { put("calendarId", it) }
     }.toString()
   }
 
-  data class Result(val kind: Kind, val summary: String, val link: String, val review: Boolean) {
-    /** Nothing saved yet (a book to pick) or an event: it's checked in Kinwall. */
-    val needsReview get() = review || kind == Kind.EVENT
+  /** An event as Kinwall read it (or as the person changed it): a YYYY-MM-DD date and HH:MM times on
+   * the household's clock; no time is all day. */
+  data class EventDraft(val title: String? = null, val date: String? = null, val time: String? = null, val end: String? = null, val place: String? = null) {
+    fun json() = JSONObject().apply { title?.let { put("title", it) }; date?.let { put("date", it) }; time?.let { put("time", it) }; end?.let { put("end", it) }; place?.let { put("place", it) } }
+    companion object {
+      private fun JSONObject.text(key: String) = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
+      fun from(json: JSONObject?) = json?.let { EventDraft(it.text("title"), it.text("date"), it.text("time"), it.text("end"), it.text("place")) }
+    }
+  }
+
+  /** `event`: an event to check, what Kinwall read, for the sheet's fields (older servers leave it out). */
+  data class Result(val kind: Kind, val summary: String, val link: String, val review: Boolean, val event: EventDraft? = null) {
+    /** Nothing saved yet (an event or a book to pick): it's checked in Kinwall. */
+    val needsReview get() = review
+  }
+
+  /** One of the family's calendars this phone can add an event to. */
+  data class FamilyCalendar(val id: String, val name: String)
+
+  /** GET /api/calendars' answer as the calendars this phone can add to, in Kinwall's order: the first
+   * is the one the app's event sheet picks for a new event (web Calendar.tsx editableCalendars). */
+  fun addable(body: String): List<FamilyCalendar> {
+    val all = org.json.JSONArray(body)
+    return (0 until all.length()).map { all.getJSONObject(it) }
+      .filter { it.optBoolean("writable") && it.optBoolean("enabled") && it.optBoolean("canEditEvents", true) }
+      .map { FamilyCalendar(it.getString("id"), it.getString("name")) }
+  }
+
+  /** What to send for an event: the model's lines, a "---" line, then the words as read, so Kinwall
+   * takes the model's lines first and can fill in what it left out (a street) from the words. */
+  fun eventText(lines: String?, raw: String): String {
+    val l = lines?.trim()?.takeIf { it.isNotEmpty() } ?: return raw
+    return if (l.contains(raw.trim())) l else "$l\n---\n$raw" // withHeaders' lines already end with the words
+  }
+
+  /** The end after the start moves from `old` to `new` (HH:MM): the same length, at least 15 minutes. */
+  fun movedEnd(old: String, new: String, end: String): String {
+    fun mins(hm: String) = hm.substring(0, 2).toInt() * 60 + hm.substring(3, 5).toInt()
+    val m = mins(new) + maxOf(mins(end) - mins(old), 15)
+    return "%02d:%02d".format((m / 60) % 24, m % 60)
   }
 
   sealed interface Outcome { data class Done(val result: Result) : Outcome; data class Failed(val message: String) : Outcome }
@@ -50,7 +92,7 @@ object Share {
     if (status == 200 && json != null) {
       val kind = Kind.entries.firstOrNull { it.wire == json.optString("kind") }
       val summary = json.optString("summary")
-      if (kind != null && summary.isNotEmpty()) return Outcome.Done(Result(kind, summary, json.optString("link"), json.optBoolean("review")))
+      if (kind != null && summary.isNotEmpty()) return Outcome.Done(Result(kind, summary, json.optString("link"), json.optBoolean("review"), EventDraft.from(json.optJSONObject("event"))))
     }
     json?.optString("summary")?.takeIf { it.isNotEmpty() }?.let { return Outcome.Failed(it) }
     return Outcome.Failed(when (status) {
@@ -158,7 +200,7 @@ object Share {
       Title: a short name for the event
       Date: its date, like Saturday, May 9, 2026
       Time: its start and end time, like 10:00 AM - 2:00 PM
-      Place: where it is
+      Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield
       """.trimIndent()
     Kind.RECIPE -> null
   }

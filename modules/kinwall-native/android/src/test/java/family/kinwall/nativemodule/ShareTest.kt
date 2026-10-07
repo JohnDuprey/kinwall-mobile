@@ -106,4 +106,31 @@ class ShareTest {
     assertEquals("family.kinwall.app:/open?to=shared&link=https%3A%2F%2Fk.example%2F%23%2Fcalendar%3Fdraft%3Devent%26title%3DSpring%2Bfair",
       Share.appLink("https://k.example/#/calendar?draft=event&title=Spring+fair"))
   }
+
+  @Test fun anEventToCheckAndSaving() {
+    val read = Share.outcome(200, """{"kind":"event","summary":"Check the event: Spring fair","link":"https://k.example/#/calendar?draft=event","review":true,"event":{"title":"Spring fair","date":"2026-05-09","time":"10:00","end":null,"place":null}}""")
+    assertEquals(Share.EventDraft("Spring fair", "2026-05-09", "10:00"), (read as Share.Outcome.Done).result.event)
+    val saved = Share.outcome(200, """{"kind":"event","summary":"Added Spring fair to Family, Sat May 9","link":"https://k.example/#/calendar?event=e1","review":false}""")
+    assertEquals(false, (saved as Share.Outcome.Done).result.needsReview)
+    assertNull(saved.result.event)
+    val body = JSONObject(Share.Request(kind = Kind.EVENT, event = Share.EventDraft("Swim", "2026-05-09"), save = true, calendarId = "c1").json())
+    assertEquals(setOf("kind", "event", "save", "calendarId"), body.keys().asSequence().toSet())
+    assertEquals(Share.EventDraft("Swim", "2026-05-09"), Share.EventDraft.from(body.getJSONObject("event")))
+    assertEquals(setOf("title", "date"), body.getJSONObject("event").keys().asSequence().toSet())
+    assertEquals(false, JSONObject(Share.Request(kind = Kind.EVENT, text = "x").json()).has("save"))
+  }
+
+  @Test fun eventTextAndCalendars() {
+    assertEquals("Title: Swim\nPlace: Oak Pool\n---\nSWIM\n9 Lake Ave", Share.eventText("Title: Swim\nPlace: Oak Pool", "SWIM\n9 Lake Ave"))
+    assertEquals("SWIM", Share.eventText(null, "SWIM"))
+    assertEquals("no model: the words once", "SWIM", Share.eventText(" SWIM\n", "SWIM"))
+    assertEquals("found lines with the words", "Date: May 9\n\nSWIM", Share.eventText("Date: May 9\n\nSWIM", "SWIM"))
+    val cals = """[{"id":"a","name":"Family","writable":true,"enabled":true,"canEditEvents":true},{"id":"b","name":"School","writable":false,"enabled":true},
+      {"id":"c","name":"Old","writable":true,"enabled":false},{"id":"d","name":"Work","writable":true,"enabled":true,"canEditEvents":false},{"id":"e","name":"Kids","writable":true,"enabled":true}]"""
+    assertEquals(listOf(Share.FamilyCalendar("a", "Family"), Share.FamilyCalendar("e", "Kids")), Share.addable(cals))
+    assertEquals("16:00", Share.movedEnd("10:00", "14:00", "12:00"))
+    assertEquals("at least 15 minutes", "09:15", Share.movedEnd("10:00", "09:00", "09:30"))
+    assertEquals("00:30", Share.movedEnd("22:00", "23:00", "23:30"))
+    assertEquals(true, Share.prompt(Kind.EVENT, "f")!!.contains("Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield"))
+  }
 }

@@ -7,9 +7,10 @@ import UniformTypeIdentifiers
 /// Share.swift) right here in the sheet. A link or an Apple Maps place goes as it is (Kinwall reads
 /// the page). A photo or some text is read on the device (native/ios/ShareReader.swift): an ISBN
 /// barcode goes as a book straight away; with Apple Intelligence the sheet shows the model's guess
-/// ("Looks like an event: …") with Add to Kinwall and "Not an event?"; otherwise, or when the model
-/// isn't sure, it asks "What is this?". Something to check (an event, a book to pick) opens in the
-/// app; anything saved shows Kinwall's line and the sheet closes itself.
+/// ("Looks like a menu: …") with Add to Kinwall and "Not a menu?"; otherwise, or when the model
+/// isn't sure, it asks "What is this?". An event shows what Kinwall read, to fix and add to a calendar
+/// here (EventReview.swift) or open in the app. A book to pick opens in the app; anything saved shows
+/// Kinwall's line with Open, and the sheet closes itself after about 3 s unless it's touched.
 /// A shared contact (a vCard) is reviewed and imported the same way (ContactImport.swift).
 /// It signs in with what the app keeps in the shared Keychain group (KinwallKit AppSignIn).
 final class ShareViewController: UIViewController {
@@ -18,6 +19,10 @@ final class ShareViewController: UIViewController {
   private lazy var done = UIButton(configuration: .filled(), primaryAction: UIAction(title: "Done") { [weak self] _ in
     self?.extensionContext?.completeRequest(returningItems: nil)
   })
+  private lazy var openSaved = UIButton(configuration: .plain(), primaryAction: UIAction(title: "Open") { [weak self] _ in self?.openSavedLink() })
+  private var savedResult: Share.Result?
+  private var touched = false
+  private var review: UIViewController?
   private enum Choice { case add, kind(Share.Kind) }
   private var waiting: CheckedContinuation<Choice, Never>?
   private func choose(_ c: Choice) { waiting?.resume(returning: c); waiting = nil }
@@ -46,11 +51,14 @@ final class ShareViewController: UIViewController {
     label.font = .preferredFont(forTextStyle: .headline)
     label.textAlignment = .center
     label.numberOfLines = 0
-    for b in [add, done] { b.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true }
-    notThat.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
-    for v in [add, notThat, choices, done] { v.isHidden = true }
+    for b in [add, done, notThat, openSaved] { b.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true }
+    for v in [add, notThat, choices, openSaved, done] { v.isHidden = true }
     spinner.startAnimating()
-    let stack = UIStackView(arrangedSubviews: [spinner, label, add, notThat, choices, done])
+    // Any touch keeps a saved result's sheet open (it closes itself otherwise).
+    let touch = UITapGestureRecognizer(target: self, action: #selector(touchedSheet))
+    touch.cancelsTouchesInView = false
+    view.addGestureRecognizer(touch)
+    let stack = UIStackView(arrangedSubviews: [spinner, label, add, notThat, choices, openSaved, done])
     stack.axis = .vertical
     stack.spacing = 16
     stack.translatesAutoresizingMaskIntoConstraints = false
@@ -89,11 +97,16 @@ final class ShareViewController: UIViewController {
     }
   }
 
-  /// A photo's words or shared text: the model's guess to confirm, else "What is this?".
+  /// A photo's words or shared text: the model's guess to confirm, else "What is this?". An event goes
+  /// to its fields (checkEvent) with the words as read under the model's lines.
   private func sendWords(_ raw: String) async {
     var kind: Share.Kind
     var text: String? = nil
-    if let guess = await ShareReader.guess(raw) {
+    var guessed = false
+    let guess = await ShareReader.guess(raw)
+    if let guess, guess.kind == .event {
+      kind = .event; text = guess.text; guessed = true
+    } else if let guess {
       label.text = Share.guessLine(guess.kind, text: guess.text)
       notThat.configuration?.title = Share.notLabel(guess.kind)
       spinner.stopAnimating()
@@ -111,7 +124,65 @@ final class ShareViewController: UIViewController {
     for v in [add, notThat, choices, done] { v.isHidden = true }
     cancelling(false)
     if text == nil { busy("Reading it…"); text = await ShareReader.tidied(raw, kind: kind) ?? raw }
+    if kind == .event { return await checkEvent(Share.eventText(text, raw: raw), raw: raw, guessed: guessed) }
     await send(Share.request(kind: kind, text: text), reading: "Adding to Kinwall…")
+  }
+
+  /// An event: what Kinwall read, with the calendars to add it to, to fix and add here (EventReview),
+  /// or open in the app. A Kinwall too old to say what it read opens the app's event sheet, as before.
+  private func checkEvent(_ text: String, raw: String, guessed: Bool) async {
+    busy("Reading the event…")
+    async let calendars = Share.calendars()
+    let outcome = await Share.send(.init(kind: .event, text: text))
+    guard case .done(let r) = outcome, let draft = r.event else {
+      if case .failed(let message) = outcome { return finish(message) }
+      if case .done(let r) = outcome { review(r) }
+      return
+    }
+    let addable = await calendars ?? []
+    spinner.stopAnimating()
+    spinner.isHidden = true
+    label.isHidden = true
+    let context = extensionContext
+    let host = embed(EventReview(draft: draft, guessed: guessed, calendars: addable,
+      add: { [weak self] event, calendarId in
+        switch await Share.send(.init(kind: .event, event: event, save: true, calendarId: calendarId)) {
+        case .failed(let message): return message
+        case .done(let saved): self?.closeReview(); self?.saved(saved); return nil
+        }
+      },
+      open: { [weak self] event in
+        switch await Share.send(.init(kind: .event, event: event)) {
+        case .failed(let message): self?.closeReview(); self?.finish(message)
+        case .done(let r): self?.closeReview(); self?.review(r)
+        }
+      },
+      notEvent: { [weak self] in
+        self?.closeReview()
+        Task { @MainActor in await self?.pickAgain(raw) }
+      },
+      cancel: { context?.completeRequest(returningItems: nil) }))
+    review = host
+  }
+
+  /// "Not an event?": "What is this?", then on as if picked first.
+  private func pickAgain(_ raw: String) async {
+    showChoices()
+    guard case .kind(let kind) = await wait() else { return }
+    for v in [choices, done] { v.isHidden = true }
+    cancelling(false)
+    busy("Reading it…")
+    let text = await ShareReader.tidied(raw, kind: kind)
+    if kind == .event { return await checkEvent(Share.eventText(text, raw: raw), raw: raw, guessed: false) }
+    await send(Share.request(kind: kind, text: text ?? raw), reading: "Adding to Kinwall…")
+  }
+
+  private func closeReview() {
+    review?.willMove(toParent: nil)
+    review?.view.removeFromSuperview()
+    review?.removeFromParent()
+    review = nil
+    label.isHidden = false
   }
 
   /// Cancel is a plain button under the choices; Done the filled one under a result.
@@ -175,16 +246,34 @@ final class ShareViewController: UIViewController {
     switch await Share.send(request) {
     case .failed(let message): finish(message)
     case .done(let r) where r.needsReview: review(r)
-    case .done(let r):
-      finish(r.summary)
-      try? await Task.sleep(for: .seconds(2))
-      extensionContext?.completeRequest(returningItems: nil)
+    case .done(let r): saved(r)
     }
   }
 
-  /// Something to check in the app (an event, a book to pick): opens it there (src/links.ts routeFor,
-  /// to=shared). A share sheet may not be allowed to open its app; then the link waits in the shared
-  /// Keychain for the app's next start (PendingLink), and the sheet says to open Kinwall.
+  /// Saved: Kinwall's line and Open; the sheet closes itself after about 3 s unless it's touched.
+  private func saved(_ r: Share.Result) {
+    finish(r.summary)
+    savedResult = r
+    openSaved.isHidden = Share.appLink(r.link) == nil
+    touched = false
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(3))
+      if !touched, savedResult == r { extensionContext?.completeRequest(returningItems: nil) }
+    }
+  }
+
+  @objc private func touchedSheet() { touched = true }
+
+  private func openSavedLink() {
+    touched = true
+    guard let r = savedResult else { return }
+    openSaved.isHidden = true
+    review(r)
+  }
+
+  /// Opens a result in the app (src/links.ts routeFor, to=shared): something to check (an event, a book
+  /// to pick) or, from Open, what was saved. A share sheet may not be allowed to open its app; then the
+  /// link waits in the shared Keychain for the app's next start (PendingLink), and the sheet says to open Kinwall.
   private func review(_ r: Share.Result) {
     guard let link = Share.appLink(r.link) else { return finish(r.summary) }
     extensionContext?.open(link) { [weak self] opened in
@@ -213,7 +302,8 @@ final class ShareViewController: UIViewController {
     }
   }
 
-  private func embed(_ root: some View) {
+  @discardableResult
+  private func embed(_ root: some View) -> UIViewController {
     let host = UIHostingController(rootView: root)
     addChild(host)
     host.view.translatesAutoresizingMaskIntoConstraints = false
@@ -225,6 +315,7 @@ final class ShareViewController: UIViewController {
       host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
     ])
     host.didMove(toParent: self)
+    return host
   }
 
   // MARK: Signed-in requests (ContactImport.swift)

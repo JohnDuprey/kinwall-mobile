@@ -59,7 +59,7 @@ import Testing
         #expect(Share.prompt(.recipe, text: "x") == nil)
         #expect(Share.prompt(.book, text: "WOOL\nHugh Howey")!.hasSuffix("Author: its author\n\nWOOL\nHugh Howey"))
         #expect(Share.prompt(.restaurant, text: "m")!.contains("Menu:\nthen each menu section's name"))
-        #expect(Share.prompt(.event, text: "f")!.contains("Place: where it is"))
+        #expect(Share.prompt(.event, text: "f")!.contains("Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield"))
     }
 
     @Test func theModelsGuess() {
@@ -69,7 +69,7 @@ import Testing
         #expect(Share.guess("Kind: unsure") == nil)
         #expect(Share.guess("Kind: event") == nil) // nothing to send
         #expect(Share.guess("Title: Wool") == nil)
-        #expect(Share.guessPrompt(text: "flyer").hasSuffix("Place: where it is\n\nflyer"))
+        #expect(Share.guessPrompt(text: "flyer").hasSuffix("Springfield\n\nflyer"))
     }
 
     @Test func theGuessInOneLine() {
@@ -78,5 +78,42 @@ import Testing
         #expect(Share.guessLine(.restaurant, text: "Menu:\nPizza 12") == "Looks like a menu")
         #expect(Share.guessLine(.book, text: "Title: " + String(repeating: "a", count: 80)).count == "Looks like a book: ".count + 60)
         #expect(Share.notLabel(.event) == "Not an event?" && Share.notLabel(.restaurant) == "Not a menu?")
+    }
+
+    @Test func anEventToCheckComesWithWhatWasRead() throws {
+        let ok = Data(#"{"kind":"event","summary":"Check the event: Spring fair","link":"https://k/#/calendar?draft=event","review":true,"event":{"title":"Spring fair","date":"2026-05-09","time":"10:00","end":null,"place":null}}"#.utf8)
+        guard case .done(let r) = Share.outcome(status: 200, data: ok) else { Issue.record("not done"); return }
+        #expect(r.needsReview && r.event == .init(title: "Spring fair", date: "2026-05-09", time: "10:00"))
+        // Saved: not to check, even though it's an event.
+        let saved = Data(#"{"kind":"event","summary":"Added Spring fair to Family, Sat May 9","link":"https://k/#/calendar?event=e1","review":false}"#.utf8)
+        guard case .done(let s) = Share.outcome(status: 200, data: saved) else { Issue.record("not done"); return }
+        #expect(!s.needsReview && s.event == nil)
+        // Saving sends the checked event, the calendar and save; nothing else.
+        let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(Share.Request(kind: .event, event: .init(title: "Swim", date: "2026-05-09"), save: true, calendarId: "c1"))) as! [String: Any]
+        #expect(Set(body.keys) == ["kind", "event", "save", "calendarId"])
+        #expect(body["event"] as? [String: String] == ["title": "Swim", "date": "2026-05-09"])
+    }
+
+    @Test func theModelsLinesThenTheWordsAsRead() {
+        #expect(Share.eventText("Title: Swim\nPlace: Oak Pool", raw: "SWIM\n9 Lake Ave") == "Title: Swim\nPlace: Oak Pool\n---\nSWIM\n9 Lake Ave")
+        #expect(Share.eventText(nil, raw: "SWIM") == "SWIM")
+        #expect(Share.eventText(" SWIM\n", raw: "SWIM") == "SWIM", "no model: the words once")
+    }
+
+    @Test func calendarsToAddTo() {
+        let cals = [Share.FamilyCalendar(id: "a", name: "Family"), .init(id: "b", name: "School", writable: false), .init(id: "c", name: "Old", enabled: false),
+                    .init(id: "d", name: "Work", canEditEvents: false), .init(id: "e", name: "Kids", canEditEvents: nil)]
+        #expect(Share.addable(cals).map(\.id) == ["a", "e"])
+        let json = Data(#"[{"id":"a","name":"Family","writable":true,"enabled":true,"canEditEvents":true,"kind":"local"}]"#.utf8)
+        #expect(try! JSONDecoder().decode([Share.FamilyCalendar].self, from: json) == [.init(id: "a", name: "Family")])
+    }
+
+    @Test func thePickersKeepTheHouseholdsClock() {
+        let start = Share.pickerDate("2026-10-17", "15:00")!, end = Share.pickerDate("2026-10-17", "17:00")!
+        #expect(Share.draft(title: " Maya's party ", place: "The Rivers Residence, 12 Elm Road", day: start, start: start, end: end, allDay: false)
+                == .init(title: "Maya's party", date: "2026-10-17", time: "15:00", end: "17:00", place: "The Rivers Residence, 12 Elm Road"))
+        #expect(Share.draft(title: "Fair", place: " ", day: Share.pickerDate("2026-05-09")!, start: start, end: end, allDay: true)
+                == .init(title: "Fair", date: "2026-05-09"))
+        #expect(Share.pickerDate(nil, "10:00") == nil)
     }
 }

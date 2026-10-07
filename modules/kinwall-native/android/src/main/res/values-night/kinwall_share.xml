@@ -4,5 +4,6 @@
   <color name="kinwall_share_text">#E4ECF5</color>
   <color name="kinwall_share_dim">#9DB2C8</color>
   <color name="kinwall_share_accent">#6CB4EE</color>
+  <color name="kinwall_share_error">#FF9C8F</color>
   <color name="kinwall_share_fill">#497AA2</color>
 </resources>
