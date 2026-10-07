@@ -326,7 +326,7 @@ enum ShareKindEnum: String, AppEnum {
 }
 
 /// A calendar Add to Kinwall can save an event to: the family's calendars this phone can add to, with
-/// the app's own sign-in (KinwallKit Share.calendars), the first the one the app's event sheet picks.
+/// the app's own sign-in (KinwallKit Share.calendars), the family's default calendar for new events first.
 struct ShareCalendarEntity: AppEntity {
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Calendar"
     static let defaultQuery = ShareCalendarQuery()

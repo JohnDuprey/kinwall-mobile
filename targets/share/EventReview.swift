@@ -2,8 +2,8 @@ import KinwallKit
 import SwiftUI
 
 /// An event the share sheet read (ShareViewController.checkEvent), to fix and add to a calendar right
-/// here: its title, date, all day or its times, and place, then the family's calendars this phone can
-/// add to (the first is the one the app's event sheet picks). Add to calendar saves it (POST
+/// here: its title, date, all day or its times, place and notes, then the family's calendars this phone can
+/// add to (the first is the family's default calendar for new events). Add to calendar saves it (POST
 /// api/share with save); Open in Kinwall opens the app's event sheet filled in, to finish it there.
 /// The pickers hold the household's wall-clock time as UTC (Share.pickerDate), so nothing shifts
 /// with the phone's own time zone.
@@ -18,6 +18,7 @@ struct EventReview: View {
 
   @State private var title: String
   @State private var place: String
+  @State private var notes: String
   @State private var day: Date
   @State private var start: Date
   @State private var end: Date
@@ -40,6 +41,7 @@ struct EventReview: View {
     let start = Share.pickerDate(date, draft.time ?? "09:00")!
     _title = State(initialValue: draft.title ?? "")
     _place = State(initialValue: draft.place ?? "")
+    _notes = State(initialValue: draft.notes ?? "")
     _day = State(initialValue: Share.pickerDate(date)!)
     _start = State(initialValue: start)
     _end = State(initialValue: draft.end.flatMap { Share.pickerDate(date, $0) } ?? start.addingTimeInterval(3600))
@@ -47,7 +49,7 @@ struct EventReview: View {
     _calendarId = State(initialValue: calendars.first?.id ?? "")
   }
 
-  private var draft: Share.EventDraft { Share.draft(title: title, place: place, day: day, start: start, end: end, allDay: allDay) }
+  private var draft: Share.EventDraft { Share.draft(title: title, place: place, notes: notes, day: day, start: start, end: end, allDay: allDay) }
 
   var body: some View {
     NavigationStack {
@@ -61,6 +63,7 @@ struct EventReview: View {
             DatePicker("Ends", selection: $end, displayedComponents: .hourAndMinute)
           }
           labeled("Place") { TextField("Place", text: $place, axis: .vertical).lineLimit(1...3) }
+          labeled("Notes") { TextField("What to bring, how to RSVP", text: $notes, axis: .vertical).lineLimit(2...6) }
         }
         if !calendars.isEmpty {
           Section {

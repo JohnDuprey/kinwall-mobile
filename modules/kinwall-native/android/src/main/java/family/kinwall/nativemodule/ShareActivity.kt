@@ -73,6 +73,7 @@ class ShareActivity : AppCompatActivity() {
   private lateinit var eventForm: LinearLayout
   private lateinit var title: EditText
   private lateinit var place: EditText
+  private lateinit var notes: EditText
   private lateinit var dayButton: Button
   private lateinit var allDay: SwitchCompat
   private lateinit var startButton: Button
@@ -225,12 +226,13 @@ class ShareActivity : AppCompatActivity() {
   private fun draft(): Share.EventDraft? {
     val t = title.text.toString().trim()
     if (t.isEmpty()) { formError.text = "Add the event's title."; formError.visibility = View.VISIBLE; return null }
-    return Share.EventDraft(t, day, start.takeIf { !allDay.isChecked }, end.takeIf { !allDay.isChecked }, place.text.toString().trim().takeIf { it.isNotEmpty() })
+    return Share.EventDraft(t, day, start.takeIf { !allDay.isChecked }, end.takeIf { !allDay.isChecked }, place.text.toString().trim().takeIf { it.isNotEmpty() }, notes.text.toString().trim().takeIf { it.isNotEmpty() })
   }
 
   private fun fill(draft: Share.EventDraft) {
     title.setText(draft.title.orEmpty())
     place.setText(draft.place.orEmpty())
+    notes.setText(draft.notes.orEmpty())
     day = draft.date ?: SimpleDateFormat("yyyy-MM-dd", Locale.US).format(System.currentTimeMillis()) // none read: today, to change
     start = draft.time ?: "09:00"
     end = draft.end ?: Share.movedEnd("00:00", start, "01:00")
@@ -255,7 +257,7 @@ class ShareActivity : AppCompatActivity() {
 
   private fun setBusy(on: Boolean) {
     spinner.visibility = if (on) View.VISIBLE else View.GONE
-    for (v in listOf(title, place, dayButton, allDay, startButton, endButton, calendarPicker, addToCalendar, openInKinwall, notThat, done)) v.isEnabled = !on
+    for (v in listOf(title, place, notes, dayButton, allDay, startButton, endButton, calendarPicker, addToCalendar, openInKinwall, notThat, done)) v.isEnabled = !on
   }
 
   private suspend fun send(request: Share.Request, reading: String) {
@@ -336,7 +338,7 @@ class ShareActivity : AppCompatActivity() {
     }
   }
 
-  /** The event's fields: Title, the date, All day, Starts and Ends, Place, then Calendar. */
+  /** The event's fields: Title, the date, All day, Starts and Ends, Place, Notes, then Calendar. */
   private fun eventForm(): LinearLayout {
     val text = getColor(R.color.kinwall_share_text)
     val dim = getColor(R.color.kinwall_share_dim)
@@ -350,6 +352,7 @@ class ShareActivity : AppCompatActivity() {
     fun picker(onClick: () -> Unit) = button("", false, onClick).apply { gravity = Gravity.START or Gravity.CENTER_VERTICAL; setTextColor(text) }
     title = field("Title", 1)
     place = field("Place", 3)
+    notes = field("What to bring, how to RSVP", 6)
     dayButton = picker {
       val (y, m, d) = day.split('-').map(String::toInt)
       DatePickerDialog(this, { _, yy, mm, dd -> day = "%04d-%02d-%02d".format(yy, mm + 1, dd); showWhen() }, y, m - 1, d).show()
@@ -368,7 +371,7 @@ class ShareActivity : AppCompatActivity() {
     return LinearLayout(this).apply {
       orientation = LinearLayout.VERTICAL
       layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-      listOf(caption("Title"), title, dayButton, allDay, startButton, endButton, caption("Place"), place, calendarLabel, calendarPicker, formError).forEach(::addView)
+      listOf(caption("Title"), title, dayButton, allDay, startButton, endButton, caption("Place"), place, caption("Notes"), notes, calendarLabel, calendarPicker, formError).forEach(::addView)
     }
   }
 

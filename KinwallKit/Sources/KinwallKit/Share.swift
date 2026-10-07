@@ -33,8 +33,10 @@ public enum Share {
     /// the household's clock; no time is all day.
     public struct EventDraft: Codable, Equatable, Sendable {
         public var title: String?, date: String?, time: String?, end: String?, place: String?
-        public init(title: String? = nil, date: String? = nil, time: String? = nil, end: String? = nil, place: String? = nil) {
-            self.title = title; self.date = date; self.time = time; self.end = end; self.place = place
+        /// Anything else worth knowing (what to bring, how to RSVP); saved as the event's notes.
+        public var notes: String?
+        public init(title: String? = nil, date: String? = nil, time: String? = nil, end: String? = nil, place: String? = nil, notes: String? = nil) {
+            self.title = title; self.date = date; self.time = time; self.end = end; self.place = place; self.notes = notes
         }
     }
 
@@ -56,15 +58,18 @@ public enum Share {
         public let writable: Bool
         public let enabled: Bool
         public let canEditEvents: Bool?
-        public init(id: String, name: String, writable: Bool = true, enabled: Bool = true, canEditEvents: Bool? = true) {
-            self.id = id; self.name = name; self.writable = writable; self.enabled = enabled; self.canEditEvents = canEditEvents
+        /// The family's default calendar for new events (older servers leave it out).
+        public let `default`: Bool?
+        public init(id: String, name: String, writable: Bool = true, enabled: Bool = true, canEditEvents: Bool? = true, default isDefault: Bool? = nil) {
+            self.id = id; self.name = name; self.writable = writable; self.enabled = enabled; self.canEditEvents = canEditEvents; self.default = isDefault
         }
     }
 
-    /// The calendars this phone can add an event to, in Kinwall's order: the first is the one the app's
-    /// event sheet picks for a new event (web Calendar.tsx editableCalendars).
+    /// The calendars this phone can add an event to, in Kinwall's order with the family's default
+    /// calendar for new events first: the one the app's event sheet picks (web Calendar.tsx).
     public static func addable(_ calendars: [FamilyCalendar]) -> [FamilyCalendar] {
-        calendars.filter { $0.writable && $0.enabled && $0.canEditEvents != false }
+        let open = calendars.filter { $0.writable && $0.enabled && $0.canEditEvents != false }
+        return open.filter { $0.default == true } + open.filter { $0.default != true }
     }
 
     /// What to send for an event: the model's lines, a "---" line, then the words as read, so Kinwall
@@ -90,11 +95,12 @@ public enum Share {
         return formatter("yyyy-MM-dd HH:mm").date(from: "\(date) \(time ?? "00:00")")
     }
     /// The pickers' values as a draft to send: no times when it's all day.
-    public static func draft(title: String, place: String, day: Date, start: Date, end: Date, allDay: Bool) -> EventDraft {
+    public static func draft(title: String, place: String, notes: String = "", day: Date, start: Date, end: Date, allDay: Bool) -> EventDraft {
         let hm = formatter("HH:mm")
         return EventDraft(title: title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty, date: formatter("yyyy-MM-dd").string(from: day),
                           time: allDay ? nil : hm.string(from: start), end: allDay ? nil : hm.string(from: end),
-                          place: place.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty)
+                          place: place.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                          notes: notes.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty)
     }
 
     public enum Outcome: Equatable, Sendable { case done(Result), failed(String) }
@@ -186,6 +192,7 @@ public enum Share {
             Date: its date, like Saturday, May 9, 2026
             Time: its start and end time, like 10:00 AM - 2:00 PM
             Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield
+            Notes: anything else worth knowing, like what to bring, costs, or how to RSVP
             """
         case .recipe: nil
         }

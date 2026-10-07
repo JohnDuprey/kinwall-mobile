@@ -29,11 +29,11 @@ object Share {
 
   /** An event as Kinwall read it (or as the person changed it): a YYYY-MM-DD date and HH:MM times on
    * the household's clock; no time is all day. */
-  data class EventDraft(val title: String? = null, val date: String? = null, val time: String? = null, val end: String? = null, val place: String? = null) {
-    fun json() = JSONObject().apply { title?.let { put("title", it) }; date?.let { put("date", it) }; time?.let { put("time", it) }; end?.let { put("end", it) }; place?.let { put("place", it) } }
+  data class EventDraft(val title: String? = null, val date: String? = null, val time: String? = null, val end: String? = null, val place: String? = null, val notes: String? = null) {
+    fun json() = JSONObject().apply { title?.let { put("title", it) }; date?.let { put("date", it) }; time?.let { put("time", it) }; end?.let { put("end", it) }; place?.let { put("place", it) }; notes?.let { put("notes", it) } }
     companion object {
       private fun JSONObject.text(key: String) = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
-      fun from(json: JSONObject?) = json?.let { EventDraft(it.text("title"), it.text("date"), it.text("time"), it.text("end"), it.text("place")) }
+      fun from(json: JSONObject?) = json?.let { EventDraft(it.text("title"), it.text("date"), it.text("time"), it.text("end"), it.text("place"), it.text("notes")) }
     }
   }
 
@@ -43,16 +43,16 @@ object Share {
     val needsReview get() = review
   }
 
-  /** One of the family's calendars this phone can add an event to. */
+  /** One of the family's calendars this phone can add an event to (the family's default calendar for new events first). */
   data class FamilyCalendar(val id: String, val name: String)
 
   /** GET /api/calendars' answer as the calendars this phone can add to, in Kinwall's order: the first
    * is the one the app's event sheet picks for a new event (web Calendar.tsx editableCalendars). */
   fun addable(body: String): List<FamilyCalendar> {
     val all = org.json.JSONArray(body)
-    return (0 until all.length()).map { all.getJSONObject(it) }
+    val open = (0 until all.length()).map { all.getJSONObject(it) }
       .filter { it.optBoolean("writable") && it.optBoolean("enabled") && it.optBoolean("canEditEvents", true) }
-      .map { FamilyCalendar(it.getString("id"), it.getString("name")) }
+    return (open.filter { it.optBoolean("default") } + open.filterNot { it.optBoolean("default") }).map { FamilyCalendar(it.getString("id"), it.getString("name")) }
   }
 
   /** What to send for an event: the model's lines, a "---" line, then the words as read, so Kinwall
@@ -115,6 +115,7 @@ object Share {
 
   private const val DAY = 3
   private const val HOUR = 4
+  private val SURE_TIME = Regex("""(?i)\d\s*[ap]\.?\s?m\b|\bnoon\b|\bmidnight\b|\b(1[3-9]|2[0-3]):[0-5]\d""")
   /** What's worth a header line: a phone number has at least 7 digits (a ZIP code reads as one). */
   private fun useful(found: List<Found>) = found.filter { it.type != Type.PHONE || it.text.count(Char::isDigit) >= 7 }
   private fun first(found: List<Found>, type: Type) = useful(found).firstOrNull { it.type == type }?.text?.trim()?.takeIf { it.isNotEmpty() }
@@ -138,8 +139,10 @@ object Share {
           // and Kinwall takes a date without a year as the next one coming up.
           lines += "Date: ${fmt(if (Regex("\\b\\d{4}\\b").containsMatchIn(start.text)) "MMMM d, yyyy" else "MMMM d", start.millis)}"
           // Its time, or the first time on its own ("May 9" then "10 AM"); the next later time is when it ends ("10 AM - 2 PM").
-          val times = found.filter { it.type == Type.DATE_TIME && it.granularity >= HOUR }
-          val at = if (start.granularity >= HOUR) start else times.firstOrNull()
+          // Only a time that says AM or PM (or a 24-hour one): ML Kit takes a bare "3:00" as 3 AM, so
+          // without one the Time line is left out and Kinwall reads "3:00 - 5:00pm" from the words.
+          val times = found.filter { it.type == Type.DATE_TIME && it.granularity >= HOUR && SURE_TIME.containsMatchIn(it.text) }
+          val at = if (start.granularity >= HOUR) start.takeIf { SURE_TIME.containsMatchIn(it.text) } else times.firstOrNull()
           if (at != null) {
             val end = times.firstOrNull { it !== at && minuteOfDay(it.millis) > minuteOfDay(at.millis) }
             lines += "Time: ${fmt("h:mm a", at.millis)}" + (end?.let { " - ${fmt("h:mm a", it.millis)}" } ?: "")
@@ -201,6 +204,7 @@ object Share {
       Date: its date, like Saturday, May 9, 2026
       Time: its start and end time, like 10:00 AM - 2:00 PM
       Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield
+      Notes: anything else worth knowing, like what to bring, costs, or how to RSVP
       """.trimIndent()
     Kind.RECIPE -> null
   }

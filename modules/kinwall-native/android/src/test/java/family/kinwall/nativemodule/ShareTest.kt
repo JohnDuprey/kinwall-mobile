@@ -36,6 +36,12 @@ class ShareTest {
       Found(Type.ADDRESS, "12 Elm Street, Springfield, IL 62701"), Found(Type.PHONE, "62701"))
     assertEquals("Date: May 9\nTime: 10:00 AM - 2:00 PM\nPlace: 12 Elm Street, Springfield, IL 62701", Share.headers(Kind.EVENT, flyer, ny))
     assertEquals(Kind.EVENT, Share.guessKind(flyer, "Spring Fair"))
+    // The made-up invite: "Saturday, October 24th 3:00 - 5:00pm" came back as one date-time at 3 AM (here on May 9).
+    // A time with no AM or PM is left out, for Kinwall to read the range from the words.
+    val bare = listOf(Found(Type.DATE_TIME, "Saturday, May 9th 3:00", tenAm, 5), Found(Type.ADDRESS, "12 Elm Road, Springfield"))
+    assertEquals("Date: May 9\nPlace: 12 Elm Road, Springfield", Share.headers(Kind.EVENT, bare, ny))
+    assertEquals("a bare end isn't taken either", "Date: May 9\nTime: 10:00 AM",
+      Share.headers(Kind.EVENT, listOf(Found(Type.DATE_TIME, "May 9 10am", tenAm, 5), Found(Type.DATE_TIME, "2:00", twoPm, 5)), ny))
     assertEquals("a month alone isn't a date", "", Share.headers(Kind.EVENT, listOf(Found(Type.DATE_TIME, "May", tenAm, 1)), ny))
     assertEquals("Date: May 9\n\nSpring fair\nMay 9", Share.withHeaders(Kind.EVENT, listOf(Found(Type.DATE_TIME, "May 9", tenAm, 3)), " Spring fair\nMay 9 ", ny))
   }
@@ -116,6 +122,7 @@ class ShareTest {
     val body = JSONObject(Share.Request(kind = Kind.EVENT, event = Share.EventDraft("Swim", "2026-05-09"), save = true, calendarId = "c1").json())
     assertEquals(setOf("kind", "event", "save", "calendarId"), body.keys().asSequence().toSet())
     assertEquals(Share.EventDraft("Swim", "2026-05-09"), Share.EventDraft.from(body.getJSONObject("event")))
+    assertEquals("Bring a towel", Share.EventDraft.from(Share.EventDraft("Swim", notes = "Bring a towel").json())!!.notes)
     assertEquals(setOf("title", "date"), body.getJSONObject("event").keys().asSequence().toSet())
     assertEquals(false, JSONObject(Share.Request(kind = Kind.EVENT, text = "x").json()).has("save"))
   }
@@ -128,9 +135,11 @@ class ShareTest {
     val cals = """[{"id":"a","name":"Family","writable":true,"enabled":true,"canEditEvents":true},{"id":"b","name":"School","writable":false,"enabled":true},
       {"id":"c","name":"Old","writable":true,"enabled":false},{"id":"d","name":"Work","writable":true,"enabled":true,"canEditEvents":false},{"id":"e","name":"Kids","writable":true,"enabled":true}]"""
     assertEquals(listOf(Share.FamilyCalendar("a", "Family"), Share.FamilyCalendar("e", "Kids")), Share.addable(cals))
+    // The family's default calendar for new events comes first.
+    assertEquals(listOf("e", "a"), Share.addable(cals.replace("\"name\":\"Kids\",", "\"name\":\"Kids\",\"default\":true,")).map { it.id })
     assertEquals("16:00", Share.movedEnd("10:00", "14:00", "12:00"))
     assertEquals("at least 15 minutes", "09:15", Share.movedEnd("10:00", "09:00", "09:30"))
     assertEquals("00:30", Share.movedEnd("22:00", "23:00", "23:30"))
-    assertEquals(true, Share.prompt(Kind.EVENT, "f")!!.contains("Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield"))
+    assertEquals(true, Share.prompt(Kind.EVENT, "f")!!.contains("Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield\nNotes: anything else worth knowing, like what to bring, costs, or how to RSVP"))
   }
 }

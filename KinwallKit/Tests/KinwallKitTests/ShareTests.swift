@@ -59,7 +59,7 @@ import Testing
         #expect(Share.prompt(.recipe, text: "x") == nil)
         #expect(Share.prompt(.book, text: "WOOL\nHugh Howey")!.hasSuffix("Author: its author\n\nWOOL\nHugh Howey"))
         #expect(Share.prompt(.restaurant, text: "m")!.contains("Menu:\nthen each menu section's name"))
-        #expect(Share.prompt(.event, text: "f")!.contains("Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield"))
+        #expect(Share.prompt(.event, text: "f")!.contains("Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield\nNotes: anything else worth knowing, like what to bring, costs, or how to RSVP"))
     }
 
     @Test func theModelsGuess() {
@@ -69,7 +69,7 @@ import Testing
         #expect(Share.guess("Kind: unsure") == nil)
         #expect(Share.guess("Kind: event") == nil) // nothing to send
         #expect(Share.guess("Title: Wool") == nil)
-        #expect(Share.guessPrompt(text: "flyer").hasSuffix("Springfield\n\nflyer"))
+        #expect(Share.guessPrompt(text: "flyer").hasSuffix("how to RSVP\n\nflyer"))
     }
 
     @Test func theGuessInOneLine() {
@@ -106,12 +106,15 @@ import Testing
         #expect(Share.addable(cals).map(\.id) == ["a", "e"])
         let json = Data(#"[{"id":"a","name":"Family","writable":true,"enabled":true,"canEditEvents":true,"kind":"local"}]"#.utf8)
         #expect(try! JSONDecoder().decode([Share.FamilyCalendar].self, from: json) == [.init(id: "a", name: "Family")])
+        // The family's default calendar for new events comes first; the rest keep Kinwall's order.
+        let marked = Data(#"[{"id":"a","name":"A meal kit","writable":true,"enabled":true,"default":false},{"id":"b","name":"Our Family","writable":true,"enabled":true,"default":true},{"id":"c","name":"Work","writable":true,"enabled":true}]"#.utf8)
+        #expect(Share.addable(try! JSONDecoder().decode([Share.FamilyCalendar].self, from: marked)).map(\.id) == ["b", "a", "c"])
     }
 
     @Test func thePickersKeepTheHouseholdsClock() {
         let start = Share.pickerDate("2026-10-17", "15:00")!, end = Share.pickerDate("2026-10-17", "17:00")!
-        #expect(Share.draft(title: " Maya's party ", place: "The Rivers Residence, 12 Elm Road", day: start, start: start, end: end, allDay: false)
-                == .init(title: "Maya's party", date: "2026-10-17", time: "15:00", end: "17:00", place: "The Rivers Residence, 12 Elm Road"))
+        #expect(Share.draft(title: " Maya's party ", place: "The Rivers Residence, 12 Elm Road", notes: " Bring a towel\n", day: start, start: start, end: end, allDay: false)
+                == .init(title: "Maya's party", date: "2026-10-17", time: "15:00", end: "17:00", place: "The Rivers Residence, 12 Elm Road", notes: "Bring a towel"))
         #expect(Share.draft(title: "Fair", place: " ", day: Share.pickerDate("2026-05-09")!, start: start, end: end, allDay: true)
                 == .init(title: "Fair", date: "2026-05-09"))
         #expect(Share.pickerDate(nil, "10:00") == nil)
