@@ -10,7 +10,7 @@ import UniformTypeIdentifiers
 /// ("Looks like a menu: …") with Add to Kinwall and "Not a menu?"; otherwise, or when the model
 /// isn't sure, it asks "What is this?". An event shows what Kinwall read, to fix and add to a calendar
 /// here (EventReview.swift) or open in the app. A book to pick opens in the app; anything saved shows
-/// Kinwall's line with Open, and the sheet closes itself after about 3 s unless it's touched.
+/// Kinwall's line, and the sheet closes itself after about 3 s unless it's touched.
 /// A shared contact (a vCard) is reviewed and imported the same way (ContactImport.swift).
 /// It signs in with what the app keeps in the shared Keychain group (KinwallKit AppSignIn).
 final class ShareViewController: UIViewController {
@@ -19,7 +19,6 @@ final class ShareViewController: UIViewController {
   private lazy var done = UIButton(configuration: .filled(), primaryAction: UIAction(title: "Done") { [weak self] _ in
     self?.extensionContext?.completeRequest(returningItems: nil)
   })
-  private lazy var openSaved = UIButton(configuration: .plain(), primaryAction: UIAction(title: "Open") { [weak self] _ in self?.openSavedLink() })
   private var savedResult: Share.Result?
   private var touched = false
   private var review: UIViewController?
@@ -51,14 +50,14 @@ final class ShareViewController: UIViewController {
     label.font = .preferredFont(forTextStyle: .headline)
     label.textAlignment = .center
     label.numberOfLines = 0
-    for b in [add, done, notThat, openSaved] { b.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true }
-    for v in [add, notThat, choices, openSaved, done] { v.isHidden = true }
+    for b in [add, done, notThat] { b.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true }
+    for v in [add, notThat, choices, done] { v.isHidden = true }
     spinner.startAnimating()
     // Any touch keeps a saved result's sheet open (it closes itself otherwise).
     let touch = UITapGestureRecognizer(target: self, action: #selector(touchedSheet))
     touch.cancelsTouchesInView = false
     view.addGestureRecognizer(touch)
-    let stack = UIStackView(arrangedSubviews: [spinner, label, add, notThat, choices, openSaved, done])
+    let stack = UIStackView(arrangedSubviews: [spinner, label, add, notThat, choices, done])
     stack.axis = .vertical
     stack.spacing = 16
     stack.translatesAutoresizingMaskIntoConstraints = false
@@ -151,12 +150,6 @@ final class ShareViewController: UIViewController {
         case .done(let saved): self?.closeReview(); self?.saved(saved); return nil
         }
       },
-      open: { [weak self] event in
-        switch await Share.send(.init(kind: .event, event: event)) {
-        case .failed(let message): self?.closeReview(); self?.finish(message)
-        case .done(let r): self?.closeReview(); self?.review(r)
-        }
-      },
       notEvent: { [weak self] in
         self?.closeReview()
         Task { @MainActor in await self?.pickAgain(raw) }
@@ -236,6 +229,7 @@ final class ShareViewController: UIViewController {
   private func finish(_ text: String) {
     spinner.stopAnimating()
     spinner.isHidden = true
+    label.isHidden = false // the event form hid it
     label.text = text
     done.isHidden = false
   }
@@ -250,11 +244,10 @@ final class ShareViewController: UIViewController {
     }
   }
 
-  /// Saved: Kinwall's line and Open; the sheet closes itself after about 3 s unless it's touched.
+  /// Saved: Kinwall's line; the sheet closes itself after about 3 s unless it's touched.
   private func saved(_ r: Share.Result) {
     finish(r.summary)
     savedResult = r
-    openSaved.isHidden = Share.appLink(r.link) == nil
     touched = false
     Task { @MainActor in
       try? await Task.sleep(for: .seconds(3))
@@ -264,15 +257,8 @@ final class ShareViewController: UIViewController {
 
   @objc private func touchedSheet() { touched = true }
 
-  private func openSavedLink() {
-    touched = true
-    guard let r = savedResult else { return }
-    openSaved.isHidden = true
-    review(r)
-  }
-
   /// Opens a result in the app (src/links.ts routeFor, to=shared): something to check (an event, a book
-  /// to pick) or, from Open, what was saved. A share sheet may not be allowed to open its app; then the
+  /// to pick). A share sheet usually isn't allowed to open its app; then the
   /// link waits in the shared Keychain for the app's next start (PendingLink), and the sheet says to open Kinwall.
   private func review(_ r: Share.Result) {
     guard let link = Share.appLink(r.link) else { return finish(r.summary) }

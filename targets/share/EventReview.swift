@@ -4,7 +4,7 @@ import SwiftUI
 /// An event the share sheet read (ShareViewController.checkEvent), to fix and add to a calendar right
 /// here: its title, date, all day or its times, place and notes, then the family's calendars this phone can
 /// add to (the first is the family's default calendar for new events). Add to calendar saves it (POST
-/// api/share with save); Open in Kinwall opens the app's event sheet filled in, to finish it there.
+/// api/share with save). (A share extension can't open its app, so there's no Open in Kinwall here.)
 /// The pickers hold the household's wall-clock time as UTC (Share.pickerDate), so nothing shifts
 /// with the phone's own time zone.
 struct EventReview: View {
@@ -12,7 +12,6 @@ struct EventReview: View {
   let calendars: [Share.FamilyCalendar]
   /// Saves it: an error line to show, or nil once it's saved (the sheet moves on).
   let add: (Share.EventDraft, String) async -> String?
-  let open: (Share.EventDraft) async -> Void
   let notEvent: () -> Void
   let cancel: () -> Void
 
@@ -28,11 +27,10 @@ struct EventReview: View {
   @State private var error: String?
 
   init(draft: Share.EventDraft, guessed: Bool, calendars: [Share.FamilyCalendar], add: @escaping (Share.EventDraft, String) async -> String?,
-       open: @escaping (Share.EventDraft) async -> Void, notEvent: @escaping () -> Void, cancel: @escaping () -> Void) {
+       notEvent: @escaping () -> Void, cancel: @escaping () -> Void) {
     self.guessed = guessed
     self.calendars = calendars
     self.add = add
-    self.open = open
     self.notEvent = notEvent
     self.cancel = cancel
     // No date read: today, on this phone, for the person to change.
@@ -65,11 +63,6 @@ struct EventReview: View {
           labeled("Place") { TextField("Place", text: $place, axis: .vertical).lineLimit(1...3) }
           labeled("Notes") { TextField("What to bring, how to RSVP", text: $notes, axis: .vertical).lineLimit(2...6) }
         }
-        if !calendars.isEmpty {
-          Section {
-            Picker("Calendar", selection: $calendarId) { ForEach(calendars) { Text($0.name).tag($0.id) } }
-          }
-        }
         if let error { Section { Text(error).foregroundStyle(.red) } }
       }
       .environment(\.timeZone, Share.utc)
@@ -81,13 +74,25 @@ struct EventReview: View {
       .safeAreaInset(edge: .bottom) { buttons }
       .navigationTitle(guessed ? "Looks like an event" : "Check the event")
       .navigationBarTitleDisplayMode(.inline)
-      .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: cancel).disabled(working) } }
+      .toolbar {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button(action: cancel) { Image(systemName: "xmark") }.accessibilityLabel("Cancel").disabled(working)
+        }
+      }
     }
   }
 
   private var buttons: some View {
     VStack(spacing: 4) {
       if !calendars.isEmpty {
+        // Right above Add, so which calendar it goes to is always in view (the form scrolls under it).
+        HStack {
+          Text("Calendar").foregroundStyle(.secondary)
+          Spacer()
+          Picker("Calendar", selection: $calendarId) { ForEach(calendars) { Text($0.name).tag($0.id) } }
+            .pickerStyle(.menu)
+        }
+        .frame(minHeight: 44)
         Button {
           Task { working = true; error = await add(draft, calendarId); working = false }
         } label: {
@@ -96,8 +101,6 @@ struct EventReview: View {
         .buttonStyle(.borderedProminent)
         .disabled(working || draft.title == nil)
       }
-      Button { Task { working = true; await open(draft); working = false } } label: { Text("Open in Kinwall").frame(maxWidth: .infinity, minHeight: 44) }
-        .disabled(working)
       if guessed { Button(action: notEvent) { Text(Share.notLabel(.event)).frame(maxWidth: .infinity, minHeight: 44) }.disabled(working) }
     }
     .padding(.horizontal)
