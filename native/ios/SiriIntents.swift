@@ -30,7 +30,7 @@ private let demoNote = " This is the demo, so nothing is saved."
 func demoAdd(_ item: String) -> String { "Kinwall is showing the demo, so \(item) wasn't saved. Sign in to your family in Kinwall to add it." }
 
 enum KinwallIntentError: Error, CustomLocalizedStringResourceConvertible {
-    case signedOut, noList, noShoppingList, checklist(String), server(String), demo(String), off(String)
+    case signedOut, noList, noShoppingList, checklist(String), server(String), demo(String), off(String), said(String)
     var localizedStringResource: LocalizedStringResource {
         switch self {
         case .signedOut: "Kinwall isn't signed in on this iPhone. Open Kinwall and sign in first."
@@ -40,6 +40,7 @@ enum KinwallIntentError: Error, CustomLocalizedStringResourceConvertible {
         case .server(let message): "Kinwall said: \(message)"
         case .demo(let item): "\(demoAdd(item))"
         case .off(let feature): "\(feature) are turned off in Kinwall."
+        case .said(let line): "\(line)"
         }
     }
 }
@@ -312,6 +313,65 @@ struct StartShoppingIntent: AppIntent {
     }
 }
 
+// MARK: - Add to Kinwall
+
+/// What Add to Kinwall's content is. Automatic: a link is read by Kinwall; a photo or text asks.
+enum ShareKindEnum: String, AppEnum {
+    case automatic, recipe, restaurant, book, event
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Kind"
+    static let caseDisplayRepresentations: [ShareKindEnum: DisplayRepresentation] = [
+        .automatic: "Automatic", .recipe: "Recipe", .restaurant: "Restaurant", .book: "Book", .event: "Event",
+    ]
+    var kind: Share.Kind? { Share.Kind(rawValue: rawValue) }
+}
+
+/// Add to Kinwall (kinwall's docs/using/share-to-kinwall.md): a link, a place, a photo or some text to
+/// the family's Kinwall, much as the share sheet does (here the model's guess is taken without asking;
+/// Kinwall's answer says where it went) (KinwallKit Share.swift, ShareReader.swift). Signed in
+/// as the app is, so it's for a parent's phone; never the widgets' key. Answers with Kinwall's one
+/// line and a link that opens the app at what was added, or at what to check (an event, a book to pick).
+struct AddToKinwallIntent: AppIntent {
+    static let title: LocalizedStringResource = "Add to Kinwall"
+    static let description = IntentDescription("Adds a recipe or restaurant link, a place, a photo of a menu, book or flyer, or some text to Kinwall. With Apple Intelligence it tells what a photo or text is; otherwise it asks. Returns a link that opens the Kinwall app at it.")
+    @Parameter(title: "What it is", default: .automatic) var kind: ShareKindEnum
+    @Parameter(title: "Photo") var photo: IntentFile? // supportedContentTypes: [.image] is iOS 18+
+    @Parameter(title: "Text or link") var text: String?
+
+    static var parameterSummary: some ParameterSummary { Summary("Add \(\.$photo) \(\.$text) to Kinwall as \(\.$kind)") }
+
+    func perform() async throws -> some IntentResult & ReturnsValue<URL?> & ProvidesDialog {
+        if DemoFamily.isOn { throw KinwallIntentError.said("Kinwall is showing the demo, so nothing was added. Sign in to your family in Kinwall first.") }
+        if photo == nil, text?.nilIfBlank == nil { throw $text.needsValueError("What should I add?") }
+        var kind = kind.kind
+        var content = text?.nilIfBlank
+        var isbn = false
+        if let photo {
+            guard let read = ShareReader.read(photo.data) else { throw KinwallIntentError.said("Kinwall couldn't open this photo.") }
+            if let found = read.isbn { kind = .book; content = found; isbn = true }
+            else if let words = read.text { content = words }
+            else { throw KinwallIntentError.said("Kinwall couldn't find any words in this photo.") }
+        }
+        // A link goes as it is; an ISBN is a book. Other words: the model's guess (Apple Intelligence),
+        // else "What is this?", then the model tidies them when it can.
+        if let words = content, !isbn, photo != nil || Share.onlyLink(words) == nil {
+            if kind == nil || kind == .recipe, let guess = await ShareReader.guess(words) {
+                kind = guess.kind
+                content = guess.text
+            } else {
+                if kind == nil || kind == .recipe {
+                    kind = try await $kind.requestDisambiguation(among: [.restaurant, .book, .event], dialog: "What is this?").kind
+                }
+                if let kind { content = await ShareReader.tidied(words, kind: kind) ?? words }
+            }
+        }
+        guard let request = Share.request(kind: kind, text: content) else { throw KinwallIntentError.said("Nothing to add.") }
+        switch await Share.send(request) {
+        case .failed(let message): throw KinwallIntentError.said(message)
+        case .done(let r): return .result(value: Share.appLink(r.link), dialog: IntentDialog(stringLiteral: r.summary))
+        }
+    }
+}
+
 // MARK: - App Shortcuts
 
 struct KinwallShortcuts: AppShortcutsProvider {
@@ -353,6 +413,10 @@ struct KinwallShortcuts: AppShortcutsProvider {
             "Mark a chore done in \(.applicationName)",
             "Complete a chore in \(.applicationName)",
         ], shortTitle: "Mark a chore done", systemImageName: "checkmark.circle")
+        AppShortcut(intent: AddToKinwallIntent(), phrases: [
+            "Add to Kinwall with \(.applicationName)",
+            "Send this to \(.applicationName)",
+        ], shortTitle: "Add to Kinwall", systemImageName: "square.and.arrow.down")
         AppShortcut(intent: NightScreenIntent(), phrases: [
             "Start the night screen in \(.applicationName)",
             "Start \(.applicationName) night screen",

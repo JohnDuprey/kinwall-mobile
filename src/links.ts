@@ -5,8 +5,9 @@
  * ?to=recipes/import&url=<page> (from an Android share) →
  * "recipes/import?url=<page>"; a trip's Live Activity, ?to=lists/<id>/shop → shopping mode
  * (Siri adds &store=); Siri and the Controls, ?to=lists&list=<id> and ?to=night; Spotlight,
- * ?to=meals&recipe=<id> and ?to=contacts&contact=<id>; a shared contact, ?to=contacts/import; anything
- * else → null. */
+ * ?to=meals&recipe=<id> and ?to=contacts&contact=<id>; a shared contact, ?to=contacts/import; what
+ * the share sheet or Add to Kinwall added, ?to=shared&link=<Kinwall's link> (its #/ route, in
+ * Calendar, Meals or the library: an event or a book to check, or what was added); anything else → null. */
 export function routeFor(link: string): string | null {
   const m = /^family\.kinwall\.app:\/*open\?(.*)$/.exec(link)
   if (!m) return null
@@ -15,6 +16,12 @@ export function routeFor(link: string): string | null {
   if (to === 'recipes/import') {
     const page = q.get('url')
     return page && /^https?:\/\/[^\s]+$/i.test(page) && page.length <= 2000 ? `recipes/import?url=${encodeURIComponent(page)}` : null
+  }
+  // POST /api/share's link (targets/share, native/ios SiriIntents.swift AddToKinwallIntent): only its
+  // route, so it opens on this app's own server. WebShell sets it as location.hash, quoted.
+  if (to === 'shared') {
+    const route = /^https?:\/\/[^#\s]+#\/((?:calendar|meals|trackers\/library)(?:\?[^\s]*)?)$/i.exec(q.get('link') ?? '')?.[1]
+    return route && route.length <= 2000 ? route : null
   }
   // A contact shared on Android (plugins/withKinwallNative.js): WebShell takes its vCard from the native module.
   if (to === 'contacts/import') return to

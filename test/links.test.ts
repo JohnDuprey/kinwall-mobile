@@ -71,3 +71,13 @@ test('meetCall: the contact sheet\'s Video call link, and nothing else', () => {
   assert.equal(meetCall('intent:#Intent;action=com.google.android.apps.tachyon.action.CALL;package=com.google.android.apps.tachyon;component=x/y;end'), null)
   assert.equal(meetCall('tel:+15555550123'), null)
 })
+
+test('routeFor: what the share sheet or Add to Kinwall added opens at its route', () => {
+  // KinwallKit Share.appLink's encoding (ShareTests.swift): + stays a plus.
+  assert.equal(routeFor('family.kinwall.app:/open?to=shared&link=https://k.example/%23/calendar?draft%3Devent%26title%3DSpring%2Bfair%26date%3D2026-05-09'), 'calendar?draft=event&title=Spring+fair&date=2026-05-09')
+  assert.equal(routeFor(`family.kinwall.app:/open?to=shared&link=${encodeURIComponent('https://k.example/#/trackers/library?add=Wool&author=Hugh+Howey')}`), 'trackers/library?add=Wool&author=Hugh+Howey')
+  assert.equal(routeFor(`family.kinwall.app:/open?to=shared&link=${encodeURIComponent('https://k.example/#/meals?restaurant=r1')}`), 'meals?restaurant=r1')
+  assert.equal(routeFor(`family.kinwall.app:/open?to=shared&link=${encodeURIComponent('https://k.example/#/settings')}`), null, 'only the share routes')
+  assert.equal(routeFor(`family.kinwall.app:/open?to=shared&link=${encodeURIComponent('javascript:alert(1)//#/calendar')}`), null)
+  assert.equal(routeFor('family.kinwall.app:/open?to=shared'), null)
+})

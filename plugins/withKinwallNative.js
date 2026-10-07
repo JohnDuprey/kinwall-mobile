@@ -1,6 +1,7 @@
 // iOS native targets, on top of @bacons/apple-targets (which turns targets/* into the widget,
 // Watch, complication and share targets): links the KinwallKit Swift package to every target, and
-// compiles native/ios (Siri App Intents) into the app itself, where AppShortcutsProvider has to live.
+// compiles native/ios (Siri App Intents) into the app itself, where AppShortcutsProvider has to live
+// (and ShareReader.swift into the share extension too).
 const { withXcodeProjectBeta } = require('@bacons/apple-targets/build/with-bacons-xcode')
 const withTargets = require('@bacons/apple-targets/app.plugin')
 const { PBXBuildFile, PBXFileReference, PBXNativeTarget, XCLocalSwiftPackageReference, XCSwiftPackageProductDependency } = require('@bacons/xcode')
@@ -69,6 +70,10 @@ const withKinwallKit = (config) =>
     if (!widgets) throw new Error('withKinwallKit: no KinwallWidgets target')
     // The Controls (targets/widgets/Controls.swift) run the open-the-app intents, which iOS runs in the app.
     for (const file of ['modules/kinwall-native/ios/KinwallActivityAttributes.swift', 'native/ios/LiveActivityIntents.swift', 'native/ios/OpenIntents.swift']) addFile(widgets, file)
+    // A shared photo's text (native/ios/ShareReader.swift): the share sheet reads it too.
+    const share = root.props.targets.find((t) => PBXNativeTarget.is(t) && t.props.productName === 'KinwallShare')
+    if (!share) throw new Error('withKinwallKit: no KinwallShare target')
+    addFile(share, 'native/ios/ShareReader.swift')
     return config
   })
 

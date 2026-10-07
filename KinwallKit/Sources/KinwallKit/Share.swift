@@ -1,0 +1,280 @@
+import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+#if canImport(Security)
+import Security
+#endif
+
+/// "Add to Kinwall" from the share sheet (targets/share) and the App Intent (native/ios
+/// SiriIntents.swift): what to send to the family's POST /api/share (kinwall's
+/// docs/using/share-to-kinwall.md) and what its answer means. The pure parts are tested in
+/// ShareTests.swift; reading a photo's text is native/ios/ShareReader.swift.
+public enum Share {
+    /// What a photo or some text is. A link goes without one: the server reads the page.
+    public enum Kind: String, Codable, CaseIterable, Sendable { case recipe, restaurant, book, event }
+
+    public struct Request: Encodable, Equatable, Sendable {
+        public var kind: Kind?
+        public var url: String?
+        public var text: String?
+        public var name: String?
+        public init(kind: Kind? = nil, url: String? = nil, text: String? = nil, name: String? = nil) { self.kind = kind; self.url = url; self.text = text; self.name = name }
+    }
+
+    public struct Result: Decodable, Equatable, Sendable {
+        public let kind: Kind
+        public let summary: String
+        public let link: String
+        public let review: Bool
+        /// Nothing saved yet (a book to pick) or an event: it's checked in Kinwall.
+        public var needsReview: Bool { review || kind == .event }
+    }
+
+    public enum Outcome: Equatable, Sendable { case done(Result), failed(String) }
+
+    public static let signInMessage = "Open Kinwall and sign in as a grown-up, then share again."
+
+    static func isWeb(_ url: URL) -> Bool { url.scheme == "https" || url.scheme == "http" }
+
+    /// The first web link in some text.
+    public static func firstLink(in text: String) -> URL? {
+        let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+        return detector?.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap(\.url).first(where: isWeb)
+    }
+
+    /// Text that is only a link (what a browser shares), as that link; anything more is text.
+    public static func onlyLink(_ text: String) -> URL? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.contains(where: \.isWhitespace), let url = URL(string: t), isWeb(url), url.host != nil else { return nil }
+        return url
+    }
+
+    /// A link (with no kind, Kinwall reads the page; a Maps place's name helps), else text that
+    /// needs its kind. Nil when there's nothing to send, or text with no kind yet ("What is this?" first).
+    public static func request(kind: Kind?, url: URL? = nil, text: String? = nil, name: String? = nil) -> Request? {
+        let text = text?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        if let link = url ?? text.flatMap(onlyLink) {
+            return Request(kind: kind, url: link.absoluteString, text: nil, name: name?.nilIfEmpty)
+        }
+        guard let text, let kind, kind != .recipe else { return nil }
+        return Request(kind: kind, url: nil, text: text, name: nil)
+    }
+
+    /// An Apple Maps place's link (the server's restaurant-import.ts mapsPlace). Maps shares a place
+    /// as this link and a location vCard, which isn't a contact.
+    public static func isMapsPlace(_ url: URL) -> Bool {
+        ["maps.apple.com", "maps.apple"].contains(url.host?.lowercased() ?? "")
+    }
+
+    /// A shared vCard's FN (formatted name) line: a Maps place's name.
+    public static func vCardName(_ vcard: String) -> String? {
+        vcard.split(whereSeparator: \.isNewline).first { $0.uppercased().hasPrefix("FN:") || $0.uppercased().hasPrefix("FN;") }
+            .flatMap { $0.split(separator: ":", maxSplits: 1).last }
+            .map { String($0).trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "\\,", with: ",") }?.nilIfEmpty
+    }
+
+    /// The server's answer as one line: its summary, or what to do about an error without one.
+    public static func outcome(status: Int, data: Data) -> Outcome {
+        struct Failure: Decodable { let error: String?; let summary: String? }
+        if status == 200, let r = try? JSONDecoder().decode(Result.self, from: data) { return .done(r) }
+        let f = try? JSONDecoder().decode(Failure.self, from: data)
+        if let s = f?.summary?.nilIfEmpty { return .failed(s) }
+        let message = switch status {
+        case 401, 403: signInMessage // signed out, or a wall screen's or a kid's device
+        case 404: "This Kinwall can't take shares yet. Update it, then share again."
+        default: "Couldn't add it to Kinwall: \(f?.error ?? "error \(status)")."
+        }
+        return .failed(message)
+    }
+
+    /// The app's own link that opens `link` (a Kinwall address with a #/ route) in the app
+    /// (src/links.ts routeFor, to=shared).
+    public static func appLink(_ link: String) -> URL? {
+        var c = URLComponents(string: "family.kinwall.app:/open")!
+        c.queryItems = [URLQueryItem(name: "to", value: "shared"), URLQueryItem(name: "link", value: link)]
+        // The app reads it with URLSearchParams, where a bare + is a space (Kinwall's links have them).
+        c.percentEncodedQuery = c.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        return c.url
+    }
+
+    /// The lines Kinwall reads for each kind: the Shortcut's Use Model prompts (share-to-kinwall.md, meals.md).
+    static func format(_ kind: Kind) -> String? {
+        switch kind {
+        case .restaurant: """
+            Name: the restaurant's name
+            Cuisine: the kind of food, like Pizza or Thai
+            Phone: its phone number
+            Address: its address on one line
+            Website: its website
+            Menu:
+            then each menu section's name on its own line, with each of its items on its own line below it as the item's name and then its price, like "Large cheese 14.99"
+            """
+        case .book: """
+            ISBN: the ISBN, from the barcode's number
+            Title: the book's title
+            Author: its author
+            """
+        case .event: """
+            Title: a short name for the event
+            Date: its date, like Saturday, May 9, 2026
+            Time: its start and end time, like 10:00 AM - 2:00 PM
+            Place: where it is
+            """
+        case .recipe: nil
+        }
+    }
+    static let leaveOut = "Answer in exactly this format and nothing else, and leave out any line you can't find:"
+
+    /// For Apple Intelligence (native/ios/ShareReader.swift): rewrites a photo's text into the lines
+    /// Kinwall reads for a kind the person picked.
+    public static func prompt(_ kind: Kind, text: String) -> String? {
+        let what = switch kind {
+        case .restaurant: "a photo of a restaurant menu"
+        case .book: "a photo of a book's cover or back"
+        case .event: "a flyer, an invitation or a screenshot"
+        case .recipe: ""
+        }
+        return format(kind).map { "This is text from \(what). \(leaveOut)\n\($0)\n\n\(text)" }
+    }
+
+    /// For Apple Intelligence: says what the text is and rewrites it in the same answer (`guess`).
+    public static func guessPrompt(text: String) -> String {
+        """
+        This is text from a photo or a share. Decide whether it is a restaurant's menu, a book (its cover or back), or an event (a flyer, an invitation or a screenshot with a date). On the first line write "Kind: restaurant", "Kind: book" or "Kind: event", or "Kind: unsure" when it's none of these or you can't tell. Then, for that kind, \(leaveOut.prefix(1).lowercased() + leaveOut.dropFirst())
+
+        For a restaurant:
+        \(format(.restaurant)!)
+
+        For a book:
+        \(format(.book)!)
+
+        For an event:
+        \(format(.event)!)
+
+        \(text)
+        """
+    }
+
+    /// The model's answer to `guessPrompt`: its kind and the lines to send, or nil when it's unsure.
+    public static func guess(_ answer: String) -> (kind: Kind, text: String)? {
+        var lines = answer.replacingOccurrences(of: "**", with: "").split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+        while lines.first?.isEmpty == true { lines.removeFirst() }
+        guard let first = lines.first, first.lowercased().hasPrefix("kind:"),
+              let kind = Kind(rawValue: first.dropFirst(5).trimmingCharacters(in: .whitespaces).lowercased()), kind != .recipe else { return nil }
+        let text = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : (kind, text)
+    }
+
+    /// The sheet's one line for a guess: "Looks like an event: Spring fair, Saturday, May 9".
+    public static func guessLine(_ kind: Kind, text: String) -> String {
+        func value(_ label: String) -> String? {
+            text.split(whereSeparator: \.isNewline).lazy.compactMap { line -> String? in
+                let parts = line.split(separator: ":", maxSplits: 1)
+                guard parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces).lowercased() == label else { return nil }
+                return parts[1].trimmingCharacters(in: .whitespaces).nilIfEmpty
+            }.first
+        }
+        let (what, detail): (String, String?) = switch kind {
+        case .event: ("an event", [value("title"), value("date")].compactMap { $0 }.joined(separator: ", ").nilIfEmpty)
+        case .book: ("a book", value("title"))
+        case .restaurant, .recipe: ("a menu", value("name"))
+        }
+        return "Looks like \(what)" + (detail.map { ": \($0.count > 60 ? $0.prefix(59) + "…" : $0)" } ?? "")
+    }
+
+    /// The small button under a guess: "Not an event?".
+    public static func notLabel(_ kind: Kind) -> String {
+        switch kind { case .event: "Not an event?"; case .book: "Not a book?"; case .restaurant, .recipe: "Not a menu?" }
+    }
+}
+
+extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+#if canImport(Security)
+/// The app's own sign-in, which the share sheet and Add to Kinwall use (POST /api/share is for
+/// parents' devices): the OAuth tokens the app keeps in the shared Keychain group (src/oauth.ts,
+/// refreshed and saved back here when they're about to lapse) or a paired device's key
+/// (src/sharedKey.ts shareKey). Never the widgets' everyday key.
+public enum AppSignIn {
+    public struct SignInNeeded: Error {}
+
+    /// src/oauth.ts's Tokens as the app saves them (expiresAt in ms).
+    struct Tokens: Codable { var baseURL: URL; var clientId: String; var accessToken: String; var refreshToken: String; var expiresAt: Double; var scope: String }
+
+    private static func query(_ service: String) -> [String: Any] {
+        var q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "household"]
+        if let group = SharedKeychain.group { q[kSecAttrAccessGroup as String] = group }
+        return q
+    }
+    private static func get(_ service: String) -> Data? {
+        var q = query(service)
+        q[kSecReturnData as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: CFTypeRef?
+        return SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess ? out as? Data : nil
+    }
+    private static func update(_ service: String, _ data: Data) {
+        let attrs: [String: Any] = [kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]
+        SecItemUpdate(query(service) as CFDictionary, attrs as CFDictionary)
+    }
+
+    /// The server and a key: the access token (refreshed first if it's about to lapse; refresh tokens
+    /// rotate, so the new ones are saved before use), else the paired key. Nil when signed out.
+    public static func credential() async throws -> Connection? {
+        if let data = get("family.kinwall.oauth"), var t = try? JSONDecoder().decode(Tokens.self, from: data) {
+            let old = OAuth.Tokens(baseURL: t.baseURL, clientId: t.clientId, accessToken: t.accessToken, refreshToken: t.refreshToken,
+                                   expiresAt: Date(timeIntervalSince1970: t.expiresAt / 1000), scope: t.scope)
+            if old.needsRefresh() {
+                let new: OAuth.Tokens
+                do { new = try await OAuthClient(baseURL: t.baseURL).refresh(old) }
+                catch let e as OAuthError where !e.code.hasPrefix("http_5") { throw SignInNeeded() } // the grant is gone
+                t.accessToken = new.accessToken
+                t.refreshToken = new.refreshToken
+                t.expiresAt = new.expiresAt.timeIntervalSince1970 * 1000
+                t.scope = new.scope
+                update("family.kinwall.oauth", try JSONEncoder().encode(t))
+            }
+            return Connection(baseURL: t.baseURL, key: t.accessToken)
+        }
+        if let data = get("family.kinwall.share"), let c = try? JSONDecoder().decode(Connection.self, from: data) { return c }
+        return nil
+    }
+
+    /// What to check, for the app to open when it next comes to the front (modules/kinwall-native
+    /// PendingLink takes it): the share sheet can't open the app itself.
+    public static func leaveForApp(_ link: URL) {
+        guard let data = try? JSONSerialization.data(withJSONObject: ["link": link.absoluteString, "at": Date.now.timeIntervalSince1970]) else { return }
+        update("family.kinwall.link", data)
+        SecItemAdd(query("family.kinwall.link").merging([kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]) { $1 } as CFDictionary, nil)
+    }
+
+    /// POSTs JSON to the family's server, signed in: the reply and its status, or nil when signed out.
+    public static func post(_ path: String, json body: Data, timeout: TimeInterval) async throws -> (Data, Int)? {
+        guard let c = try await credential() else { return nil }
+        var req = URLRequest(url: c.baseURL.appending(path: path), timeoutInterval: timeout)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("Bearer \(c.key)", forHTTPHeaderField: "Authorization")
+        req.httpBody = body
+        let (data, response) = try await URLSession.shared.data(for: req)
+        return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
+    }
+}
+
+extension Share {
+    /// Sends it to the family's Kinwall: the answer, or one line saying what went wrong.
+    public static func send(_ request: Request) async -> Outcome {
+        do {
+            guard let (data, status) = try await AppSignIn.post("api/share", json: try JSONEncoder().encode(request), timeout: 60) else { return .failed(signInMessage) }
+            return outcome(status: status, data: data)
+        } catch is AppSignIn.SignInNeeded {
+            return .failed(signInMessage)
+        } catch {
+            return .failed("Can't reach Kinwall. Check your connection and try again.")
+        }
+    }
+}
+#endif

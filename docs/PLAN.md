@@ -18,7 +18,7 @@ Native apps for the family who already use Kinwall. On iPhone and iPad the app s
 | Run on our own iPhone, iPad and paired Watch | Yes, from Xcode. The signature expires after **7 days**; reinstall from Xcode to renew | Yes, a year |
 | Widgets and watch complications (WidgetKit) | Yes | Yes |
 | Siri and Shortcuts (App Intents) | Yes | Yes |
-| Share extension (imports a shared recipe link or contact; shared Keychain group, no App Group) | Yes | Yes |
+| Share extension (sends a shared link, place, photo or text to Kinwall, imports a contact; shared Keychain group, no App Group) | Yes | Yes |
 | **App Groups** (app and widget share storage) | No | Yes |
 | **Push notifications** (APNs), including Live Activity push-to-start | No | Yes |
 | **Time Sensitive notifications** (leave-by and medicine reminders break through a Focus) | No: the Personal Team's profile doesn't carry the entitlement, so it's off unless prebuilt with `KINWALL_TIME_SENSITIVE=1` or `KINWALL_PUSH=1` | Yes |
