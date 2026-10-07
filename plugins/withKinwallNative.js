@@ -139,21 +139,17 @@ const withAppHooks = (config) =>
     return c
   })
 
-// Android's share sheet: "Kinwall" takes shared text (a browser shares a page as its link) and
-// shared contacts (vCards), and MainActivity turns them into the app links the JavaScript already
-// routes (src/links.ts routeFor) before React Native reads the intent: a link becomes
-// family.kinwall.app:/open?to=recipes/import&url=<first link in the text>; a contact's vCard goes
-// to the cache for KinwallNative.takeSharedContacts, and ?to=contacts/import opens the page's
-// review (src/WebShell.tsx). The iOS equivalent is targets/share.
+// Android's share sheet: "Kinwall" takes links, text and photos in its own small sheet
+// (modules/kinwall-native ShareActivity.kt, which declares those filters), and shared contacts
+// (vCards) here, on the main activity, before React Native reads the intent: a contact's vCard goes
+// to the cache for KinwallNative.takeSharedContacts, and ?to=contacts/import opens the page's review
+// (src/WebShell.tsx). A vCard shared as plain text reaches ShareActivity, which hands it on here.
+// The iOS equivalent is targets/share.
+const OVERRIDE_MIN_SDK = ['com.google.mlkit.genai.prompt', 'com.google.mlkit.genai.common', 'com.google.mlkit.nl.entityextraction']
 const VCARD_TYPES = ['text/x-vcard', 'text/vcard', 'text/directory']
 const SHARE_KOTLIN = String.raw`
-  // A shared link (ACTION_SEND text) becomes family.kinwall.app:/open?to=recipes/import&url=<link>.
-  private fun shareToLink(intent: Intent?) {
-    if (intent == null || shareContacts(intent) || intent.action != Intent.ACTION_SEND) return
-    val text = intent.getStringExtra(Intent.EXTRA_TEXT) ?: return
-    val link = Regex("https?://[^\\s<>\"]+").find(text)?.value?.trimEnd('.', ',', ')', '!', '?', ';', ':', '\'', '"') ?: return
-    intent.action = Intent.ACTION_VIEW
-    intent.data = Uri.parse("family.kinwall.app:/open?to=recipes%2Fimport&url=" + Uri.encode(link))
+  private fun shareToApp(intent: Intent?) {
+    if (intent != null) shareContacts(intent)
   }
 
   // Shared contacts (ACTION_SEND or ACTION_SEND_MULTIPLE of a vCard, or a vCard shared as plain
@@ -181,7 +177,7 @@ const SHARE_KOTLIN = String.raw`
   }
 
   override fun onNewIntent(intent: Intent) {
-    shareToLink(intent)
+    shareToApp(intent)
     super.onNewIntent(intent)
   }
 `
@@ -194,17 +190,23 @@ const withShareIntent = (config) => {
       if (types.every((t) => has(action, t))) return
       filters.push({ action: [{ $: { 'android:name': action } }], category: [{ $: { 'android:name': 'android.intent.category.DEFAULT' } }], data: types.map((t) => ({ $: { 'android:mimeType': t } })) })
     }
-    add('android.intent.action.SEND', ['text/plain'])
     add('android.intent.action.SEND', VCARD_TYPES)
     add('android.intent.action.SEND_MULTIPLE', VCARD_TYPES)
+    const app = c.modResults.manifest.application[0]
+    // Text recognition's Play services model downloads with the app, next to expo-camera's scanner UI.
+    const meta = (app['meta-data'] ??= [])
+    const deps = meta.find((m) => m.$['android:name'] === 'com.google.mlkit.vision.DEPENDENCIES') ?? meta[meta.push({ $: { 'android:name': 'com.google.mlkit.vision.DEPENDENCIES' } }) - 1]
+    Object.assign(deps.$, { 'android:value': 'barcode_ui,ocr', 'tools:replace': 'android:value' })
+    // Entity extraction and Gemini Nano say Android 8; ShareReader.kt skips them on Android 7.
+    c.modResults.manifest['uses-sdk'] = [{ $: { 'tools:overrideLibrary': OVERRIDE_MIN_SDK.join(',') } }]
     return c
   })
   return withMainActivity(config, (c) => {
     let src = c.modResults.contents
-    if (src.includes('shareToLink')) return c
+    if (src.includes('shareToApp')) return c
     if (c.modResults.language !== 'kt' || !src.includes('super.onCreate(')) throw new Error('withShareIntent: the MainActivity template changed; update the patch')
     src = src.replace(/\nimport android\.os\.Bundle\n/, '\nimport android.content.Intent\nimport android.net.Uri\nimport android.os.Bundle\nimport androidx.core.content.IntentCompat\nimport java.io.File\n')
-    src = src.replace(/(\n\s*)super\.onCreate\(/, '$1shareToLink(intent)$1super.onCreate(')
+    src = src.replace(/(\n\s*)super\.onCreate\(/, '$1shareToApp(intent)$1super.onCreate(')
     src = src.replace(/\n}\s*$/, `\n${SHARE_KOTLIN}}\n`)
     c.modResults.contents = src
     return c

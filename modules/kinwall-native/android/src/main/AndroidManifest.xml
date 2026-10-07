@@ -18,6 +18,23 @@
         <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
       </intent-filter>
     </receiver>
+    <!-- "Kinwall" in the share sheet (ShareActivity.kt): links, text and photos. Contacts (vCards)
+         stay on the main activity (plugins/withKinwallNative.js). -->
+    <activity android:name="family.kinwall.nativemodule.ShareActivity" android:exported="true" android:label="@string/kinwall_share_label"
+      android:theme="@style/KinwallShare" android:excludeFromRecents="true" android:taskAffinity=""
+      android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard">
+      <intent-filter>
+        <action android:name="android.intent.action.SEND" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <data android:mimeType="text/plain" />
+        <data android:mimeType="image/*" />
+      </intent-filter>
+      <intent-filter>
+        <action android:name="android.intent.action.SEND_MULTIPLE" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <data android:mimeType="image/*" />
+      </intent-filter>
+    </activity>
     <!-- Quick Settings tiles (Tiles.kt). -->
     <service android:name="family.kinwall.nativemodule.GroceriesTile" android:exported="true" android:label="@string/kinwall_tile_groceries"
       android:icon="@drawable/kinwall_ic_add" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">

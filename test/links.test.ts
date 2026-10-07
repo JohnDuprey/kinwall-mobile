@@ -3,10 +3,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { groceriesRoute, routeFor, importContactsScript, meetCall } from '../src/links.ts'
 
-test('routeFor: tabs, a chore to tick, a recipe to import', () => {
+test('routeFor: tabs and a chore to tick', () => {
   assert.equal(routeFor('family.kinwall.app:/open?to=calendar'), 'calendar')
   assert.equal(routeFor('family.kinwall.app:/open?to=chores&done=c1'), 'chores?done=c1')
-  assert.equal(routeFor('family.kinwall.app:/open?to=recipes/import&url=https%3A%2F%2Fexample.org%2Ftacos'), 'recipes/import?url=https%3A%2F%2Fexample.org%2Ftacos')
+  assert.equal(routeFor('family.kinwall.app:/open?to=recipes/import&url=https%3A%2F%2Fexample.org%2Ftacos'), null, 'Android shares go to /api/share now')
   assert.equal(routeFor('family.kinwall.app:/open?to=settings'), null)
   assert.equal(routeFor('https://example.org'), null)
 })
@@ -73,7 +73,7 @@ test('meetCall: the contact sheet\'s Video call link, and nothing else', () => {
 })
 
 test('routeFor: what the share sheet or Add to Kinwall added opens at its route', () => {
-  // KinwallKit Share.appLink's encoding (ShareTests.swift): + stays a plus.
+  // KinwallKit Share.appLink's and Android's Share.appLink's encoding (ShareTests.swift, ShareTest.kt): + stays a plus.
   assert.equal(routeFor('family.kinwall.app:/open?to=shared&link=https://k.example/%23/calendar?draft%3Devent%26title%3DSpring%2Bfair%26date%3D2026-05-09'), 'calendar?draft=event&title=Spring+fair&date=2026-05-09')
   assert.equal(routeFor(`family.kinwall.app:/open?to=shared&link=${encodeURIComponent('https://k.example/#/trackers/library?add=Wool&author=Hugh+Howey')}`), 'trackers/library?add=Wool&author=Hugh+Howey')
   assert.equal(routeFor(`family.kinwall.app:/open?to=shared&link=${encodeURIComponent('https://k.example/#/meals?restaurant=r1')}`), 'meals?restaurant=r1')

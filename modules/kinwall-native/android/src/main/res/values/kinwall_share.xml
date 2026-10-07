@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The share sheet (ShareActivity.kt): a small dialog in the app's colors (src/theme.ts), light and dark. -->
+<resources>
+  <color name="kinwall_share_surface">#FAFCFE</color>
+  <color name="kinwall_share_text">#102A43</color>
+  <color name="kinwall_share_dim">#4A6078</color>
+  <color name="kinwall_share_accent">#123857</color>
+  <color name="kinwall_share_fill">#123857</color>
+  <style name="KinwallShare" parent="Theme.AppCompat.DayNight.Dialog">
+    <item name="windowNoTitle">true</item>
+    <item name="colorAccent">@color/kinwall_share_accent</item>
+    <item name="colorPrimary">@color/kinwall_share_fill</item>
+    <item name="colorBackgroundFloating">@color/kinwall_share_surface</item>
+    <item name="android:textColorPrimary">@color/kinwall_share_text</item>
+    <item name="android:textColorSecondary">@color/kinwall_share_dim</item>
+  </style>
+</resources>

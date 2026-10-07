@@ -10,4 +10,5 @@
   <string name="kinwall_shortcut_night_short">Night</string>
   <string name="kinwall_tile_groceries">Add to Groceries</string>
   <string name="kinwall_tile_night">Night screen</string>
+  <string name="kinwall_share_label">Kinwall</string>
 </resources>

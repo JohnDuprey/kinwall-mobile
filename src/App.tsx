@@ -58,8 +58,8 @@ export default function App() {
   useEffect(() => { if (server === null || (server && !session)) hideSplash() }, [server, session])
 
   // Widget links: family.kinwall.app:/open?to=chores (or calendar, lists), plus &done=<chore id>
-  // to tap that chore in the web app (it asks "Who did it?" or opens the checklist); and shared
-  // recipe links (to=recipes/import&url=…), which open the web app's recipe import.
+  // to tap that chore in the web app (it asks "Who did it?" or opens the checklist); and what the
+  // share sheet added (to=shared&link=…), to check it.
   useEffect(() => { if (url) { if (__DEV__ && url.includes('debug=medication')) showSampleMedication(); if (__DEV__ && url.includes('debug=cooking')) showSampleCooking(); const r = routeFor(url); if (r) resolve(r).then(setRoute) } }, [url])
   // A Google/Microsoft sign-in handed back from the in-app browser (src/providerReturn.ts): close
   // that browser (iOS; Android brings the app forward over its Custom Tab) and finish it in the web

@@ -17,6 +17,20 @@ android {
 dependencies {
   // Already in every React Native app; "Got it" needs PATCH, which HttpURLConnection can't send.
   implementation 'com.squareup.okhttp3:okhttp:4.9.2'
+  // The share sheet (ShareActivity.kt, ShareReader.kt). Barcode scanning is the bundled model
+  // expo-camera already ships (same version); text recognition comes through Google Play services
+  // (no model in the app); entity extraction downloads its English model the first time; Gemini
+  // Nano is part of Android on the phones that have it (AICore). The last two need Android 8, so
+  // the app's manifest overrides their minSdk and the code checks the version first.
+  implementation 'androidx.appcompat:appcompat:1.7.1'
+  implementation 'androidx.core:core-ktx:1.17.0' // Countdowns.kt's ProgressStyle; appcompat alone would settle for 1.13
+  implementation 'androidx.exifinterface:exifinterface:1.4.2'
+  implementation 'com.google.mlkit:barcode-scanning:17.3.0'
+  implementation 'com.google.android.gms:play-services-mlkit-text-recognition:19.0.1'
+  implementation 'com.google.mlkit:entity-extraction:16.0.0-beta6'
+  implementation 'com.google.mlkit:genai-prompt:1.0.0-beta2' // beta3 and later are built with Kotlin 2.3; Expo 57 compiles with 2.1
+  testImplementation 'junit:junit:4.13.2'
+  testImplementation 'org.json:json:20250517'
   // ReminderActions.kt handles the reminders' buttons as expo-notifications' receiver. The app has
   // expo-notifications already: its prebuilt package, or its source when Expo builds from source.
   compileOnly findProject(':expo-notifications') ?: "host.exp.exponent:expo.modules.notifications:${new groovy.json.JsonSlurper().parse(rootProject.file('../node_modules/expo-notifications/package.json')).version}"
