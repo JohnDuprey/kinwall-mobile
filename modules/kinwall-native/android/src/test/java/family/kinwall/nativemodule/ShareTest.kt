@@ -182,7 +182,7 @@ class ShareTest {
     assertEquals(raw, Share.menuText("Here you go", raw))
   }
 
-  private fun line(text: String, x: Double, y: Double, w: Double = 0.2, h: Double = 0.02) = Share.TextLine(text, x, y, w, h)
+  private fun line(text: String, x: Double, y: Double, w: Double = 0.2, h: Double = 0.02, slope: Double = 0.0) = Share.TextLine(text, x, y, w, h, slope)
 
   @Test fun aRowsPiecesGoOnOneLineInTheReadersOrder() {
     val lines = listOf(line("Starters", 0.1, 0.1), line("Garlic Knots", 0.1, 0.13), line("(6) $5.10 | (12) $9.20", 0.6, 0.131),
@@ -192,6 +192,35 @@ class ShareTest {
     assertEquals("Starters\nGarlic Knots (6) $5.10 | (12) $9.20\nFresh garlic, butter, parsley\nPretzel Bites\n$7.25\nDesserts\n0662-259-+8t", Share.readingOrder(lines))
     assertEquals("Garden Party\nFig & Goat", Share.readingOrder(listOf(line("Garden Party", 0.1, 0.5), line("Fig & Goat", 0.6, 0.5))))
     assertEquals("", Share.readingOrder(emptyList()))
+  }
+
+  @Test fun pricesReadAfterTheirNamesGoBackOnTheirRows() {
+    val kids = listOf(line("Kids Menu", 0.54, 0.40, h = 0.03), line("Chicken Fingers. $6.25", 0.54, 0.44, w = 0.13), line("Mac & Cheese .", 0.54, 0.47, w = 0.08),
+      line("Grilled Cheese", 0.54, 0.50, w = 0.08), line("$6.25", 0.66, 0.471, w = 0.04), line("$6.25", 0.66, 0.502, w = 0.04),
+      line("0555-019-+8t", 0.70, 0.49, w = 0.01, h = 0.06))
+    assertEquals("Kids Menu\nChicken Fingers. $6.25\nMac & Cheese . $6.25\nGrilled Cheese $6.25\n0555-019-+8t", Share.readingOrder(kids))
+    assertEquals("Brownie Sundae $4.25", Share.readingOrder(listOf(line("Brownie Sundae", 0.1, 0.30), line("$4.25", 0.7, 0.308, w = 0.05))))
+    val tilted = listOf(line("Fountain Soda and Lemonade, refills free", 0.1, 0.20, w = 0.6, h = 0.04, slope = 0.045), line("Pretzel Bites", 0.1, 0.30, w = 0.1, slope = 0.045),
+      line("$7.25", 0.4, 0.312, w = 0.04, slope = 0.045), line("Loaded Tots", 0.1, 0.32, w = 0.1, slope = 0.045), line("$8.30", 0.4, 0.332, w = 0.04, slope = 0.045))
+    assertEquals("Fountain Soda and Lemonade, refills free\nPretzel Bites $7.25\nLoaded Tots $8.30", Share.readingOrder(tilted))
+    assertEquals("Brownie Sundae\n$4.25", Share.readingOrder(listOf(line("Brownie Sundae", 0.1, 0.30), line("$4.25", 0.7, 0.33, w = 0.05))))
+  }
+
+  @Test fun aNameOverTwoLinesIsOneLine() {
+    val sweets = listOf(line("Desserts", 0.54, 0.25, h = 0.03), line("Giant Oatmeal", 0.54, 0.29, w = 0.1), line("Raisin Cookie", 0.54, 0.312, w = 0.1), line("$2.25", 0.66, 0.312, w = 0.04),
+      line("Fountain", 0.54, 0.40, w = 0.1), line("Soda Products", 0.54, 0.422, w = 0.1), line("$2.85", 0.66, 0.422, w = 0.04),
+      line("Water", 0.54, 0.45, w = 0.1), line("$2.85", 0.66, 0.45, w = 0.04))
+    assertEquals("Desserts\nGiant Oatmeal Raisin Cookie $2.25\nFountain Soda Products $2.85\nWater $2.85", Share.readingOrder(sweets))
+    assertEquals("Nashville Crispy\nFried chicken, slaw $13.50", Share.readingOrder(listOf(line("Nashville Crispy", 0.1, 0.1), line("Fried chicken, slaw $13.50", 0.1, 0.122))))
+    assertEquals("Mac & Cheese $6.25\nGrilled Cheese $6.25", Share.readingOrder(listOf(line("Mac & Cheese $6.25", 0.1, 0.1), line("Grilled Cheese $6.25", 0.1, 0.122))))
+    assertEquals("Kids Menu\nChicken Fingers $6.25", Share.readingOrder(listOf(line("Kids Menu", 0.1, 0.06, h = 0.035), line("Chicken Fingers $6.25", 0.1, 0.1))))
+  }
+
+  @Test fun aCloserLookAddsWhatTheWholePhotoMissed() {
+    val base = listOf(line("Desserts", 0.5, 0.2), line("Brownie Sundae", 0.5, 0.25), line("Beverages", 0.5, 0.4), line("Water", 0.5, 0.45))
+    val more = listOf(line("Brownie Sundae", 0.5, 0.251), line("$4.25", 0.7, 0.25, w = 0.05), line("$2.85", 0.7, 0.45, w = 0.05))
+    assertEquals(listOf("Desserts", "Brownie Sundae", "$4.25", "Beverages", "Water", "$2.85"), Share.merged(base, more).map { it.text })
+    assertEquals("Desserts\nBrownie Sundae $4.25\nBeverages\nWater $2.85", Share.readingOrder(Share.merged(base, more)))
   }
 
   @Test fun aMenusQRCodeGoesByTheWordsBesideIt() {

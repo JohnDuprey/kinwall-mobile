@@ -9,7 +9,8 @@ import FoundationModels
 // A shared photo's text, for POST /api/share (KinwallKit Share.swift), read on the device: compiled
 // into the app (Add to Kinwall, SiriIntents.swift) and the share extension (targets/share, through
 // plugins/withKinwallNative.js). An ISBN barcode means a book. Otherwise Vision reads the words (a
-// row's pieces put back on one line, Share.readingOrder) and any QR code (Share.linkLines), and on an
+// row's pieces and a price read apart put back on one line, Share.readingOrder; the photo read
+// again in quarters for small text a whole-page read misses, Share.merged) and any QR code (Share.linkLines), and on an
 // iPhone with Apple Intelligence (iOS 26) the on-device model says what it is and rewrites it into the
 // lines Kinwall reads (Share.guessPrompt, Share.prompt); for a menu only its name, phone, address and
 // website, with the menu as read (Share.menuText). Without the model, or when it fails or takes over
@@ -26,7 +27,7 @@ enum ShareReader {
         try? handler.perform([codes])
         if let isbn = codes.results?.filter({ $0.symbology == .ean13 }).compactMap(\.payloadStringValue)
             .first(where: { $0.count == 13 && ($0.hasPrefix("978") || $0.hasPrefix("979")) }) { return (isbn, nil, []) }
-        let words = recognizedLines(handler)
+        let words = Share.merged(recognizedLines(handler), tiles(cg))
         let qr = codes.results?.filter { $0.symbology == .qr }.compactMap { c in c.payloadStringValue.map { line($0, c.boundingBox) } } ?? []
         return (nil, Share.readingOrder(words).nilIfBlank, Share.linkLines(codes: qr, words: words))
     }
@@ -78,7 +79,26 @@ enum ShareReader {
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
         try? handler.perform([request])
-        return request.results?.compactMap { o in o.topCandidates(1).first.map { line($0.string, o.boundingBox) } } ?? []
+        return request.results?.compactMap { o in
+            o.topCandidates(1).first.map { c in
+                var l = line(c.string, o.boundingBox)
+                if o.topRight.x > o.topLeft.x { l.slope = -(o.topRight.y - o.topLeft.y) / (o.topRight.x - o.topLeft.x) } // the photo's tilt, from the top left
+                return l
+            }
+        } ?? []
+    }
+
+    /// The photo read again in four overlapping quarters, as lines on the whole photo: Vision misses
+    /// small text on a whole page (a menu's last prices by its mailing label), and reads it up close.
+    /// About as long again as reading the whole photo.
+    static func tiles(_ image: CGImage) -> [Share.TextLine] {
+        let w = Double(image.width), h = Double(image.height), size = 0.55
+        return [(0.0, 0.0), (0.45, 0.0), (0.0, 0.45), (0.45, 0.45)].flatMap { cx, cy -> [Share.TextLine] in
+            guard let tile = image.cropping(to: CGRect(x: cx * w, y: cy * h, width: size * w, height: size * h)) else { return [] }
+            return recognizedLines(VNImageRequestHandler(cgImage: tile)).map {
+                Share.TextLine(text: $0.text, x: cx + $0.x * size, y: cy + $0.y * size, width: $0.width * size, height: $0.height * size, slope: $0.slope)
+            }
+        }
     }
 
     /// Vision's box (normalized, from the bottom left) as a line from the top left.

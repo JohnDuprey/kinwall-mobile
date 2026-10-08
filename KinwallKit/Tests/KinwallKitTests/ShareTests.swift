@@ -170,8 +170,8 @@ import Testing
 
     // A photo's words and QR codes.
 
-    private func line(_ text: String, _ x: Double, _ y: Double, w: Double = 0.2, h: Double = 0.02) -> Share.TextLine {
-        Share.TextLine(text: text, x: x, y: y, width: w, height: h)
+    private func line(_ text: String, _ x: Double, _ y: Double, w: Double = 0.2, h: Double = 0.02, slope: Double = 0) -> Share.TextLine {
+        Share.TextLine(text: text, x: x, y: y, width: w, height: h, slope: slope)
     }
 
     @Test func aRowsPiecesGoOnOneLineInTheReadersOrder() {
@@ -183,6 +183,41 @@ import Testing
         // Level lines far apart that aren't prices are two columns.
         #expect(Share.readingOrder([line("Garden Party", 0.1, 0.5), line("Fig & Goat", 0.6, 0.5)]) == "Garden Party\nFig & Goat")
         #expect(Share.readingOrder([]) == "")
+    }
+
+    @Test func pricesReadAfterTheirNamesGoBackOnTheirRows() {
+        // Names, then their prices read as a column of their own after them, across dot leaders.
+        let kids = [line("Kids Menu", 0.54, 0.40, h: 0.03), line("Chicken Fingers. $6.25", 0.54, 0.44, w: 0.13), line("Mac & Cheese .", 0.54, 0.47, w: 0.08),
+                    line("Grilled Cheese", 0.54, 0.50, w: 0.08), line("$6.25", 0.66, 0.471, w: 0.04), line("$6.25", 0.66, 0.502, w: 0.04),
+                    line("0555-019-+8t", 0.70, 0.49, w: 0.01, h: 0.06)]
+        #expect(Share.readingOrder(kids) == "Kids Menu\nChicken Fingers. $6.25\nMac & Cheese . $6.25\nGrilled Cheese $6.25\n0555-019-+8t")
+        // A price a little lower on the right, as on a tilted photo.
+        #expect(Share.readingOrder([line("Brownie Sundae", 0.1, 0.30), line("$4.25", 0.7, 0.308, w: 0.05)]) == "Brownie Sundae $4.25")
+        // On a tilted photo (the long lines say so) a price sits most of a line lower than its name,
+        // nearer the next name down: it's still its own name's.
+        let tilted = [line("Fountain Soda and Lemonade, refills free", 0.1, 0.20, w: 0.6, h: 0.04, slope: 0.045), line("Pretzel Bites", 0.1, 0.30, w: 0.1, slope: 0.045),
+                      line("$7.25", 0.4, 0.312, w: 0.04, slope: 0.045), line("Loaded Tots", 0.1, 0.32, w: 0.1, slope: 0.045), line("$8.30", 0.4, 0.332, w: 0.04, slope: 0.045)]
+        #expect(Share.readingOrder(tilted) == "Fountain Soda and Lemonade, refills free\nPretzel Bites $7.25\nLoaded Tots $8.30")
+        // Too far off level: not that row's.
+        #expect(Share.readingOrder([line("Brownie Sundae", 0.1, 0.30), line("$4.25", 0.7, 0.33, w: 0.05)]) == "Brownie Sundae\n$4.25")
+    }
+
+    @Test func aNameOverTwoLinesIsOneLine() {
+        let sweets = [line("Desserts", 0.54, 0.25, h: 0.03), line("Giant Oatmeal", 0.54, 0.29, w: 0.1), line("Raisin Cookie", 0.54, 0.312, w: 0.1), line("$2.25", 0.66, 0.312, w: 0.04),
+                      line("Fountain", 0.54, 0.40, w: 0.1), line("Soda Products", 0.54, 0.422, w: 0.1), line("$2.85", 0.66, 0.422, w: 0.04),
+                      line("Water", 0.54, 0.45, w: 0.1), line("$2.85", 0.66, 0.45, w: 0.04)]
+        #expect(Share.readingOrder(sweets) == "Desserts\nGiant Oatmeal Raisin Cookie $2.25\nFountain Soda Products $2.85\nWater $2.85")
+        // Not a description under a name, nor two items with their own prices, nor a heading over an item.
+        #expect(Share.readingOrder([line("Nashville Crispy", 0.1, 0.1), line("Fried chicken, slaw $13.50", 0.1, 0.122)]) == "Nashville Crispy\nFried chicken, slaw $13.50")
+        #expect(Share.readingOrder([line("Mac & Cheese $6.25", 0.1, 0.1), line("Grilled Cheese $6.25", 0.1, 0.122)]) == "Mac & Cheese $6.25\nGrilled Cheese $6.25")
+        #expect(Share.readingOrder([line("Kids Menu", 0.1, 0.06, h: 0.035), line("Chicken Fingers $6.25", 0.1, 0.1)]) == "Kids Menu\nChicken Fingers $6.25")
+    }
+
+    @Test func aCloserLookAddsWhatTheWholePhotoMissed() {
+        let base = [line("Desserts", 0.5, 0.2), line("Brownie Sundae", 0.5, 0.25), line("Beverages", 0.5, 0.4), line("Water", 0.5, 0.45)]
+        let more = [line("Brownie Sundae", 0.5, 0.251), line("$4.25", 0.7, 0.25, w: 0.05), line("$2.85", 0.7, 0.45, w: 0.05)]
+        #expect(Share.merged(base, more).map(\.text) == ["Desserts", "Brownie Sundae", "$4.25", "Beverages", "Water", "$2.85"])
+        #expect(Share.readingOrder(Share.merged(base, more)) == "Desserts\nBrownie Sundae $4.25\nBeverages\nWater $2.85")
     }
 
     @Test func aMenusQRCodeGoesByTheWordsBesideIt() {

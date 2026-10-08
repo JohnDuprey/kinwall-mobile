@@ -358,33 +358,91 @@ public enum Share {
     public struct TextLine: Equatable, Sendable {
         public var text: String
         public var x: Double, y: Double, width: Double, height: Double
-        public init(text: String, x: Double, y: Double, width: Double, height: Double) {
-            self.text = text; self.x = x; self.y = y; self.width = width; self.height = height
+        /// How far the line's baseline drops per unit across (a tilted photo), in the same units.
+        public var slope: Double
+        public init(text: String, x: Double, y: Double, width: Double, height: Double, slope: Double = 0) {
+            self.text = text; self.x = x; self.y = y; self.width = width; self.height = height; self.slope = slope
         }
         var maxX: Double { x + width }
         var maxY: Double { y + height }
         var midY: Double { y + height / 2 }
     }
 
-    /// A photo's lines as one text, in the order the reader gave them (Vision and ML Kit already read
-    /// a column at a time), with the pieces of one row put back on one line: a name and its price
-    /// read apart ("Mozzarella Sticks", "$9.35"), or words cut by a price's column. A piece joins the
-    /// line before it when they're level and it's to the right: next to it, or any way off when it's a
-    /// price (dot leaders between). ShareReader.kt's rows are the same.
-    public static func readingOrder(_ lines: [TextLine]) -> String {
+    /// A photo's lines as one text, in the order the reader gave them (Vision and ML Kit read a
+    /// column at a time), put back together where the reader split them:
+    /// 1. a price read on its own (a reader may read a column of prices after their names) goes on
+    ///    the most level line to its left in the nearest column that has no price yet, across dot
+    ///    leaders, level along the photo's tilt;
+    /// 2. the pieces of one row read one after the other go on one line (a name and the rest of it,
+    ///    words cut by a price's column);
+    /// 3. an item's name over two lines ("Jumbo Chocolate", "Chip Cookie $2.25") is one line: the
+    ///    first has no price and the second does, same left edge, same size, closer under it than the
+    ///    next item would be (a third of a line; items are half a line or more apart).
+    /// ShareReader.kt's readingOrder is the same.
+    public static func readingOrder(_ input: [TextLine]) -> String {
+        let lines = input.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty && $0.height > 0 }
+        let page = lines.map(\.maxX).max() ?? 0
+        // Level is along the photo's tilt (the long lines' median slope): on a photo taken at an
+        // angle a price at the end of a row sits most of a line lower than its name.
+        let slopes = lines.filter { $0.width > $0.height * 4 }.map(\.slope).sorted()
+        let tilt = slopes.isEmpty ? 0 : slopes[slopes.count / 2]
+        func mid(_ l: TextLine) -> Double { l.midY - tilt * (l.x + l.width / 2) }
+        var priced = Set<Int>(), texts = lines.map(\.text)
+        // 1. Each price on its own goes to the most level line on its left that has none yet.
+        for (j, p) in lines.enumerated() where isPrice(p.text) {
+            let level = lines.indices.filter { k in
+                let l = lines[k]
+                return k != j && !priced.contains(k) && !isPrice(l.text) && !hasPrice(l.text) && abs(mid(l) - mid(p)) < min(l.height, p.height) * 0.6
+                    && l.maxX <= p.x + p.height * 0.5 && p.x - l.maxX < page * 0.35 && l.height < p.height * 2 && p.height < l.height * 2 && l.width > l.height
+            }
+            // The most level of the nearest column's lines, not one across the page.
+            guard let near = level.map({ p.x - lines[$0].maxX }).min() else { continue }
+            guard let t = level.filter({ p.x - lines[$0].maxX <= near + page * 0.1 }).min(by: { abs(mid(lines[$0]) - mid(p)) < abs(mid(lines[$1]) - mid(p)) }) else { continue }
+            texts[t] += " " + p.text
+            texts[j] = ""
+            priced.insert(t)
+        }
+        // 2 and 3, comparing each line with the one before it (its own box, not the row's).
         var rows: [(text: String, last: TextLine)] = []
-        for l in lines where !l.text.trimmingCharacters(in: .whitespaces).isEmpty {
-            if let row = rows.last, abs(l.midY - row.last.midY) < min(l.height, row.last.height) * 0.6, l.x >= row.last.maxX - l.height * 0.5,
-               isPrice(l.text) || (l.x - row.last.maxX < l.height * 2 && l.text.filter(\.isLetter).count >= 3) {
-                rows[rows.count - 1] = (row.text + " " + l.text, l)
-            } else { rows.append((l.text, l)) }
+        for (j, l) in lines.enumerated() where !texts[j].isEmpty {
+            let text = texts[j]
+            if let row = rows.last, abs(mid(l) - mid(row.last)) < min(l.height, row.last.height) * 0.6, l.x >= row.last.maxX - l.height * 0.5,
+               isPrice(text) || (l.x - row.last.maxX < l.height * 2 && text.filter(\.isLetter).count >= 3) {
+                rows[rows.count - 1] = (row.text + " " + text, l)
+            } else if let row = rows.last, !hasPrice(row.text), hasPrice(text), nameLike(row.text), nameLike(text), abs(l.x - row.last.x) < l.height * 0.5,
+                      l.y > row.last.midY, l.y - row.last.maxY < l.height * 0.35, l.height < row.last.height * 1.33, row.last.height < l.height * 1.33 {
+                rows[rows.count - 1] = (row.text + " " + text, l)
+            } else { rows.append((text, l)) }
         }
         return rows.map(\.text).joined(separator: "\n")
     }
 
-    /// Mostly digits and money: "$8.30", "(4) $7.25 | (8) $13.50", "+$5.00".
+    /// Only prices: "$8.30", "(4) $7.25 | (8) $13.50", "$9.35 (Single) | $12.45 (Double)", "+$5.00".
     static func isPrice(_ s: String) -> Bool {
-        s.filter(\.isLetter).count <= 8 && s.range(of: #"\$\s?\d|\d[.,]\d\d"#, options: .regularExpression) != nil
+        let letters = s.filter(\.isLetter).count
+        return letters <= 14 && letters <= s.filter(\.isNumber).count * 2 && hasPrice(s)
+    }
+    /// A price somewhere in it ("$12.45", "12.45"), never a number run into letters ("+8t").
+    static func hasPrice(_ s: String) -> Bool {
+        s.range(of: #"(\$\s?\d{1,4}([.,]\d\d)?|\d[.,]\d\d)(?![\p{L}\d])"#, options: .regularExpression) != nil
+    }
+    /// The words of a name: capitalized, no comma.
+    static func nameLike(_ s: String) -> Bool {
+        s.first?.isUppercase == true && !s.contains(where: { ",:|;".contains($0) }) && s.split(separator: " ").count <= 5
+    }
+
+    /// A photo's lines with the ones a closer look found (the photo read again in parts: a reader
+    /// misses small text on a whole page), each new one after the line closest above it in its
+    /// column. A new line that overlaps one already there is that line, left out.
+    public static func merged(_ base: [TextLine], _ more: [TextLine]) -> [TextLine] {
+        var out = base
+        let page = base.map(\.maxX).max() ?? 0
+        func overlaps(_ a: TextLine, _ b: TextLine) -> Bool { a.x < b.maxX && b.x < a.maxX && a.y < b.maxY && b.y < a.maxY }
+        for n in more where !out.contains(where: { overlaps($0, n) }) {
+            let above = out.indices.filter { out[$0].midY <= n.midY + n.height * 0.5 && out[$0].x < n.maxX && n.x - page * 0.25 < out[$0].maxX }
+            if let at = above.max(by: { out[$0].midY < out[$1].midY }) { out.insert(n, at: at + 1) } else { out.append(n) }
+        }
+        return out
     }
 
     /// A menu's QR codes as the lines Kinwall reads (restaurant-import.ts splitMenuHeader), going by the

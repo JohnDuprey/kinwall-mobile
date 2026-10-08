@@ -31,7 +31,8 @@ import kotlin.coroutines.resumeWithException
  * dates, places, phone numbers, websites and ISBNs (Share.headers); and on a phone with Gemini Nano
  * (ML Kit GenAI Prompt API) the model guesses what it is and tidies the words, like the iOS model step
  * (Share.guessPrompt); for a menu only its name, phone, address and website, with the menu as read
- * (Share.menuText). The words keep a row's pieces on one line (Share.readingOrder), and a QR code
+ * (Share.menuText). The words keep a row's pieces on one line and a price read apart on its row
+ * (Share.readingOrder), with what a closer look at each quarter adds (Share.merged), and a QR code
  * becomes a menu's ordering or menu link when the words beside it say so (Share.linkLines). Entity
  * extraction and Gemini Nano need Android 8; older phones skip them. */
 object ShareReader {
@@ -49,14 +50,32 @@ object ShareReader {
     // The Play services model downloads with the app (the manifest's vision DEPENDENCIES); until it
     // has, this fails and the photo has no words.
     val words = try {
-      recognizer.process(image).await().textBlocks.flatMap { b -> b.lines.mapNotNull { l -> l.boundingBox?.let { line(l.text, it) } } }
+      // The photo read again in four overlapping quarters: a whole-page read misses small text (a
+      // menu's last prices by its mailing label) and reads it up close (Share.merged).
+      val w = bitmap.width
+      val h = bitmap.height
+      val tiles = listOf(0.0 to 0.0, 0.45 to 0.0, 0.0 to 0.45, 0.45 to 0.45).flatMap { (cx, cy) ->
+        val tile = Bitmap.createBitmap(bitmap, (cx * w).toInt(), (cy * h).toInt(), (0.55 * w).toInt(), (0.55 * h).toInt())
+        lines(recognizer, InputImage.fromBitmap(tile, 0), (cx * w).toInt(), (cy * h).toInt())
+      }
+      Share.merged(lines(recognizer, image, 0, 0), tiles)
     } catch (e: Exception) { emptyList() } finally { recognizer.close() }
     val qr = codes.filter { it.format == Barcode.FORMAT_QR_CODE }.mapNotNull { c -> c.rawValue?.let { v -> c.boundingBox?.let { line(v, it) } } }
     return Read(null, Share.readingOrder(words).takeIf { it.isNotBlank() }, Share.linkLines(qr, words))
   }
 
-  private fun line(text: String, box: android.graphics.Rect) =
-    Share.TextLine(text, box.left.toDouble(), box.top.toDouble(), box.width().toDouble(), box.height().toDouble())
+  private fun line(text: String, box: android.graphics.Rect, slope: Double = 0.0) =
+    Share.TextLine(text, box.left.toDouble(), box.top.toDouble(), box.width().toDouble(), box.height().toDouble(), slope)
+
+  /** ML Kit's lines on an image, moved by (dx, dy) onto the whole photo, with each one's tilt from its corners. */
+  private suspend fun lines(recognizer: com.google.mlkit.vision.text.TextRecognizer, image: InputImage, dx: Int, dy: Int) =
+    recognizer.process(image).await().textBlocks.flatMap { b ->
+      b.lines.mapNotNull { l ->
+        val c = l.cornerPoints
+        val slope = if (c != null && c.size >= 2 && c[1].x != c[0].x) (c[1].y - c[0].y).toDouble() / (c[1].x - c[0].x) else 0.0
+        l.boundingBox?.let { line(l.text, android.graphics.Rect(it.left + dx, it.top + dy, it.right + dx, it.bottom + dy), slope) }
+      }
+    }
 
   /** `links`: the QR code lines for a menu, one of each kind, the first photo's first. */
   data class Pages(val isbn: String?, val pages: List<String>, val links: List<String> = emptyList())

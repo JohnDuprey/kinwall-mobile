@@ -371,31 +371,81 @@ object Share {
   // --- Reading a photo's words (ShareReader.kt): the same as KinwallKit's Share.swift -------------
 
   /** A line of text read off a photo and where it is: x and y from the top left, in any unit (ML
-   * Kit's pixels). A QR code's payload goes in one too. */
-  data class TextLine(val text: String, val x: Double, val y: Double, val width: Double, val height: Double) {
+   * Kit's pixels), and how far its baseline drops per unit across (a tilted photo). A QR code's
+   * payload goes in one too. */
+  data class TextLine(val text: String, val x: Double, val y: Double, val width: Double, val height: Double, val slope: Double = 0.0) {
     val maxX get() = x + width
     val maxY get() = y + height
     val midY get() = y + height / 2
   }
 
   /** A photo's lines as one text, in the order the reader gave them (ML Kit reads a block at a time),
-   * with the pieces of one row put back on one line: a name and its price read apart ("Mozzarella
-   * Sticks", "$9.35"), or words cut by a price's column. A piece joins the line before it when they're
-   * level and it's to the right: next to it, or any way off when it's a price (dot leaders between). */
-  fun readingOrder(lines: List<TextLine>): String {
+   * put back together where the reader split them, as KinwallKit's Share.swift does:
+   * 1. a price read on its own goes on the most level line to its left in the nearest column that
+   *    has no price yet, across dot leaders, level along the photo's tilt;
+   * 2. the pieces of one row read one after the other go on one line;
+   * 3. an item's name over two lines ("Jumbo Chocolate", "Chip Cookie $2.25") is one line: the first
+   *    has no price and the second does, same left edge, same size, closer under it than the next
+   *    item would be. */
+  fun readingOrder(input: List<TextLine>): String {
+    val lines = input.filter { it.text.isNotBlank() && it.height > 0 }
+    val page = lines.maxOfOrNull { it.maxX } ?: 0.0
+    val slopes = lines.filter { it.width > it.height * 4 }.map { it.slope }.sorted()
+    val tilt = if (slopes.isEmpty()) 0.0 else slopes[slopes.size / 2]
+    fun mid(l: TextLine) = l.midY - tilt * (l.x + l.width / 2)
+    val texts = lines.map { it.text }.toMutableList()
+    val priced = mutableSetOf<Int>()
+    for ((j, p) in lines.withIndex()) {
+      if (!isPrice(p.text)) continue
+      val level = lines.indices.filter { k ->
+        val l = lines[k]
+        k != j && k !in priced && !isPrice(l.text) && !hasPrice(l.text) && kotlin.math.abs(mid(l) - mid(p)) < minOf(l.height, p.height) * 0.6 &&
+          l.maxX <= p.x + p.height * 0.5 && p.x - l.maxX < page * 0.35 && l.height < p.height * 2 && p.height < l.height * 2 && l.width > l.height
+      }
+      val near = level.minOfOrNull { p.x - lines[it].maxX } ?: continue
+      val t = level.filter { p.x - lines[it].maxX <= near + page * 0.1 }.minByOrNull { kotlin.math.abs(mid(lines[it]) - mid(p)) } ?: continue
+      texts[t] = texts[t] + " " + p.text
+      texts[j] = ""
+      priced += t
+    }
     val rows = mutableListOf<Pair<String, TextLine>>()
-    for (l in lines) {
-      if (l.text.isBlank()) continue
+    for ((j, l) in lines.withIndex()) {
+      val text = texts[j]
+      if (text.isEmpty()) continue
       val row = rows.lastOrNull()
-      if (row != null && kotlin.math.abs(l.midY - row.second.midY) < minOf(l.height, row.second.height) * 0.6 && l.x >= row.second.maxX - l.height * 0.5 &&
-        (isPrice(l.text) || (l.x - row.second.maxX < l.height * 2 && l.text.count(Char::isLetter) >= 3))) rows[rows.lastIndex] = "${row.first} ${l.text}" to l
-      else rows += l.text to l
+      val last = row?.second
+      if (row != null && last != null && kotlin.math.abs(mid(l) - mid(last)) < minOf(l.height, last.height) * 0.6 && l.x >= last.maxX - l.height * 0.5 &&
+        (isPrice(text) || (l.x - last.maxX < l.height * 2 && text.count(Char::isLetter) >= 3))) rows[rows.lastIndex] = "${row.first} $text" to l
+      else if (row != null && last != null && !hasPrice(row.first) && hasPrice(text) && nameLike(row.first) && nameLike(text) && kotlin.math.abs(l.x - last.x) < l.height * 0.5 &&
+        l.y > last.midY && l.y - last.maxY < l.height * 0.35 && l.height < last.height * 1.33 && last.height < l.height * 1.33) rows[rows.lastIndex] = "${row.first} $text" to l
+      else rows += text to l
     }
     return rows.joinToString("\n") { it.first }
   }
 
-  /** Mostly digits and money: "$8.30", "(4) $7.25 | (8) $13.50", "+$5.00". */
-  fun isPrice(s: String) = s.count(Char::isLetter) <= 8 && Regex("""\$\s?\d|\d[.,]\d\d""").containsMatchIn(s)
+  /** Only prices: "$8.30", "(4) $7.25 | (8) $13.50", "$9.35 (Single) | $12.45 (Double)", "+$5.00". */
+  fun isPrice(s: String): Boolean {
+    val letters = s.count(Char::isLetter)
+    return letters <= 14 && letters <= s.count(Char::isDigit) * 2 && hasPrice(s)
+  }
+  /** A price somewhere in it ("$12.45", "12.45"), never a number run into letters ("+8t"). */
+  fun hasPrice(s: String) = Regex("""(\$\s?\d{1,4}([.,]\d\d)?|\d[.,]\d\d)(?![\p{L}\d])""").containsMatchIn(s)
+  /** The words of a name: capitalized, no comma. */
+  private fun nameLike(s: String) = s.firstOrNull()?.isUpperCase() == true && s.none { it in ",:|;" } && s.split(" ").size <= 5
+
+  /** A photo's lines with the ones a closer look found (the photo read again in parts), each new one
+   * after the line closest above it in its column; one that overlaps a line already there is left out. */
+  fun merged(base: List<TextLine>, more: List<TextLine>): List<TextLine> {
+    val out = base.toMutableList()
+    val page = base.maxOfOrNull { it.maxX } ?: 0.0
+    fun overlaps(a: TextLine, b: TextLine) = a.x < b.maxX && b.x < a.maxX && a.y < b.maxY && b.y < a.maxY
+    for (n in more) {
+      if (out.any { overlaps(it, n) }) continue
+      val at = out.indices.filter { out[it].midY <= n.midY + n.height * 0.5 && out[it].x < n.maxX && n.x - page * 0.25 < out[it].maxX }.maxByOrNull { out[it].midY }
+      if (at != null) out.add(at + 1, n) else out += n
+    }
+    return out
+  }
 
   /** A menu's QR codes as the lines Kinwall reads (restaurant-import.ts splitMenuHeader), going by the
    * words beside each code: "Order online: …" when they say order, "Menu link: …" for a menu,
