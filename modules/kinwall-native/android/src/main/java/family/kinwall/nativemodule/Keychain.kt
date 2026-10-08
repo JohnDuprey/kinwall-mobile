@@ -43,15 +43,14 @@ object Keychain {
     }
   }
 
-  fun set(context: Context, service: String, value: String?) {
+  /** Written to disk before it returns (a rotated refresh token lost to a killed process would sign
+   * the phone out): false when it couldn't be. */
+  fun set(context: Context, service: String, value: String?): Boolean {
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-    if (value == null) {
-      prefs.remove(service).apply()
-      return
-    }
+    if (value == null) return prefs.remove(service).commit()
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
     cipher.init(Cipher.ENCRYPT_MODE, key())
     val sealed = cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8))
-    prefs.putString(service, Base64.encodeToString(sealed, Base64.NO_WRAP)).apply()
+    return prefs.putString(service, Base64.encodeToString(sealed, Base64.NO_WRAP)).commit()
   }
 }

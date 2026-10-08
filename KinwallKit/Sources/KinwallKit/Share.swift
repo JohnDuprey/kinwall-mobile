@@ -363,7 +363,17 @@ public enum AppSignIn {
     public struct SignInNeeded: Error {}
 
     /// src/oauth.ts's Tokens as the app saves them (expiresAt in ms).
-    struct Tokens: Codable { var baseURL: URL; var clientId: String; var accessToken: String; var refreshToken: String; var expiresAt: Double; var scope: String }
+    struct Tokens: Codable {
+        var baseURL: URL; var clientId: String; var accessToken: String; var refreshToken: String; var expiresAt: Double; var scope: String
+        var oauth: OAuth.Tokens {
+            OAuth.Tokens(baseURL: baseURL, clientId: clientId, accessToken: accessToken, refreshToken: refreshToken,
+                         expiresAt: Date(timeIntervalSince1970: expiresAt / 1000), scope: scope)
+        }
+        init(_ t: OAuth.Tokens) {
+            baseURL = t.baseURL; clientId = t.clientId; accessToken = t.accessToken; refreshToken = t.refreshToken
+            expiresAt = t.expiresAt.timeIntervalSince1970 * 1000; scope = t.scope
+        }
+    }
 
     private static func query(_ service: String) -> [String: Any] {
         var q: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "household"]
@@ -377,15 +387,20 @@ public enum AppSignIn {
         var out: CFTypeRef?
         return SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess ? out as? Data : nil
     }
-    private static func update(_ service: String, _ data: Data) {
-        let attrs: [String: Any] = [kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]
-        SecItemUpdate(query(service) as CFDictionary, attrs as CFDictionary)
+    /// Saves it, adding the item when there's none: false when the Keychain turned it down.
+    private static func write(_ service: String, _ data: Data) -> Bool {
+        let attrs: [String: Any] = [kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
+        var status = SecItemUpdate(query(service) as CFDictionary, attrs as CFDictionary)
+        if status == errSecItemNotFound { status = SecItemAdd(query(service).merging(attrs) { $1 } as CFDictionary, nil) }
+        return status == errSecSuccess
     }
+    private static func savedTokens() -> Tokens? { get("family.kinwall.oauth").flatMap { try? JSONDecoder().decode(Tokens.self, from: $0) } }
 
     /// The server and a key: the access token (refreshed first if it's about to lapse; refresh tokens
     /// rotate, so the new ones are saved before use), else the paired key. Nil when signed out.
     /// Callers at the same moment (an event's calendars and the event) share one read: two refreshes
-    /// would race, and the loser's refresh token is already used, which signs the phone out.
+    /// would race, and the loser's refresh token is already used, which signs the phone out. The app's
+    /// own refresh (src/session.ts) runs apart from this one: see TokenRefresh for how they get along.
     public static func credential() async throws -> Connection? { try await OneAtATime.shared.credential() }
 
     private actor OneAtATime {
@@ -401,19 +416,13 @@ public enum AppSignIn {
     }
 
     private static func readCredential() async throws -> Connection? {
-        if let data = get("family.kinwall.oauth"), var t = try? JSONDecoder().decode(Tokens.self, from: data) {
-            let old = OAuth.Tokens(baseURL: t.baseURL, clientId: t.clientId, accessToken: t.accessToken, refreshToken: t.refreshToken,
-                                   expiresAt: Date(timeIntervalSince1970: t.expiresAt / 1000), scope: t.scope)
-            if old.needsRefresh() {
-                let new: OAuth.Tokens
-                do { new = try await OAuthClient(baseURL: t.baseURL).refresh(old) }
-                catch let e as OAuthError where !e.code.hasPrefix("http_5") { throw SignInNeeded() } // the grant is gone
-                t.accessToken = new.accessToken
-                t.refreshToken = new.refreshToken
-                t.expiresAt = new.expiresAt.timeIntervalSince1970 * 1000
-                t.scope = new.scope
-                update("family.kinwall.oauth", try JSONEncoder().encode(t))
-            }
+        if let saved = savedTokens() {
+            let t: OAuth.Tokens
+            do {
+                t = try await TokenRefresh.fresh(saved.oauth, reread: { savedTokens()?.oauth },
+                                                 refresh: { try await OAuthClient(baseURL: $0.baseURL).refresh($0) },
+                                                 save: { (try? JSONEncoder().encode(Tokens($0))).map { write("family.kinwall.oauth", $0) } ?? false })
+            } catch let e as OAuthError where !e.code.hasPrefix("http_5") { throw SignInNeeded() } // the grant is gone
             return Connection(baseURL: t.baseURL, key: t.accessToken)
         }
         if let data = get("family.kinwall.share"), let c = try? JSONDecoder().decode(Connection.self, from: data) { return c }
@@ -424,8 +433,7 @@ public enum AppSignIn {
     /// PendingLink takes it): the share sheet can't open the app itself.
     public static func leaveForApp(_ link: URL) {
         guard let data = try? JSONSerialization.data(withJSONObject: ["link": link.absoluteString, "at": Date.now.timeIntervalSince1970]) else { return }
-        update("family.kinwall.link", data)
-        SecItemAdd(query("family.kinwall.link").merging([kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]) { $1 } as CFDictionary, nil)
+        _ = write("family.kinwall.link", data)
     }
 
     /// POSTs JSON to the family's server, signed in: the reply and its status, or nil when signed out.

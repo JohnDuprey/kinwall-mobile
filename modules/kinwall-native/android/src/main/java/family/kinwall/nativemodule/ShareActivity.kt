@@ -529,25 +529,21 @@ class ShareActivity : AppCompatActivity() {
     }
 
     /** The server and a key: the app's OAuth access token (src/oauth.ts; refreshed first and saved
-     * back if it's about to lapse, since refresh tokens rotate and the app re-reads them before its
-     * own refresh, src/session.ts), else a paired device's key (src/sharedKey.ts shareKey). Null
-     * when signed out. Never the widgets' everyday key. Synchronized: the calendars and the event go
-     * at once, and two refreshes would race (the loser's refresh token is already used, which signs
-     * the phone out); the second caller waits and reads the tokens the first saved. */
+     * back if it's about to lapse, Share.freshTokens), else a paired device's key (src/sharedKey.ts
+     * shareKey). Null when signed out. Never the widgets' everyday key. Synchronized: the calendars
+     * and the event go at once, and two refreshes would race (the loser's refresh token is already
+     * used, which signs the phone out); the second caller waits and reads the tokens the first saved. */
     @Synchronized private fun credential(context: Context): Pair<String, String>? {
-      Keychain.get(context, "family.kinwall.oauth")?.let { saved ->
-        val t = JSONObject(saved)
-        if (t.getDouble("expiresAt") - System.currentTimeMillis() < 5 * 60_000) {
-          val form = FormBody.Builder().add("grant_type", "refresh_token").add("refresh_token", t.getString("refreshToken")).add("client_id", t.getString("clientId")).build()
-          http.newCall(Request.Builder().url(t.getString("baseURL").toHttpUrl().resolve("oauth/token")!!).post(form).build()).execute().use { res ->
-            if (res.code == 400 || res.code == 401) throw SignInNeeded() // the grant is gone (revoked, expired or used)
-            if (!res.isSuccessful) throw java.io.IOException("refresh ${res.code}")
-            val r = JSONObject(res.body!!.string())
-            t.put("accessToken", r.getString("access_token")).put("refreshToken", r.getString("refresh_token"))
-              .put("expiresAt", System.currentTimeMillis() + r.getDouble("expires_in") * 1000).put("scope", r.optString("scope"))
-            Keychain.set(context, "family.kinwall.oauth", t.toString())
+      val saved = { Keychain.get(context, "family.kinwall.oauth")?.let { JSONObject(it) } }
+      saved()?.let { tokens ->
+        val t = Share.freshTokens(tokens, System.currentTimeMillis(), saved, { old ->
+          val form = FormBody.Builder().add("grant_type", "refresh_token").add("refresh_token", old.getString("refreshToken")).add("client_id", old.getString("clientId")).build()
+          http.newCall(Request.Builder().url(old.getString("baseURL").toHttpUrl().resolve("oauth/token")!!).post(form).build()).execute().use { res ->
+            if (res.code == 400 || res.code == 401) null // the grant is gone (revoked, expired or used)
+            else if (!res.isSuccessful) throw java.io.IOException("refresh ${res.code}")
+            else JSONObject(res.body!!.string())
           }
-        }
+        }, { Keychain.set(context, "family.kinwall.oauth", it.toString()) }) ?: throw SignInNeeded()
         return t.getString("baseURL") to t.getString("accessToken")
       }
       return Keychain.get(context, "family.kinwall.share")?.let { JSONObject(it) }?.let { it.getString("baseURL") to it.getString("key") }

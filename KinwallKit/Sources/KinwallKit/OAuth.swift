@@ -149,30 +149,27 @@ public struct OAuthClient: Sendable {
     }
 }
 
-#if canImport(Security)
-/// The OAuth tokens as one Keychain item, beside the connection (ConnectionStore).
-public struct KeychainTokenStore: Sendable {
-    public let service: String
-    public init(service: String = "family.kinwall.oauth") { self.service = service }
-    private var query: [String: Any] { [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "household"] }
-
-    public func load() -> OAuth.Tokens? {
-        var q = query
-        q[kSecReturnData as String] = true
-        q[kSecMatchLimit as String] = kSecMatchLimitOne
-        var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
-        return try? JSONDecoder().decode(OAuth.Tokens.self, from: data)
-    }
-
-    public func save(_ tokens: OAuth.Tokens) {
-        guard let data = try? JSONEncoder().encode(tokens) else { return }
-        let attrs: [String: Any] = [kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]
-        if SecItemUpdate(query as CFDictionary, attrs as CFDictionary) == errSecItemNotFound {
-            SecItemAdd(query.merging(attrs) { $1 } as CFDictionary, nil)
+/// A refresh of the app's sign-in, which the app, its App Intents and the share extension each do
+/// in their own process (each through one single-flight caller, so its own callers never race).
+/// The processes don't lock each other out: there's no App Group for a file lock, and the server
+/// hands the same new pair to the same refresh token sent twice within 30 seconds. A refresh turned
+/// down re-reads the saved tokens before giving up, since another process may have just rotated them.
+/// ponytail: no cross-process lock; two refreshes more than 30 s apart with the same token still revoke.
+public enum TokenRefresh {
+    /// Tokens good for five minutes or more: `saved` itself, the pair `refresh` hands back (saved
+    /// with `save` before use, tried twice), or the ones `reread` finds when the server turned the
+    /// refresh down but another process had rotated them. Throws the server's refusal otherwise.
+    public static func fresh(_ saved: OAuth.Tokens, now: Date = .now, reread: () -> OAuth.Tokens?,
+                             refresh: (OAuth.Tokens) async throws -> OAuth.Tokens, save: (OAuth.Tokens) -> Bool) async throws -> OAuth.Tokens {
+        guard saved.needsRefresh(now: now) else { return saved }
+        let new: OAuth.Tokens
+        do { new = try await refresh(saved) } catch let e as OAuthError where !e.code.hasPrefix("http_5") {
+            if let again = reread(), again.refreshToken != saved.refreshToken { return again }
+            throw e
         }
+        // Not saved, the old refresh token is spent: this one use still works, and the next refresh
+        // signs in again (or, within the server's 30 s, gets this pair once more).
+        _ = save(new) || save(new)
+        return new
     }
-
-    public func clear() { SecItemDelete(query as CFDictionary) }
 }
-#endif

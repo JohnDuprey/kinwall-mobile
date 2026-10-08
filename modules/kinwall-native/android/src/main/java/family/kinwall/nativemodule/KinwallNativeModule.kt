@@ -46,7 +46,9 @@ class KinwallNativeModule : Module() {
     }
 
     AsyncFunction("keychainGet") { service: String, _: Boolean -> Keychain.get(context, service) }
-    AsyncFunction("keychainSet") { service: String, _: Boolean, value: String? -> Keychain.set(context, service, value) }
+    AsyncFunction("keychainSet") { service: String, _: Boolean, value: String? ->
+      if (!Keychain.set(context, service, value)) throw IllegalStateException("Couldn't save $service")
+    }
     Function("reloadWidgets") { Widgets.reload(context) }
     Function("watchAppInstalled") { false }
     Function("updateWatch") { _: Map<String, Any?> -> }

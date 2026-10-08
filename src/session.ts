@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store'
-import { type Tokens, clearTokens, loadTokens, refresh, revoke, saveTokens, OAuthError } from './oauth'
+import { type Tokens, clearTokens, loadTokens, refresh, revoke, saveTokens } from './oauth'
+import { needsRefresh, refreshed } from './tokenRefresh'
 import { clearReminders } from './reminders'
 import { clearSpotlight } from './spotlight'
 import { revokeWidgetKey, shareKey, watchSignOut } from './sharedKey'
@@ -30,27 +31,16 @@ export async function choosePairing(): Promise<Session> {
   return { mode: 'paired' }
 }
 
-/** Refresh a little early so a request never goes out with a token about to lapse. */
-export const needsRefresh = (t: Tokens) => t.expiresAt - Date.now() < 5 * 60_000
+export { needsRefresh }
 
 let refreshing: Promise<Tokens | null> | null = null
 /** Tokens good for at least five minutes, refreshing if needed (`force`: now, e.g. the server
  * rejected keys that look fine). Null when the grant is gone (revoked, or the refresh token
- * expired): the caller signs out. */
+ * expired): the caller signs out. One refresh at a time here (refresh tokens rotate); the share
+ * sheet and Siri refresh apart from it (src/tokenRefresh.ts). */
 export function freshTokens(t: Tokens, force = false): Promise<Tokens | null> {
   if (!force && !needsRefresh(t)) return Promise.resolve(t)
-  if (refreshing) return refreshing // one refresh at a time: refresh tokens rotate
-  refreshing = (async () => {
-    // The share extension may have refreshed them since (refresh tokens rotate): start from the saved ones.
-    const saved = await loadTokens()
-    const cur = saved?.baseURL === t.baseURL ? saved : t
-    if (!needsRefresh(cur) && !(force && cur.accessToken === t.accessToken)) return cur // forced: newer saved ones will do
-    const next = await refresh(cur)
-    await saveTokens(next)
-    return next
-  })()
-    .catch((e: unknown) => (e instanceof OAuthError && e.needsSignIn ? null : t)) // offline: keep the old one and try again later
-    .finally(() => { refreshing = null })
+  refreshing ??= refreshed(t, force, { load: loadTokens, refresh, save: saveTokens }).finally(() => { refreshing = null })
   return refreshing
 }
 

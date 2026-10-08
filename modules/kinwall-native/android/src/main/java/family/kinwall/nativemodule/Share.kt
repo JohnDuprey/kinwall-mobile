@@ -125,6 +125,22 @@ object Share {
     })
   }
 
+  /** The app's OAuth sign-in (src/oauth.ts Tokens), refreshed when it's within five minutes of
+   * lapsing. The app refreshes the same tokens apart from the share sheet (src/tokenRefresh.ts);
+   * nothing locks them out of each other, but the server hands the same new pair to the same
+   * refresh token sent twice within 30 seconds. `refresh` answers the server's reply, or null when
+   * it turned the refresh down: then the saved tokens are read again, since the app may have just
+   * rotated them. Null: sign in again. A new pair is saved before use (tried twice; not saved, it
+   * still works this once). */
+  fun freshTokens(saved: JSONObject, now: Long, reread: () -> JSONObject?, refresh: (JSONObject) -> JSONObject?, save: (JSONObject) -> Boolean): JSONObject? {
+    if (saved.getDouble("expiresAt") - now >= 5 * 60_000) return saved
+    val r = refresh(saved) ?: return reread()?.takeIf { it.optString("refreshToken") != saved.getString("refreshToken") }
+    val t = JSONObject(saved.toString()).put("accessToken", r.getString("access_token")).put("refreshToken", r.getString("refresh_token"))
+      .put("expiresAt", now + r.getDouble("expires_in") * 1000).put("scope", r.optString("scope"))
+    if (!save(t)) save(t)
+    return t
+  }
+
   /** The app's own link that opens `link` (a Kinwall address with a #/ route) in the app
    * (src/links.ts routeFor, to=shared). A + in it stays a plus (%2B). */
   fun appLink(link: String) = "family.kinwall.app:/open?to=shared&link=" + URLEncoder.encode(link, "UTF-8")

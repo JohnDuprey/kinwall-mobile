@@ -190,4 +190,38 @@ class ShareTest {
     // An older Kinwall saves it straight away: no preview.
     assertNull((Share.outcome(200, """{"kind":"recipe","summary":"Imported Tacos","link":"https://k/#/meals?recipe=x","review":false}""") as Share.Outcome.Done).result.preview)
   }
+
+  // The app's sign-in (Share.freshTokens): the app refreshes the same tokens apart from the share sheet.
+  private val now = 1_800_000_000_000L
+  private fun tokens(refresh: String, inMinutes: Int) = JSONObject().put("baseURL", "https://kinwall.family/").put("clientId", "c")
+    .put("accessToken", "a-$refresh").put("refreshToken", refresh).put("expiresAt", (now + inMinutes * 60_000L).toDouble()).put("scope", "kinwall:admin")
+  private val reply = JSONObject().put("access_token", "a-r2").put("refresh_token", "r2").put("expires_in", 3600).put("scope", "kinwall:admin")
+
+  @Test fun currentTokensGoAsTheyAre() {
+    val t = tokens("r1", 60)
+    assertEquals(t, Share.freshTokens(t, now, { null }, { throw AssertionError("refreshed") }, { true }))
+  }
+
+  @Test fun aRefreshIsSavedBeforeUse() {
+    val saved = mutableListOf<String>()
+    val out = Share.freshTokens(tokens("r1", 2), now, { null }, { reply }, { saved.add(it.getString("refreshToken")); true })
+    assertEquals("r2", out?.getString("refreshToken"))
+    assertEquals(now + 3_600_000.0, out!!.getDouble("expiresAt"), 0.0)
+    assertEquals(listOf("r2"), saved)
+  }
+
+  @Test fun aFailedSaveIsTriedAgainAndTheNewPairStillUsed() {
+    var tries = 0
+    assertEquals("r2", Share.freshTokens(tokens("r1", 2), now, { null }, { reply }, { tries++; false })?.getString("refreshToken"))
+    assertEquals(2, tries)
+  }
+
+  @Test fun turnedDownAfterTheAppRotatedThemUsesTheirs() {
+    assertEquals("r2", Share.freshTokens(tokens("r1", 2), now, { tokens("r2", 60) }, { null }, { true })?.getString("refreshToken"))
+  }
+
+  @Test fun turnedDownWithNothingNewerMeansSignIn() {
+    assertNull(Share.freshTokens(tokens("r1", 2), now, { tokens("r1", 2) }, { null }, { true }))
+    assertNull(Share.freshTokens(tokens("r1", 2), now, { null }, { null }, { true }))
+  }
 }
