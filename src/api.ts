@@ -77,9 +77,10 @@ export type Settings = { features?: Features; medications?: boolean }
 export const settings = (c: Connection) => api<Settings>(c.baseURL, c.key, 'GET', 'api/settings').then((s) => s ?? {}, (): Settings => ({}))
 export const features = (c: Connection) => settings(c).then((s) => s.features ?? {})
 export const members = (c: Connection) => api<{ id: string; name: string; avatar?: string | null }[]>(c.baseURL, c.key, 'GET', 'api/members')
-/** memberId: who gets the points for an Anyone chore; the key's own person otherwise. */
+/** memberId: who gets the points for an Anyone chore; the key's own person otherwise. Left out
+ * when null: the server's memberId is optional, not nullable, and answers null with a 400. */
 export const completeChore = (c: Connection, id: string, date: string, memberId: string | null) =>
-  api<unknown>(c.baseURL, c.key, 'POST', `api/chores/${encodeURIComponent(id)}/complete`, { date, memberId })
+  api<unknown>(c.baseURL, c.key, 'POST', `api/chores/${encodeURIComponent(id)}/complete`, memberId ? { date, memberId } : { date })
 export const lists = (c: Connection) => api<FamilyList[]>(c.baseURL, c.key, 'GET', 'api/lists')
 export const list = (c: Connection, id: string) => api<ListDetail>(c.baseURL, c.key, 'GET', `api/lists/${encodeURIComponent(id)}`)
 export const setItemDone = (c: Connection, listId: string, itemId: string, done: boolean) =>
