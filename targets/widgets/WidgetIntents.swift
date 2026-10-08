@@ -78,6 +78,8 @@ struct ListConfig: WidgetConfigurationIntent {
 
 struct ToggleChoreIntent: AppIntent {
     static let title: LocalizedStringResource = "Tick off a chore"
+    /// Writes to the family's Kinwall: only on an unlocked device (docs/WIDGETS-AND-WATCH.md, Locked iPhone).
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let isDiscoverable = false
     @Parameter(title: "Chore") var choreId: String
     @Parameter(title: "Date") var date: String
@@ -96,6 +98,8 @@ struct ToggleChoreIntent: AppIntent {
 
 struct ToggleItemIntent: AppIntent {
     static let title: LocalizedStringResource = "Tick off a list item"
+    /// Writes to the family's Kinwall: only on an unlocked device (docs/WIDGETS-AND-WATCH.md, Locked iPhone).
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let isDiscoverable = false
     @Parameter(title: "List") var listId: String
     @Parameter(title: "Item") var itemId: String

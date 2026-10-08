@@ -83,6 +83,8 @@ struct CalendarQuery: EntityStringQuery {
 
 struct AddEventIntent: AppIntent {
     static let title: LocalizedStringResource = "Add an event"
+    /// Writes to the family's Kinwall: only on an unlocked device (docs/WIDGETS-AND-WATCH.md, Locked iPhone).
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let description = IntentDescription("Adds an event to the family's Kinwall calendar, on the family's default calendar unless you pick another. It lasts an hour unless you say when it ends.")
     @Parameter(title: "Title", requestValueDialog: "What's the event called?") var name: String
     @Parameter(title: "Starts", kind: .dateTime, requestValueDialog: "When does it start?") var start: Date
@@ -162,6 +164,8 @@ struct PollChoiceQuery: EntityStringQuery {
 
 struct VoteInPollIntent: AppIntent {
     static let title: LocalizedStringResource = "Vote in a poll"
+    /// Writes to the family's Kinwall: only on an unlocked device (docs/WIDGETS-AND-WATCH.md, Locked iPhone).
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let description = IntentDescription("Votes in one of the family's open polls in Kinwall. A phone that belongs to someone votes for them; on a shared one, say who's voting. Voting again changes the vote.")
     @Parameter(title: "Poll", requestValueDialog: "Which poll?") var poll: PollEntity
     @Parameter(title: "Choice", requestValueDialog: "What's your pick?") var choice: PollChoiceEntity
@@ -220,6 +224,8 @@ struct BookQuery: EntityStringQuery {
 
 struct LogReadingIntent: AppIntent {
     static let title: LocalizedStringResource = "Log reading"
+    /// Writes to the family's Kinwall: only on an unlocked device (docs/WIDGETS-AND-WATCH.md, Locked iPhone).
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let description = IntentDescription("Logs pages read (minutes for an audiobook) for a book on someone's reading shelf in Kinwall. At the last page, the book is marked finished.")
     @Parameter(title: "Book", requestValueDialog: "Which book?") var book: BookEntity
     @Parameter(title: "Pages or minutes", inclusiveRange: (1, 2000)) var amount: Int?

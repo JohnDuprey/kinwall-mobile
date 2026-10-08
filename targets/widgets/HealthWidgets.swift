@@ -179,6 +179,8 @@ struct CheckInView: View {
 /// One check-in answer, straight to the server with the widgets' key (their own device only).
 struct TempCheckAnswerIntent: AppIntent {
     static let title: LocalizedStringResource = "Answer the check-in"
+    /// Writes to the family's Kinwall: only on an unlocked device (docs/WIDGETS-AND-WATCH.md, Locked iPhone).
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let isDiscoverable = false
     @Parameter(title: "Person") var member: String
     @Parameter(title: "Question") var field: String

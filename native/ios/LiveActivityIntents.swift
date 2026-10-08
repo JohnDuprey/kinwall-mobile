@@ -53,6 +53,8 @@ enum GotItError: Error, CustomLocalizedStringResourceConvertible {
 // own phone mark only theirs. Both end the activity; the web app starts it again when a snooze runs out.
 struct MarkDoseActivityIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Mark a dose"
+    /// Writes to the family's Kinwall: only on an unlocked device (docs/WIDGETS-AND-WATCH.md, Locked iPhone).
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let isDiscoverable = false
     @Parameter(title: "Medicine") var medicationId: String
     @Parameter(title: "Date") var date: String

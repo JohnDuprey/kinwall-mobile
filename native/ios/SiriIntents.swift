@@ -176,6 +176,8 @@ struct ItemQuery: EntityStringQuery {
 
 struct AddToListIntent: AppIntent {
     static let title: LocalizedStringResource = "Add to a list"
+    /// Writes to the family's Kinwall: only on an unlocked device (docs/WIDGETS-AND-WATCH.md, Locked iPhone).
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let description = IntentDescription("Adds an item to a Kinwall list. Groceries unless you say another list.")
     @Parameter(title: "Item", requestValueDialog: "What should I add?") var item: String
     @Parameter(title: "List") var list: ListEntity?
@@ -202,6 +204,8 @@ struct AddToListIntent: AppIntent {
 /// "Add milk to Kinwall": one sentence, always Groceries (an App Shortcut phrase holds one parameter).
 struct AddGroceryIntent: AppIntent {
     static let title: LocalizedStringResource = "Add to Groceries"
+    /// Writes to the family's Kinwall: only on an unlocked device (docs/WIDGETS-AND-WATCH.md, Locked iPhone).
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let description = IntentDescription("Adds something the family has bought before to Groceries.")
     @Parameter(title: "Item", requestValueDialog: "What should I add?") var item: ItemEntity
 
@@ -273,6 +277,8 @@ struct WhatsNextIntent: AppIntent {
 
 struct CompleteChoreIntent: AppIntent {
     static let title: LocalizedStringResource = "Mark a chore done"
+    /// Writes to the family's Kinwall: only on an unlocked device (docs/WIDGETS-AND-WATCH.md, Locked iPhone).
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let description = IntentDescription("Marks one of today's chores done. For an Anyone chore, say who did it and they get the points.")
     @Parameter(title: "Chore", requestValueDialog: "Which chore?") var chore: ChoreEntity
     @Parameter(title: "Who did it") var person: PersonEntity?
@@ -358,6 +364,8 @@ struct ShareCalendarQuery: EntityStringQuery {
 /// read in order and go as one text, a menu when the model can't tell.
 struct AddToKinwallIntent: AppIntent {
     static let title: LocalizedStringResource = "Add to Kinwall"
+    /// Writes to the family's Kinwall: only on an unlocked device (docs/WIDGETS-AND-WATCH.md, Locked iPhone).
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     static let description = IntentDescription("Adds a recipe or restaurant link, a place, photos of a menu (one or several pages), a book or a flyer, or some text to Kinwall. With Apple Intelligence it tells what a photo or text is; otherwise it asks. An event is added to the Calendar you pick, or without one opens to check first. Returns a link that opens the Kinwall app at it.")
     @Parameter(title: "What it is", default: .automatic) var kind: ShareKindEnum
     @Parameter(title: "Photos") var photo: [IntentFile]? // supportedContentTypes: [.image] is iOS 18+

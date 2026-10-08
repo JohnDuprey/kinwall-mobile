@@ -124,6 +124,8 @@ struct KinwallReminderQuery: EntityQuery {
 @available(iOS 27.0, *)
 @AppIntent(schema: .reminders.createReminder)
 struct CreateKinwallReminderIntent {
+    /// Writes to the family's Kinwall: only on an unlocked device (docs/WIDGETS-AND-WATCH.md, Locked iPhone).
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     var title: String
     var list: KinwallReminderList?
     var note: AttributedString?

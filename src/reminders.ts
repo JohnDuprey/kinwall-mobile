@@ -50,16 +50,19 @@ export async function requestPermission(): Promise<void> {
 // The buttons on each kind, run without opening the app with the widgets' key: on iPhone by
 // native/ios/NotificationActions.swift, on Android by modules/kinwall-native/android ReminderActions.kt.
 const later = { opensAppToForeground: false }
+// Taken and Done change the family's Kinwall, so on iPhone they ask to unlock first (as the Siri
+// actions do; Snooze only moves the reminder). Android shows them on the Lock Screen as they are.
+const unlocked = { opensAppToForeground: false, isAuthenticationRequired: true }
 const categories = Promise.all([
   Notifications.setNotificationCategoryAsync('event', [
     { identifier: 'snooze', buttonTitle: 'Snooze 10 min', options: later },
     { identifier: 'open', buttonTitle: 'Open', options: { opensAppToForeground: true } },
   ]),
   Notifications.setNotificationCategoryAsync('medicine', [
-    { identifier: 'taken', buttonTitle: 'Taken', options: later },
+    { identifier: 'taken', buttonTitle: 'Taken', options: unlocked },
     { identifier: 'snooze', buttonTitle: 'Snooze 10 min', options: later },
   ]),
-  Notifications.setNotificationCategoryAsync('chore', [{ identifier: 'done', buttonTitle: 'Done', options: later }]),
+  Notifications.setNotificationCategoryAsync('chore', [{ identifier: 'done', buttonTitle: 'Done', options: unlocked }]),
 ]).catch(() => {})
 
 type Planned = { fire: number; request: Notifications.NotificationRequestInput }
