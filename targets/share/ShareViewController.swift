@@ -85,11 +85,14 @@ final class ShareViewController: UIViewController {
     super.viewDidAppear(animated)
     Task { @MainActor in
       let shared = await Shared.read(extensionContext)
-      // Apple Maps shares a place as its link and a location vCard, which isn't a contact; Google Maps
-      // as text with its name first and the link last, or the link alone.
+      // Apple Maps shares a place as its link and a location vCard (name, phone, address, website),
+      // which isn't a contact; Google Maps as text with its name and address first and the link last,
+      // or the link alone.
       let inText = shared.texts.lazy.compactMap(Share.mapsPlace(in:)).first
       if let place = shared.urls.first(where: Share.isMapsPlace) ?? inText?.url {
-        return await sendPlace(place, name: shared.vcard.flatMap(Share.vCardName) ?? inText?.name ?? shared.texts.lazy.compactMap(Share.placeName(in:)).first)
+        let fromText: Share.PlaceCard? = shared.texts.lazy.map { Share.placeCard(text: $0) }.first { $0.name != nil }
+        let card: Share.PlaceCard = shared.vcard.map { Share.placeCard(vCard: $0) } ?? inText?.card ?? fromText ?? Share.PlaceCard()
+        return await sendPlace(place, card: card)
       }
       if let vcard = shared.vcard { return await importContacts(vcard) }
       if let link = shared.urls.first ?? shared.texts.lazy.compactMap(Share.onlyLink).first {
@@ -183,12 +186,12 @@ final class ShareViewController: UIViewController {
   }
 
   /// A Maps place: "Restaurant or place?", then its card (a restaurant for the binder, or a contact).
-  private func sendPlace(_ url: URL, name: String?) async {
+  private func sendPlace(_ url: URL, card: Share.PlaceCard) async {
     showChoices("Restaurant or place?", placeChoices)
     let kind = await wait()
     for v in [placeChoices, done] { v.isHidden = true }
     cancelling(false)
-    await send(.init(kind: kind, url: url.absoluteString, name: name), reading: "Reading the place…")
+    await send(.init(kind: kind, place: url, card: card), reading: "Reading the place…")
   }
 
   /// What to send for words of a kind: a menu with its QR code lines first.

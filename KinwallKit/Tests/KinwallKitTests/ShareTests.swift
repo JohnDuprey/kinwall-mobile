@@ -37,12 +37,38 @@ import Testing
             #expect(!Share.isMapsPlace(URL(string: not)!), "\(not)")
         }
         let google = Share.mapsPlace(in: "Maple Park\n20 Lake Rd, Springfield\nhttps://maps.app.goo.gl/AbCd")
-        #expect(google?.url.absoluteString == "https://maps.app.goo.gl/AbCd" && google?.name == "Maple Park")
-        #expect(Share.mapsPlace(in: "https://maps.app.goo.gl/AbCd")?.name == nil)
+        #expect(google?.url.absoluteString == "https://maps.app.goo.gl/AbCd" && google?.card == .init(name: "Maple Park", address: "20 Lake Rd, Springfield"))
+        #expect(Share.mapsPlace(in: "https://maps.app.goo.gl/AbCd")?.card == .init())
+        #expect(Share.placeCard(text: "Maple Park\nOpen now\nhttps://maps.app.goo.gl/AbCd") == .init(name: "Maple Park"), "not an address")
         #expect(Share.mapsPlace(in: "Party! https://example.org/rsvp") == nil)
         #expect(Share.checkTitle(.place) == "Check the place")
         #expect(Share.vCardName("BEGIN:VCARD\r\nVERSION:3.0\r\nN:;Joe's Pizza;;;\r\nFN:Joe's Pizza\\, Main St\r\nEND:VCARD") == "Joe's Pizza, Main St")
         #expect(Share.vCardName("BEGIN:VCARD\nEND:VCARD") == nil)
+    }
+
+    @Test func appleMapsPlaceCard() {
+        // A made-up place, as Apple Maps shares it with its link.
+        let vcard = """
+        BEGIN:VCARD\r
+        VERSION:3.0\r
+        PRODID:-//Apple Inc.//iPhone OS 26.0//EN\r
+        N:;Corner Slice\\, Main St;;;\r
+        FN:Corner Slice\\, Main St\r
+        item1.ADR;type=WORK;type=pref:;;12 Elm St;Springfield;MA;01101;United States\r
+        item1.X-ABADR:us\r
+        TEL;type=MAIN;type=VOICE;type=pref:(555) 010-0100\r
+        item2.URL;type=pref:https://cornerslice.example/\r
+        item3.URL:https://maps.apple.com/?address=12%20Elm%20St&ll=42.1,-72.5&q=Corner%20Slice\r
+        item3.X-ABLabel:map url\r
+        END:VCARD
+        """
+        let card = Share.placeCard(vCard: vcard)
+        #expect(card == .init(name: "Corner Slice, Main St", phone: "(555) 010-0100", address: "12 Elm St, Springfield, MA 01101", website: "https://cornerslice.example/"))
+        // Only a map link: no website.
+        #expect(Share.placeCard(vCard: "BEGIN:VCARD\nFN:Maple Park\nURL:https://maps.apple.com/?q=Maple%20Park\nEND:VCARD") == .init(name: "Maple Park"))
+        let maps = URL(string: "https://maps.apple.com/place?name=Corner%20Slice")!
+        let request = Share.Request(kind: .place, place: maps, card: card)
+        #expect(request.kind == .place && request.name == card.name && request.phone == card.phone && request.address == card.address && request.website == card.website)
     }
 
     @Test func answers() {

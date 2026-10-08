@@ -20,6 +20,9 @@ public enum Share {
         public var url: String?
         public var text: String?
         public var name: String?
+        /// A Maps place's phone, address and own website (Apple Maps' card, Google Maps' text): fill a
+        /// restaurant's or a place's empty ones.
+        public var phone: String?, address: String?, website: String?
         /// An event as the person checked it in the sheet; sent instead of text.
         public var event: EventDraft?
         /// Adds the event to `calendarId` now, instead of answering with a link to check it.
@@ -33,6 +36,12 @@ public enum Share {
         public init(kind: Kind? = nil, url: String? = nil, text: String? = nil, name: String? = nil, event: EventDraft? = nil, save: Bool? = nil, calendarId: String? = nil, preview: Bool? = nil, token: String? = nil) {
             self.kind = kind; self.url = url; self.text = text; self.name = name; self.event = event; self.save = save; self.calendarId = calendarId
             self.preview = preview; self.token = token
+        }
+
+        /// A Maps place of `kind` (restaurant or place) with what its card says.
+        public init(kind: Kind, place url: URL, card: PlaceCard) {
+            self.init(kind: kind, url: url.absoluteString, name: card.name)
+            phone = card.phone; address = card.address; website = card.website
         }
 
         /// The save after `preview`'s card: the same share without preview, with its token.
@@ -179,25 +188,57 @@ public enum Share {
         return host.range(of: #"^(www\.)?google\.[a-z.]+$"#, options: .regularExpression) != nil && path.hasPrefix("/maps")
     }
 
-    /// A Maps place in shared text (Google Maps on iPhone): its link, and the first line that isn't a
-    /// link as its name. Nil when the text has no Maps link.
-    public static func mapsPlace(in text: String) -> (url: URL, name: String?)? {
-        guard let url = firstLink(in: text), isMapsPlace(url) else { return nil }
-        return (url, placeName(in: text))
+    /// What a Maps place's card says: its name, phone, one-line address and own website (not a Maps link).
+    public struct PlaceCard: Equatable, Sendable {
+        public var name: String?, phone: String?, address: String?, website: String?
+        public init(name: String? = nil, phone: String? = nil, address: String? = nil, website: String? = nil) {
+            self.name = name; self.phone = phone; self.address = address; self.website = website
+        }
     }
 
-    /// Shared text's first line that isn't a link: a Maps place's name.
-    public static func placeName(in text: String) -> String? {
-        text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
-            .first { !$0.isEmpty && firstLink(in: $0) == nil }
+    /// A Maps place in shared text (Google Maps on iPhone): its link, and its name and address from the
+    /// text's lines (placeCard(text:)). Nil when the text has no Maps link.
+    public static func mapsPlace(in text: String) -> (url: URL, card: PlaceCard)? {
+        guard let url = firstLink(in: text), isMapsPlace(url) else { return nil }
+        return (url, placeCard(text: text))
+    }
+
+    /// Google Maps' shared text ("Name\nAddress\nlink", or less): the first line that isn't a link is
+    /// the name, and the next one is the address when it looks like one (a number or a comma in it).
+    public static func placeCard(text: String) -> PlaceCard {
+        let lines = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty && firstLink(in: $0) == nil }
+        let address = lines.dropFirst().first.flatMap { $0.contains(where: \.isNumber) || $0.contains(",") ? $0 : nil }
+        return PlaceCard(name: lines.first, address: address)
+    }
+
+    /// Apple Maps' location vCard (shared with a place's link): FN, the first TEL, the first ADR on
+    /// one line ("20 Lake Rd, Springfield, MA 01101", like the server's addresses; the country is left
+    /// out) and the first URL that isn't a Maps link.
+    public static func placeCard(vCard: String) -> PlaceCard {
+        // Folded lines (a space or tab first) belong to the line above.
+        let lines = vCard.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\n ", with: "").replacingOccurrences(of: "\n\t", with: "").split(separator: "\n")
+        func values(_ key: String) -> [String] {
+            lines.compactMap { line in
+                guard let colon = line.firstIndex(of: ":") else { return nil }
+                let name = line[..<colon].split(separator: ";").first?.split(separator: ".").last ?? ""
+                return name.uppercased() == key ? String(line[line.index(after: colon)...]) : nil
+            }
+        }
+        func unescape<S: StringProtocol>(_ v: S) -> String? {
+            v.replacingOccurrences(of: "\\n", with: ", ").replacingOccurrences(of: "\\,", with: ",").replacingOccurrences(of: "\\;", with: ";")
+                .trimmingCharacters(in: .whitespaces).nilIfEmpty
+        }
+        let address = values("ADR").first.flatMap { adr -> String? in
+            let p = adr.split(separator: ";", omittingEmptySubsequences: false).map { unescape($0) }
+            func at(_ i: Int) -> String? { i < p.count ? p[i] : nil }
+            return [at(2), at(3), [at(4), at(5)].compactMap { $0 }.joined(separator: " ").nilIfEmpty].compactMap { $0 }.joined(separator: ", ").nilIfEmpty
+        }
+        let website = values("URL").compactMap { unescape($0) }.first { URL(string: $0).map { isWeb($0) && !isMapsPlace($0) } ?? false }
+        return PlaceCard(name: values("FN").first.flatMap { unescape($0) }, phone: values("TEL").first.flatMap { unescape($0) }, address: address, website: website)
     }
 
     /// A shared vCard's FN (formatted name) line: a Maps place's name.
-    public static func vCardName(_ vcard: String) -> String? {
-        vcard.split(whereSeparator: \.isNewline).first { $0.uppercased().hasPrefix("FN:") || $0.uppercased().hasPrefix("FN;") }
-            .flatMap { $0.split(separator: ":", maxSplits: 1).last }
-            .map { String($0).trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "\\,", with: ",") }?.nilIfEmpty
-    }
+    public static func vCardName(_ vcard: String) -> String? { placeCard(vCard: vcard).name }
 
     /// The server's answer as one line: its summary, or what to do about an error without one.
     public static func outcome(status: Int, data: Data) -> Outcome {

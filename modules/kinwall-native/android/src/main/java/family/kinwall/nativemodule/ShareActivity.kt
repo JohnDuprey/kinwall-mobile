@@ -146,7 +146,7 @@ class ShareActivity : AppCompatActivity() {
     val maps = text?.let(Share::mapsPlace)
     val link = text?.let(Share::linkIn)
     when {
-      maps != null -> sendPlace(maps.first, maps.second)
+      maps != null -> sendPlace(maps)
       link != null -> send(Share.Request(url = link), "Reading the page…")
       text != null -> { busy("Reading it…"); sendWords(listOf(text)) }
       images.isNotEmpty() -> {
@@ -163,13 +163,13 @@ class ShareActivity : AppCompatActivity() {
   }
 
   /** A Maps place: "Restaurant or place?", then its card (a restaurant for the binder, or a contact). */
-  private suspend fun sendPlace(url: String, name: String?) {
+  private suspend fun sendPlace(place: Share.Place) {
     spinner.visibility = View.GONE
     label.text = "Restaurant or place?"
     done.text = "Cancel"
     show(placeChoices, done)
     val kind = (wait() as? Choice.Pick)?.kind ?: return
-    send(Share.Request(kind = kind, url = url, name = name), "Reading the place…")
+    send(Share.Request(kind = kind, url = place.url, name = place.name, address = place.address), "Reading the place…")
   }
 
   /** Photos' words (each photo a page) or shared text: a guess goes on as that kind (its card or

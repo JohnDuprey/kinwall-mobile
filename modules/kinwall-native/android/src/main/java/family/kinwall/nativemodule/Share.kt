@@ -19,12 +19,13 @@ object Share {
    * to `calendarId` now instead of answering with a link to check it. `preview`: a recipe, restaurant
    * or book comes back as what would be saved (Result.preview), and nothing is saved; `token` goes
    * with the save after a link's preview, so Kinwall doesn't read the page again. */
-  data class Request(val kind: Kind? = null, val url: String? = null, val text: String? = null, val name: String? = null, val event: EventDraft? = null, val save: Boolean = false, val calendarId: String? = null, val preview: Boolean = false, val token: String? = null) {
+  data class Request(val kind: Kind? = null, val url: String? = null, val text: String? = null, val name: String? = null, val address: String? = null, val event: EventDraft? = null, val save: Boolean = false, val calendarId: String? = null, val preview: Boolean = false, val token: String? = null) {
     fun json(): String = JSONObject().apply {
       kind?.let { put("kind", it.wire) }
       url?.let { put("url", it) }
       text?.let { put("text", it) }
       name?.let { put("name", it) }
+      address?.let { put("address", it) }
       event?.let { put("event", it.json()) }
       if (save) put("save", true)
       calendarId?.let { put("calendarId", it) }
@@ -126,11 +127,15 @@ object Share {
       || Regex("^maps\\.google\\.[a-z.]+$").matches(host) || (Regex("^(www\\.)?google\\.[a-z.]+$").matches(host) && path.startsWith("/maps"))
   }
 
+  data class Place(val url: String, val name: String?, val address: String?)
+
   /** A Maps place in shared text (Google Maps shares "Name\nAddress\nhttps://maps.app.goo.gl/…"): its
-   * link, and the first line that isn't a link as its name. Null when the text has no Maps link. */
-  fun mapsPlace(text: String): Pair<String, String?>? {
+   * link, the first line that isn't a link as its name, and the next one as its address when it looks
+   * like one (a number or a comma in it). Null when the text has no Maps link. */
+  fun mapsPlace(text: String): Place? {
     val link = LINK.findAll(text).map { trimLink(it.value) }.firstOrNull(::isMapsPlace) ?: return null
-    return link to text.lines().map { it.trim() }.firstOrNull { it.isNotEmpty() && !LINK.containsMatchIn(it) }
+    val lines = text.lines().map { it.trim() }.filter { it.isNotEmpty() && !LINK.containsMatchIn(it) }
+    return Place(link, lines.firstOrNull(), lines.getOrNull(1)?.takeIf { l -> l.any(Char::isDigit) || ',' in l })
   }
 
   /** The server's answer as one line: its summary, or what to do about an error without one. */
