@@ -85,7 +85,7 @@ struct AddEventIntent: AppIntent {
     static let title: LocalizedStringResource = "Add an event"
     /// Writes to the family's Kinwall: only on an unlocked device (docs/WIDGETS-AND-WATCH.md, Locked iPhone).
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
-    static let description = IntentDescription("Adds an event to the family's Kinwall calendar, on the family's default calendar unless you pick another. It lasts an hour unless you say when it ends.")
+    static let description = IntentDescription("Adds an event to the family's Kinwall calendar, on the family's default calendar unless you pick another. It lasts the family's usual event length (set in Kinwall's settings) unless you say when it ends.")
     @Parameter(title: "Title", requestValueDialog: "What's the event called?") var name: String
     @Parameter(title: "Starts", kind: .dateTime, requestValueDialog: "When does it start?") var start: Date
     @Parameter(title: "Ends", kind: .dateTime) var end: Date?
@@ -103,7 +103,11 @@ struct AddEventIntent: AppIntent {
         }
         let title = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if title.isEmpty { throw $name.needsValueError("What's the event called?") }
-        let finish = end.flatMap { $0 > start ? $0 : nil } ?? start.addingTimeInterval(3600)
+        // No end (or one before the start): the family's usual event length, an hour on older servers.
+        let finish: Date
+        if let end, end > start { finish = end } else {
+            finish = start.addingTimeInterval(Double(((try? await kinwall.settings())?.eventMinutes ?? 60) * 60))
+        }
         try await explained { try await kinwall.addEvent(title: title, start: start, end: finish, calendarId: target.id) }
         WidgetCenter.shared.reloadAllTimelines()
         let when = start.formatted(.dateTime.weekday(.wide).month(.wide).day().hour().minute())

@@ -193,12 +193,13 @@ class ShareActivity : AppCompatActivity() {
   private suspend fun checkEvent(text: String, pages: List<String>, guessed: Boolean) {
     busy("Reading the event…")
     val cals = scope.async(Dispatchers.IO) { calendars(this@ShareActivity) }
+    val minutes = scope.async(Dispatchers.IO) { eventMinutes(this@ShareActivity) }
     val read = withContext(Dispatchers.IO) { post(this@ShareActivity, Share.Request(kind = Share.Kind.EVENT, text = text)) }
     if (read is Share.Outcome.Failed) return result(read.message)
     val r = (read as Share.Outcome.Done).result
     val draft = r.event ?: return openInApp(r)
     calendars = cals.await().orEmpty()
-    fill(draft)
+    fill(draft, minutes.await())
     spinner.visibility = View.GONE
     label.text = if (guessed) "Looks like an event" else "Check the event"
     notThat.text = Share.notLabel(Share.Kind.EVENT)
@@ -240,13 +241,13 @@ class ShareActivity : AppCompatActivity() {
     return Share.EventDraft(t, day, start.takeIf { !allDay.isChecked }, end.takeIf { !allDay.isChecked }, place.text.toString().trim().takeIf { it.isNotEmpty() }, notes.text.toString().trim().takeIf { it.isNotEmpty() })
   }
 
-  private fun fill(draft: Share.EventDraft) {
+  private fun fill(draft: Share.EventDraft, minutes: Int) {
     title.setText(draft.title.orEmpty())
     place.setText(draft.place.orEmpty())
     notes.setText(draft.notes.orEmpty())
     day = draft.date ?: SimpleDateFormat("yyyy-MM-dd", Locale.US).format(System.currentTimeMillis()) // none read: today, to change
     start = draft.time ?: "09:00"
-    end = draft.end ?: Share.movedEnd("00:00", start, "01:00")
+    end = draft.end ?: Share.endAfter(start, minutes)
     allDay.isChecked = draft.time == null
     calendarPicker.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, calendars.map { it.name }).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
     calendarLabel.visibility = if (calendars.isEmpty()) View.GONE else View.VISIBLE
@@ -523,6 +524,13 @@ class ShareActivity : AppCompatActivity() {
       call(context, "api/calendars", null).let { (code, body) -> if (code == 200) Share.addable(body) else null }
     } catch (e: Exception) {
       null
+    }
+
+    /** How long a new event lasts (Share.eventMinutes): an hour when it can't be read. */
+    fun eventMinutes(context: Context): Int = try {
+      call(context, "api/settings", null).let { (code, body) -> if (code == 200) Share.eventMinutes(body) else 60 }
+    } catch (e: Exception) {
+      60
     }
 
     /** GETs (no body) or POSTs JSON to the family's server, signed in: the status and the reply. */

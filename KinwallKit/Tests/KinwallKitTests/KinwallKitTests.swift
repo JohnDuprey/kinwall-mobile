@@ -214,3 +214,9 @@ struct FailingStore: ConnectionStore {
     #expect(FocusSettings(onlyMine: true, hideHealth: false, person: nil).shows(["maya"])) // a shared device: nothing to narrow to
     #expect(FocusSettings(onlyMine: false, hideHealth: true, person: "sam").shows(["maya"]))
 }
+
+@Test func eventMinutesFallsBackToAnHour() throws {
+    func decode(_ json: String) throws -> Settings { try JSONDecoder().decode(Settings.self, from: Data(json.utf8)) }
+    #expect(try decode(#"{"familyName":"F","weekStart":0,"defaultEventMinutes":30}"#).eventMinutes == 30)
+    #expect(try decode(#"{"familyName":"F","weekStart":0}"#).eventMinutes == 60) // an older server
+}

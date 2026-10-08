@@ -604,5 +604,12 @@ extension Share {
               let all = try? JSONDecoder().decode([FamilyCalendar].self, from: data) else { return nil }
         return addable(all)
     }
+
+    /// How long a new event lasts (GET api/settings defaultEventMinutes): an hour when it can't be read.
+    public static func eventMinutes() async -> Int {
+        guard let (data, status) = try? await AppSignIn.request("api/settings", timeout: 20), status == 200,
+              let settings = try? JSONDecoder().decode(Settings.self, from: data) else { return 60 }
+        return settings.eventMinutes
+    }
 }
 #endif

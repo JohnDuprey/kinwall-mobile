@@ -92,6 +92,12 @@ object Share {
     return "%02d:%02d".format((m / 60) % 24, m % 60)
   }
 
+  /** A new event's end with no end read: `minutes` after the start (HH:MM). */
+  fun endAfter(start: String, minutes: Int) = movedEnd("00:00", start, "%02d:%02d".format(minutes / 60, minutes % 60))
+
+  /** How long a new event lasts, from GET api/settings (defaultEventMinutes): an hour on older servers. */
+  fun eventMinutes(settings: String) = try { JSONObject(settings).optInt("defaultEventMinutes", 60).takeIf { it > 0 } ?: 60 } catch (e: Exception) { 60 }
+
   sealed interface Outcome { data class Done(val result: Result) : Outcome; data class Failed(val message: String) : Outcome }
 
   const val SIGN_IN = "Open Kinwall and sign in as a grown-up, then share again."

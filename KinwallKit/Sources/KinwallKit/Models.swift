@@ -27,6 +27,10 @@ public struct Settings: Codable, Hashable, Sendable {
     /// Medication reminders, as the server has it (already off with Health turned off); nil from
     /// servers that don't send it (their medicine routes answer 404 when off).
     public var medications: Bool? = nil
+    /// How long a new event lasts when no end is given, in minutes; nil from older servers.
+    public var defaultEventMinutes: Int? = nil
+    /// defaultEventMinutes, or an hour when the server doesn't say.
+    public var eventMinutes: Int { defaultEventMinutes.flatMap { $0 > 0 ? $0 : nil } ?? 60 }
     /// The switches to go by: all on when the server sent none.
     public var on: Features { features ?? Features() }
     /// Medicines show only with medication reminders on and the Health tracker on, as on the server.

@@ -134,6 +134,7 @@ final class ShareViewController: UIViewController {
   private func checkEvent(_ text: String, pages: [String], guessed: Bool) async {
     busy("Reading the event…")
     async let calendars = Share.calendars()
+    async let minutes = Share.eventMinutes()
     let outcome = await Share.send(.init(kind: .event, text: text))
     guard case .done(let r) = outcome, let draft = r.event else {
       if case .failed(let message) = outcome { return finish(message) }
@@ -147,7 +148,7 @@ final class ShareViewController: UIViewController {
     spinner.isHidden = true
     label.isHidden = true
     let context = extensionContext
-    let host = embed(EventReview(draft: draft, guessed: guessed, calendars: addable,
+    let host = embed(EventReview(draft: draft, guessed: guessed, calendars: addable, minutes: await minutes,
       add: { [weak self] event, calendarId in
         switch await Share.send(.init(kind: .event, event: event, save: true, calendarId: calendarId)) {
         case .failed(let message): return message

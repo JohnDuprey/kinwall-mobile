@@ -26,7 +26,8 @@ struct EventReview: View {
   @State private var working = false
   @State private var error: String?
 
-  init(draft: Share.EventDraft, guessed: Bool, calendars: [Share.FamilyCalendar], add: @escaping (Share.EventDraft, String) async -> String?,
+  /// minutes: how long a new event lasts with no end read (the family's setting).
+  init(draft: Share.EventDraft, guessed: Bool, calendars: [Share.FamilyCalendar], minutes: Int = 60, add: @escaping (Share.EventDraft, String) async -> String?,
        notEvent: @escaping () -> Void, cancel: @escaping () -> Void) {
     self.guessed = guessed
     self.calendars = calendars
@@ -42,7 +43,7 @@ struct EventReview: View {
     _notes = State(initialValue: draft.notes ?? "")
     _day = State(initialValue: Share.pickerDate(date)!)
     _start = State(initialValue: start)
-    _end = State(initialValue: draft.end.flatMap { Share.pickerDate(date, $0) } ?? start.addingTimeInterval(3600))
+    _end = State(initialValue: draft.end.flatMap { Share.pickerDate(date, $0) } ?? start.addingTimeInterval(Double(minutes * 60)))
     _allDay = State(initialValue: draft.time == nil)
     _calendarId = State(initialValue: calendars.first?.id ?? "")
   }
@@ -68,7 +69,8 @@ struct EventReview: View {
       .environment(\.timeZone, Share.utc)
       .disabled(working)
       .onChange(of: start) { old, new in
-        // Moving the start keeps the length, so the end never lands before it.
+        // Moving the start keeps the length (the family's default until the end is changed), so the
+        // end never lands before it.
         end = new.addingTimeInterval(max(end.timeIntervalSince(old), 15 * 60))
       }
       .safeAreaInset(edge: .bottom) { buttons }

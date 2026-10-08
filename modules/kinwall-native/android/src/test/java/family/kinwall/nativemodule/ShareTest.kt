@@ -149,6 +149,10 @@ class ShareTest {
     assertEquals("16:00", Share.movedEnd("10:00", "14:00", "12:00"))
     assertEquals("at least 15 minutes", "09:15", Share.movedEnd("10:00", "09:00", "09:30"))
     assertEquals("00:30", Share.movedEnd("22:00", "23:00", "23:30"))
+    assertEquals("10:30", Share.endAfter("09:00", 90))
+    assertEquals("past midnight", "02:00", Share.endAfter("23:00", 180))
+    assertEquals(45, Share.eventMinutes("{\"defaultEventMinutes\":45}"))
+    assertEquals("an older server", 60, Share.eventMinutes("{\"familyName\":\"F\"}"))
     assertEquals(true, Share.prompt(Kind.EVENT, "f")!!.contains("Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield\nNotes: anything else worth knowing, like what to bring, costs, or how to RSVP"))
   }
 
