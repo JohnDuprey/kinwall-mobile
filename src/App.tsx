@@ -60,7 +60,14 @@ export default function App() {
   // Widget links: family.kinwall.app:/open?to=chores (or calendar, lists), plus &done=<chore id>
   // to tap that chore in the web app (it asks "Who did it?" or opens the checklist); and what the
   // share sheet added (to=shared&link=…), to check it.
-  useEffect(() => { if (url) { if (__DEV__ && url.includes('debug=medication')) showSampleMedication(); if (__DEV__ && url.includes('debug=cooking')) showSampleCooking(); const r = routeFor(url); if (r) resolve(r).then(setRoute) } }, [url])
+  // Every link, not useURL's latest: tapping the same widget twice is the same URL, which useURL
+  // doesn't pass on again, so the second tap left the app wherever it was.
+  useEffect(() => {
+    const open = (u: string | null) => { if (!u) return; if (__DEV__ && u.includes('debug=medication')) showSampleMedication(); if (__DEV__ && u.includes('debug=cooking')) showSampleCooking(); const r = routeFor(u); if (r) resolve(r).then(setRoute) }
+    Linking.getInitialURL().then(open).catch(() => {})
+    const sub = Linking.addEventListener('url', (e) => open(e.url))
+    return () => sub.remove()
+  }, [])
   // A Google/Microsoft sign-in handed back from the in-app browser (src/providerReturn.ts): close
   // that browser (iOS; Android brings the app forward over its Custom Tab) and finish it in the web
   // view, on this app's own server. Each link once (the session changes on every token refresh).
