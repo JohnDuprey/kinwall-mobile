@@ -1,6 +1,6 @@
 # Kinwall mobile
 
-iPhone, iPad, Apple Watch and Android apps for [Kinwall](https://github.com/JohnDuprey/kinwall), the family wall calendar. Not in the app stores yet: build it yourself and install it on your own devices (see below). TestFlight comes with a paid Apple Developer membership, which the project doesn't have yet. [docs/PLAN.md](docs/PLAN.md) has the plan and the milestones.
+iPhone, iPad, Apple Watch and Android apps for [Kinwall](https://github.com/JohnDuprey/kinwall), the family life organizer, on your wall and every phone. Not in the app stores yet: build it yourself and install it on your own devices (see below). TestFlight comes with a paid Apple Developer membership, which the project doesn't have yet. [docs/PLAN.md](docs/PLAN.md) has the plan and the milestones.
 
 The phone and tablet app is one [Expo](https://expo.dev) ([React Native](https://reactnative.dev)) app for iOS and Android: the household's own Kinwall web app, full screen in a native frame, plus what a web page can't do (reminders as local notifications, home-screen widgets, the Watch app, Siri). The iOS widgets, the Watch app, its complications and the Siri intents stay native Swift on top of `KinwallKit`.
 
