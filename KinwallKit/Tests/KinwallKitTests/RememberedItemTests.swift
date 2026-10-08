@@ -29,7 +29,7 @@ import Testing
         #expect(RememberedItem.forSiri(many).first?.title == "Item 999")
     }
     @Test func siriPhrasesFitApplesLimit() {
-        #expect(RememberedItem.siriCap == 112)
+        #expect(RememberedItem.siriCap == 111)
         #expect(SiriBudget.total <= SiriBudget.limit)
         #expect(SiriBudget.limit < 1000) // Apple's limit, with headroom
         #expect(SiriBudget.total + SiriBudget.itemPhrases > SiriBudget.limit) // one more item each wouldn't fit: nothing wasted

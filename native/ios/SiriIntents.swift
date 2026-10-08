@@ -420,7 +420,7 @@ struct KinwallShortcuts: AppShortcutsProvider {
             "Add something to the grocery list in \(.applicationName)",
         ], shortTitle: "Add to a list", systemImageName: "cart.badge.plus")
         // Each item counts once per phrase toward Apple's 1,000-phrase limit, so the phrase counts
-        // here are KinwallKit's SiriBudget (7 item phrases × 112 items; 16 plain phrases in all).
+        // here are KinwallKit's SiriBudget (7 item phrases × 111 items; 20 plain phrases in all).
         // Siri's flexible matching covers small changes in wording ("my" for "the").
         AppShortcut(intent: AddGroceryIntent(), phrases: [
             "Add \(\.$item) to \(.applicationName)",
@@ -448,10 +448,16 @@ struct KinwallShortcuts: AppShortcutsProvider {
             "Mark a chore done in \(.applicationName)",
             "Complete a chore in \(.applicationName)",
         ], shortTitle: "Mark a chore done", systemImageName: "checkmark.circle")
-        AppShortcut(intent: AddToKinwallIntent(), phrases: [
-            "Add to Kinwall with \(.applicationName)",
-            "Send this to \(.applicationName)",
-        ], shortTitle: "Add to Kinwall", systemImageName: "square.and.arrow.down")
+        // Add to Kinwall (a photo or text, which Siri can't take by voice) has no phrases: it's a
+        // Shortcuts and share action. Vote in a poll and Add an event are Shortcuts actions too.
+        AppShortcut(intent: WhatsForDinnerIntent(), phrases: [
+            "What's for dinner in \(.applicationName)",
+            "What's for dinner tonight in \(.applicationName)",
+        ], shortTitle: "What's for dinner", systemImageName: "fork.knife")
+        AppShortcut(intent: LogReadingIntent(), phrases: [
+            "Log reading in \(.applicationName)",
+            "Log my reading in \(.applicationName)",
+        ], shortTitle: "Log reading", systemImageName: "book")
         AppShortcut(intent: NightScreenIntent(), phrases: [
             "Start the night screen in \(.applicationName)",
             "Start \(.applicationName) night screen",

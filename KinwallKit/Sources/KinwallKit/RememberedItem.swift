@@ -48,7 +48,7 @@ public struct RememberedItem: Codable, Hashable, Sendable {
 ///   = 900
 public enum SiriBudget {
     public static let limit = 900
-    public static let plainPhrases = 16
+    public static let plainPhrases = 20
     public static let listPhrases = 2, maxLists = 20
     public static let storePhrases = 1, maxStores = 20
     public static let chorePhrases = 1, maxChores = 40

@@ -38,11 +38,11 @@ public struct Settings: Codable, Hashable, Sendable {
 /// don't know is ignored, so neither breaks decoding.
 public struct Features: Codable, Hashable, Sendable {
     public var chores = true, lists = true, contacts = true, paint = true, photos = true, notes = true, meals = true,
-               messages = true, newscast = true, trackersReading = true, trackersMemories = true, trackersHealth = true, checkIns = true
+               messages = true, newscast = true, trackersReading = true, trackersMemories = true, trackersHealth = true, checkIns = true, polls = true
 
     public init() {}
     private enum CodingKeys: String, CodingKey {
-        case chores, lists, contacts, paint, photos, notes, meals, messages, newscast, trackersReading, trackersMemories, trackersHealth, checkIns
+        case chores, lists, contacts, paint, photos, notes, meals, messages, newscast, trackersReading, trackersMemories, trackersHealth, checkIns, polls
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -50,6 +50,7 @@ public struct Features: Codable, Hashable, Sendable {
         chores = on(.chores); lists = on(.lists); contacts = on(.contacts); paint = on(.paint); photos = on(.photos)
         notes = on(.notes); meals = on(.meals); messages = on(.messages); newscast = on(.newscast)
         trackersReading = on(.trackersReading); trackersMemories = on(.trackersMemories); trackersHealth = on(.trackersHealth); checkIns = on(.checkIns)
+        polls = on(.polls)
     }
 }
 
@@ -246,15 +247,17 @@ public struct Board: Codable, Hashable, Sendable {
     public let events: [BoardEvent]
     public let items: [BoardItem]
     public let chores: [ChoreProgress]
+    /// The planned meals in these days ("What's for dinner"); nil from servers that don't send them.
+    public var meals: [Meal]? = nil
 
-    public init(today: String, events: [BoardEvent], items: [BoardItem], chores: [ChoreProgress]) {
-        self.today = today; self.events = events; self.items = items; self.chores = chores
+    public init(today: String, events: [BoardEvent], items: [BoardItem], chores: [ChoreProgress], meals: [Meal]? = nil) {
+        self.today = today; self.events = events; self.items = items; self.chores = chores; self.meals = meals
     }
 
-    /// Without what the family turned off: no chores with chores off, no due items with lists off
-    /// (newer servers already leave them out; older ones don't).
+    /// Without what the family turned off: no chores with chores off, no due items with lists off,
+    /// no meals with meals off (newer servers already leave them out; older ones don't).
     public func respecting(_ features: Features) -> Board {
-        Board(today: today, events: events, items: features.lists ? items : [], chores: features.chores ? chores : [])
+        Board(today: today, events: events, items: features.lists ? items : [], chores: features.chores ? chores : [], meals: features.meals ? meals : meals.map { _ in [] })
     }
 
     /// Timed events today that haven't ended, soonest first; `now` is the first one under way.

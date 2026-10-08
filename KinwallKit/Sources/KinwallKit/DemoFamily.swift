@@ -43,7 +43,7 @@ public enum DemoFamily {
     [{"id":"l2","name":"Weekend To-Dos","emoji":"✅","kind":"todo","archived":false,"itemCount":5,"openCount":4}]
     """)
 
-    /// Today around `now`: reading time under way, soccer (leave in 5 minutes), piano, movie night.
+    /// Today around `now`: reading time under way, soccer (leave in 5 minutes), piano, movie night; tacos for dinner.
     public static func board(now: Date = .now) -> Board {
         let iso = ISO8601DateFormatter()
         let day = HouseholdDate.key(for: now, timezone: nil)
@@ -55,7 +55,8 @@ public enum DemoFamily {
                      events: [event("a", "Reading time", -20, 25, color: "#7ED9A6"), event("b", "Soccer Practice", 20, 110, leave: 5, color: "#FF8FA3", members: ["m2"]), event("c", "Piano Lesson", 70, 115, color: "#7ED9A6", members: ["m3"]), event("d", "Movie Night", 180, 300, color: "#B39DFF")],
                      items: [],
                      chores: [.init(memberId: "m3", name: "Maya", avatar: "🦄", color: "#7ED9A6", remaining: 1, total: 2), .init(memberId: "m4", name: "Leo", avatar: "🦖", color: "#F5A65B", remaining: 2, total: 2),
-                              .init(memberId: nil, name: nil, avatar: nil, color: nil, remaining: 1, total: 1)])
+                              .init(memberId: nil, name: nil, avatar: nil, color: nil, remaining: 1, total: 1)],
+                     meals: [Meal(id: "meal1", date: day, slot: "dinner", title: "Tacos", mealKind: "recipe", recipeId: nil, restaurantId: nil, orderType: nil, plannedTime: "18:00")])
     }
 
     /// Two doses due a few minutes ago, Sam's and Leo's, without names (a shared device's view).
