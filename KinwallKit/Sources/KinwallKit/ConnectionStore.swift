@@ -51,7 +51,7 @@ public struct KeychainConnectionStore: ConnectionStore {
 
     public func save(_ connection: Connection) throws {
         let data = try JSONEncoder().encode(connection)
-        let attrs: [String: Any] = [kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]
+        let attrs: [String: Any] = [kSecValueData as String: data, kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
         var status = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)
         if status == errSecItemNotFound { status = SecItemAdd(query.merging(attrs) { $1 } as CFDictionary, nil) }
         guard status == errSecSuccess else { throw KeychainError(status: status) }

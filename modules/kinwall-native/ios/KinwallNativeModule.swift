@@ -46,10 +46,11 @@ public class KinwallNativeModule: Module {
             guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
             return String(data: data, encoding: .utf8)
         }
+        /// Kept on this iPhone only: sign-ins and keys never go into a backup or onto another phone.
         AsyncFunction("keychainSet") { (service: String, shared: Bool, value: String?) in
             let q = Keychain.query(service, shared)
             guard let value else { SecItemDelete(q as CFDictionary); return }
-            let attrs: [String: Any] = [kSecValueData as String: Data(value.utf8), kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock]
+            let attrs: [String: Any] = [kSecValueData as String: Data(value.utf8), kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
             var status = SecItemUpdate(q as CFDictionary, attrs as CFDictionary)
             if status == errSecItemNotFound { status = SecItemAdd(q.merging(attrs) { $1 } as CFDictionary, nil) }
             if status != errSecSuccess { throw Exception(name: "KeychainError", description: "Keychain status \(status)") }
