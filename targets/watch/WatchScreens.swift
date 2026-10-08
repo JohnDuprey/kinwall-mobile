@@ -88,7 +88,7 @@ struct ChoresView: View {
                         }
                     }
                 } else {
-                    let mine = chores.filter { $0.memberId == personId || $0.isAnyone }.sorted { !$0.completed && $1.completed }
+                    let mine = chores.filter { $0.memberId == personId || $0.isAnyone }.sorted { !$0.isTicked && $1.isTicked }
                     if mine.isEmpty { Text("No chores today 🎉").foregroundStyle(.secondary) }
                     ForEach(mine) { chore in choreRow(chore) }
                     Section {
@@ -102,15 +102,15 @@ struct ChoresView: View {
     }
 
     @ViewBuilder private func choreRow(_ chore: ChoreDay) -> some View {
-        let needsPhone = !chore.completed && (chore.checklist.map { !$0.isFinished } ?? false)
+        let needsPhone = !chore.isTicked && (chore.checklist.map { !$0.isFinished } ?? false)
         Button {
             guard !needsPhone else { return }
             Task { await toggle(chore) }
         } label: {
             HStack {
-                Image(systemName: chore.completed ? "checkmark.circle.fill" : "circle").foregroundStyle(chore.completed ? .green : .secondary)
+                Image(systemName: chore.isTicked ? "checkmark.circle.fill" : "circle").foregroundStyle(chore.isTicked ? .green : .secondary)
                 VStack(alignment: .leading) {
-                    Text("\(chore.emoji ?? "⭐") \(chore.title)").lineLimit(2).strikethrough(chore.completed)
+                    Text("\(chore.emoji ?? "⭐") \(chore.title)").lineLimit(2).strikethrough(chore.isTicked)
                     if needsPhone, let cl = chore.checklist {
                         Text("☑ \(cl.done)/\(cl.total) · finish on iPhone").font(.caption2).foregroundStyle(.secondary)
                     }
@@ -120,9 +120,9 @@ struct ChoresView: View {
     }
 
     private func toggle(_ chore: ChoreDay) async {
-        WKHaptic.play(chore.completed ? .click : .success)
+        WKHaptic.play(chore.isTicked ? .click : .success)
         do {
-            if chore.completed { try await client.uncomplete(chore: chore.id, on: day) }
+            if chore.isTicked { try await client.uncomplete(chore: chore.id, on: day) }
             else { try await client.complete(chore: chore.id, on: day, by: chore.memberId ?? personId) } // Anyone chores count for this Watch's person
         } catch { WKHaptic.play(.failure) }
         await load()

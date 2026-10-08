@@ -55,6 +55,19 @@ func stubSession() -> URLSession {
         #expect(body == ["date": "2026-09-26", "memberId": "m2"])
     }
 
+    @Test func aTickWaitingForAParentIsPending() async throws {
+        StubProtocol.handler = { req in
+            req.httpMethod == "POST" ? (200, Data(#"{"ok":true,"pending":true}"#.utf8))
+                : (200, Data(#"[{"id":"c1","title":"Dishes","emoji":null,"memberId":"m1","points":5,"completed":false,"pending":true,"completedBy":"m1","checklist":null}]"#.utf8))
+        }
+        let client = KinwallClient(baseURL: base, key: "k", session: stubSession())
+        #expect(try await client.complete(chore: "c1", on: "2026-09-26") == true)
+        let chore = try #require(try await client.chores(on: "2026-09-26").first)
+        #expect(!chore.completed && chore.isTicked)
+        StubProtocol.handler = { _ in (200, Data(#"{"ok":true}"#.utf8)) } // older servers: no pending
+        #expect(try await client.complete(chore: "c1", on: "2026-09-26") == false)
+    }
+
     @Test func serverErrorsCarryTheirMessage() async throws {
         StubProtocol.handler = { _ in (409, Data(#"{"error":"Checklist not finished (2 left)","remaining":2}"#.utf8)) }
         await #expect(throws: APIError(status: 409, message: "Checklist not finished (2 left)")) {

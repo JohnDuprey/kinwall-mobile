@@ -18,7 +18,7 @@ struct ChoresEntry: TimelineEntry {
     /// The family turned chores off.
     var off = false
     /// Smart Stack: a little while any are left (chores have no time of day to rise toward).
-    var relevance: TimelineEntryRelevance? { TimelineEntryRelevance(score: off ? 0 : Float(chores.filter { !$0.completed }.count)) }
+    var relevance: TimelineEntryRelevance? { TimelineEntryRelevance(score: off ? 0 : Float(chores.filter { !$0.isTicked }.count)) }
 }
 
 struct ChoresProvider: AppIntentTimelineProvider {
@@ -48,7 +48,7 @@ struct ChoresProvider: AppIntentTimelineProvider {
         } else {
             member = nil; mine = config.includeAnyone ? all : all.filter { !$0.isAnyone } // everyone
         }
-        return ChoresEntry(date: .now, day: day, chores: mine.sorted { !$0.completed && $1.completed }, member: member, signedOut: false, demo: demo)
+        return ChoresEntry(date: .now, day: day, chores: mine.sorted { !$0.isTicked && $1.isTicked }, member: member, signedOut: false, demo: demo)
     }
 }
 
@@ -70,7 +70,7 @@ struct ChoresView: View {
     var body: some View {
         if entry.signedOut { ProblemView(problem: .signedOut) } else if entry.off { ProblemView(problem: .choresOff) } else {
             let limit = family == .systemLarge ? 8 : 3
-            let left = entry.chores.filter { !$0.completed }.count
+            let left = entry.chores.filter { !$0.isTicked }.count
             VStack(alignment: .leading, spacing: family == .systemSmall ? 5 : 6) {
                 HStack {
                     Text(entry.member.map { "\($0.avatar ?? "") \($0.name)".uppercased() } ?? "CHORES").font(.caption.weight(.heavy)).foregroundStyle(Palette.accent).lineLimit(1)
@@ -92,32 +92,32 @@ struct ChoresView: View {
             if family == .systemSmall {
                 // Small: the chore's emoji is the checkbox, so the title gets the width (and two lines).
                 ZStack {
-                    Circle().strokeBorder(chore.completed ? Color.green : Color.secondary.opacity(0.5), lineWidth: 1.5)
-                        .background(Circle().fill(chore.completed ? Color.green : Color.clear))
-                    if chore.completed { Image(systemName: "checkmark").font(.caption.weight(.bold)).foregroundStyle(.white) }
+                    Circle().strokeBorder(chore.isTicked ? Color.green : Color.secondary.opacity(0.5), lineWidth: 1.5)
+                        .background(Circle().fill(chore.isTicked ? Color.green : Color.clear))
+                    if chore.isTicked { Image(systemName: "checkmark").font(.caption.weight(.bold)).foregroundStyle(.white) }
                     else { Text(chore.emoji ?? "⭐").font(.footnote) }
                 }
                 .frame(width: 26, height: 26)
                 Text(chore.title).font(.footnote.weight(.semibold)).lineLimit(2).minimumScaleFactor(0.85)
-                    .strikethrough(chore.completed).foregroundStyle(chore.completed ? .secondary : .primary)
+                    .strikethrough(chore.isTicked).foregroundStyle(chore.isTicked ? .secondary : .primary)
             } else {
-                Image(systemName: chore.completed ? "checkmark.circle.fill" : "circle")
-                    .font(.title3).foregroundStyle(chore.completed ? .green : .secondary)
+                Image(systemName: chore.isTicked ? "checkmark.circle.fill" : "circle")
+                    .font(.title3).foregroundStyle(chore.isTicked ? .green : .secondary)
                 Text("\(chore.emoji ?? "⭐") \(chore.title)").font(.subheadline.weight(.semibold)).lineLimit(1)
-                    .strikethrough(chore.completed).foregroundStyle(chore.completed ? .secondary : .primary)
+                    .strikethrough(chore.isTicked).foregroundStyle(chore.isTicked ? .secondary : .primary)
             }
             Spacer(minLength: 0)
         }
         // A person's widget credits them for Anyone chores. Without a person, an Anyone chore opens the
         // app to ask "Who did it?", and an unfinished checklist has to be finished there first.
         let person = entry.member?.isAnyone == false ? entry.member?.id : nil
-        let needsApp = !chore.completed && ((chore.checklist.map { !$0.isFinished } ?? false) || (chore.isAnyone && person == nil))
+        let needsApp = !chore.isTicked && ((chore.checklist.map { !$0.isFinished } ?? false) || (chore.isAnyone && person == nil))
         if entry.demo {
             Link(destination: URL(string: "family.kinwall.app:/open?to=chores")!) { label } // sample data: ticking happens in the demo itself
         } else if needsApp {
             Link(destination: URL(string: "family.kinwall.app:/open?to=chores&done=\(chore.id)")!) { label }
         } else {
-            Button(intent: ToggleChoreIntent(choreId: chore.id, date: entry.day, done: !chore.completed, creditTo: chore.memberId ?? person)) { label }
+            Button(intent: ToggleChoreIntent(choreId: chore.id, date: entry.day, done: !chore.isTicked, creditTo: chore.memberId ?? person)) { label }
                 .buttonStyle(.plain)
         }
     }

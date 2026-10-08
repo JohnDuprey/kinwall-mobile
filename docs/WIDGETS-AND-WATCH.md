@@ -48,7 +48,7 @@ A menu for M3 (widgets), M4 (Watch) and M5 (Siri), built on things Kinwall alrea
 
 | Control | What it does | Tag |
 |---|---|---|
-| **Add to Groceries** | Opens Groceries in the app, at its add field (a control can't take typing) | Built |
+| **Add to Groceries** | Opens Groceries in the app, at its add field (a control can't take typing). In Shortcuts its action is **Open Groceries**, so it isn't confused with Siri's Add to Groceries, which adds the item | Built |
 | **Start shopping** | Opens shopping mode on Groceries | Built |
 | **Night screen** | Opens the app on the dim night clock | Built |
 
@@ -181,7 +181,7 @@ These run on iPhone, iPad and Watch, and power the interactive widgets too.
   - **What's on today:** "What's on today in Kinwall" says what's left of today and how many chores are left, and shows it as a list.
   - **What's next**, as before.
   - **Start shopping:** "Start shopping in Kinwall" or "Start shopping at Neighborhood market in Kinwall" opens shopping mode on Groceries. The store rides along as `?store=` (the web app asks for the store until it reads that).
-  - **Mark a chore done:** "Mark Water plants done in Kinwall", with an optional **Who did it** that gets the points for an Anyone chore. The server's rules for the widgets' key apply: a device that belongs to one person can only tick theirs, and Kinwall's refusal is read out.
+  - **Mark a chore done:** "Mark Water plants done in Kinwall", with an optional **Who did it** that gets the points for an Anyone chore. The server's rules for the widgets' key apply: a device that belongs to one person can only tick theirs, and Kinwall's refusal is read out. That key is everyday access, so a chore that needs a parent's OK waits for one: Siri says "Marked Dishes done. It's waiting for a parent's OK.", and the chore drops out of Siri's list. The Chores widget and the Watch's My chores show such a chore ticked too (`ChoreDay.pending`, `isTicked`), so it isn't ticked twice.
   - **Start the night screen:** "Start the Kinwall night screen" opens the app on the dim night clock (the event the header's 🌙 button sends).
 
   - **Errors (fixed 2026-09-30):** an intent or entity query that couldn't reach the server used to crash the app: App Intents send a thrown error back over XPC, and a `URLError` carries the connection's `NWPath`, which XPC can't encode. Siri just failed, and the app also crashed at launch while Siri refreshed its list names. KinwallKit now throws `APIError.unreachable` ("Can't reach Kinwall right now.") instead, and a Keychain failure reads as one.

@@ -69,9 +69,12 @@ public struct KinwallClient: Sendable {
         try await send("GET", "api/chores/day", query: [URLQueryItem(name: "date", value: date)])
     }
     /// `memberId`: who gets the points for an Anyone chore (nil = nobody in particular).
-    /// Throws a 409 APIError while the chore's checklist has open items.
-    public func complete(chore id: String, on date: String, by memberId: String? = nil) async throws {
-        try await sendIgnoringBody("POST", "api/chores/\(id)/complete", body: CompleteBody(date: date, memberId: memberId))
+    /// Throws a 409 APIError while the chore's checklist has open items. True when it waits for a
+    /// parent's OK (a display key ticking a chore that needs approval: no points yet).
+    @discardableResult
+    public func complete(chore id: String, on date: String, by memberId: String? = nil) async throws -> Bool {
+        let data = try await perform(try request("POST", "api/chores/\(id)/complete", query: [], body: CompleteBody(date: date, memberId: memberId)))
+        return (try? JSONDecoder().decode(Completed.self, from: data))?.pending == true
     }
     public func uncomplete(chore id: String, on date: String) async throws {
         try await sendIgnoringBody("DELETE", "api/chores/\(id)/complete", query: [URLQueryItem(name: "date", value: date)])
@@ -128,6 +131,7 @@ public struct KinwallClient: Sendable {
     private struct DeviceKeyBody: Encodable { let name: String }
     private struct Empty: Encodable {}
     private struct CompleteBody: Encodable { let date: String; let memberId: String? }
+    private struct Completed: Decodable { let pending: Bool? }
     private struct NewItem: Encodable { let title: String }
     private struct DoneBody: Encodable { let done: Bool }
     private struct DoseBody: Encodable { let date: String; let time: String; let action: DoseAction }

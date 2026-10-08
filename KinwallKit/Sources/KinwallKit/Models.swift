@@ -71,7 +71,12 @@ public struct ChoreDay: Codable, Identifiable, Hashable, Sendable {
     public let completed: Bool
     public let completedBy: String?
     public let checklist: Checklist?
+    /// Ticked from a display key (the widgets, the Watch, Siri) and waiting for a parent's OK: not
+    /// `completed` and no points yet. Nil from servers older than approvals.
+    public var pending: Bool? = nil
     public var isAnyone: Bool { memberId == nil }
+    /// Done or waiting for an OK: either way it's ticked, and ticking it again does nothing new.
+    public var isTicked: Bool { completed || pending == true }
 }
 
 public struct FamilyList: Codable, Identifiable, Hashable, Sendable {

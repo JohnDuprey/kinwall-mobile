@@ -107,7 +107,7 @@ struct PersonQuery: EntityStringQuery {
     func suggestedEntities() async throws -> [PersonEntity] { try await all() }
 }
 
-/// One of today's chores, not done yet.
+/// One of today's chores, not ticked yet (done, or waiting for a parent's OK).
 struct ChoreEntity: AppEntity {
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Chore"
     static let defaultQuery = ChoreQuery()
@@ -121,9 +121,9 @@ struct ChoreEntity: AppEntity {
 
 struct ChoreQuery: EntityStringQuery {
     func all() async throws -> [ChoreEntity] {
-        guard let kinwall = try family() else { return DemoFamily.chores.filter { !$0.completed }.map(ChoreEntity.init) }
+        guard let kinwall = try family() else { return DemoFamily.chores.filter { !$0.isTicked }.map(ChoreEntity.init) }
         try await requireOn(kinwall, \.chores, "Chores")
-        return try await kinwall.chores(on: today(kinwall)).filter { !$0.completed }.map(ChoreEntity.init)
+        return try await kinwall.chores(on: today(kinwall)).filter { !$0.isTicked }.map(ChoreEntity.init)
     }
     func entities(for identifiers: [String]) async throws -> [ChoreEntity] { try await all().filter { identifiers.contains($0.id) } }
     func entities(matching string: String) async throws -> [ChoreEntity] { try await all().filter { $0.title.localizedCaseInsensitiveContains(string) } }
@@ -286,9 +286,12 @@ struct CompleteChoreIntent: AppIntent {
         let current = try await explained { try await kinwall.chores(on: day) }.first { $0.id == chore.id }
         if let checklist = current?.checklist, !checklist.isFinished { throw KinwallIntentError.checklist(chore.title) }
         if current?.completed == true { return .result(dialog: "\(chore.title) is already done.") }
+        if current?.pending == true { return .result(dialog: "\(chore.title) is already done. It's waiting for a parent's OK.") }
         // A person's own chore counts for them; an Anyone chore for whoever was named (or nobody in particular).
-        try await explained { try await kinwall.complete(chore: chore.id, on: day, by: chore.memberId ?? person?.id) }
+        let waits = try await explained { try await kinwall.complete(chore: chore.id, on: day, by: chore.memberId ?? person?.id) }
         WidgetCenter.shared.reloadAllTimelines()
+        // This key is everyday access, so a chore that needs an OK waits for a parent: no points yet.
+        if waits { return .result(dialog: "Marked \(chore.title) done. It's waiting for a parent's OK.") }
         let points = current.map { " \($0.points) points!" } ?? ""
         return .result(dialog: "Marked \(chore.title) done.\(points)")
     }
