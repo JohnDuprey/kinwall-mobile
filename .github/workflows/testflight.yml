@@ -5,6 +5,8 @@
 # Integrations -> App Store Connect API, a key with the Admin role so automatic signing can make
 # certificates and profiles):
 #   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 (the .p8 file's contents), APPLE_TEAM_ID
+# They can live in the "release" environment (as play.yml's do): with its deployment branches
+# limited to main and v* tags, a dispatch from any other branch can't read them.
 # Build numbers: CFBundleVersion is "<major*10000 + minor*100 + patch>.<minutes since 1970>", the
 # same rule as scripts/testflight.sh, so uploads from either always go up within a version.
 name: TestFlight
@@ -25,6 +27,7 @@ defaults:
 jobs:
   check:
     runs-on: ubuntu-latest
+    environment: release
     outputs:
       ready: ${{ steps.s.outputs.ready }}
     steps:
@@ -42,6 +45,7 @@ jobs:
     # Xcode 26 or later: the iOS 17 deployment target, the widgets and the Watch app.
     runs-on: macos-26
     timeout-minutes: 90
+    environment: release
     permissions:
       contents: read
     env:
@@ -52,7 +56,10 @@ jobs:
       # Push stays off until the APNs setup in docs/PLAN.md ("Turning on Live Activity push").
       KINWALL_PUSH: '0'
     # The App Store Connect key (Admin) is written and put in the environment only for the archive
-    # and upload steps, after npm and CocoaPods have installed, so their code never sees it.
+    # and upload steps, after npm and CocoaPods have installed, so their install code never sees it.
+    # The archive step still runs build code from node_modules and Pods (the React Native bundling
+    # and CocoaPods script phases) while the key file exists: xcodebuild signs while it builds, so
+    # unlike play.yml this can't yet be split into an unsigned build and a separate signing job.
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with: { ref: '${{ inputs.tag }}', persist-credentials: false }
