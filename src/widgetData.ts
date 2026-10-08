@@ -3,6 +3,10 @@
 
 import type { ChoreDay } from './reminderPlans'
 
+/** Done or waiting for a parent's OK: either way it's ticked, and ticking it again does nothing new
+ * (KinwallKit ChoreDay.isTicked). */
+export const isTicked = (c: Pick<ChoreDay, 'completed' | 'pending'>) => c.completed || c.pending === true
+
 /** `catalog`: a shopping list's type; missing from servers older than list types. */
 export type FamilyList = { id: string; name: string; emoji?: string | null; kind: 'todo' | 'shopping' | 'reusable'; catalog?: 'groceries' | 'shopping' | null; isDefault?: boolean; archived: boolean; openCount: number }
 export type ListItem = { id: string; title: string; quantity?: string | null; done: boolean }
@@ -21,15 +25,15 @@ export function pickGroceries(lists: FamilyList[]): FamilyList | null {
 /** A Chores widget's rows: one person's (with Anyone chores), or everyone's; ones left first. */
 export function choreRows(chores: ChoreDay[], person: string | null): ChoreDay[] {
   const mine = person ? chores.filter((c) => c.memberId === person || c.memberId == null) : chores
-  return [...mine.filter((c) => !c.completed), ...mine.filter((c) => c.completed)]
+  return [...mine.filter((c) => !isTicked(c)), ...mine.filter(isTicked)]
 }
 
 /** A tap on a chore: tick it here, or open the app (a link's `to=`) where it needs more. An Anyone
  * chore is credited to the widget's person; with no person the app asks "Who did it?". One with an
- * open checklist opens that checklist; a done one opens Chores. */
+ * open checklist opens that checklist; a done one (or one waiting for a parent's OK) opens Chores. */
 export type ChoreTap = { tick: true; memberId: string | null } | { tick: false; open: string }
 export function choreTap(c: ChoreDay, person: string | null): ChoreTap {
-  if (c.completed) return { tick: false, open: 'chores' }
+  if (isTicked(c)) return { tick: false, open: 'chores' }
   if ((c.checklist && c.checklist.done < c.checklist.total) || (c.memberId == null && !person)) return { tick: false, open: `chores&done=${c.id}` }
   return { tick: true, memberId: c.memberId == null ? person : null }
 }

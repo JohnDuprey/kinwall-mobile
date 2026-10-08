@@ -10,7 +10,7 @@ import { type Board, type Connection, board, choresOn, completeChore, dueDoses, 
 import { type WidgetPalette, widgetPalette } from './appearance'
 import { savedAppearance, useUi } from './theme'
 import { widgetConnection } from './sharedKey'
-import { DEMO_CHORES, DEMO_GROCERIES, DEMO_PEOPLE, type ListDetail, choreRows, choreTap, medicinesOn, pickGroceries, takeNowText } from './widgetData'
+import { DEMO_CHORES, DEMO_GROCERIES, DEMO_PEOPLE, type ListDetail, choreRows, choreTap, isTicked, medicinesOn, pickGroceries, takeNowText } from './widgetData'
 import type { ChoreDay } from './reminderPlans'
 import KinwallNative from '../modules/kinwall-native'
 
@@ -73,7 +73,7 @@ function NowAndNext({ p, b, problem }: { p: WidgetPalette; b: Board | null; prob
 type ChoresData = { date: string; person: string | null; names: Record<string, string>; chores: ChoreDay[]; demo?: boolean }
 function Chores({ p, d, problem }: { p: WidgetPalette; d: ChoresData | null; problem?: string }) {
   const rows = d ? choreRows(d.chores, d.person) : []
-  const left = rows.filter((c) => !c.completed).length
+  const left = rows.filter((c) => !isTicked(c)).length
   const title = d?.person ? `${d.names[d.person] ?? 'My'} chores` : 'Chores'
   return (
     <Frame p={p} to="chores">
@@ -88,8 +88,8 @@ function Chores({ p, d, problem }: { p: WidgetPalette; d: ChoresData | null; pro
             const who = !d.person && c.memberId ? ` · ${d.names[c.memberId] ?? ''}` : !d.person ? ' · Anyone' : ''
             return (
               <FlexWidget key={c.id} style={{ width: 'match_parent', flexDirection: 'row', alignItems: 'center', backgroundColor: p.card, borderRadius: 10, padding: 8, marginBottom: 4 }} {...click}>
-                <TextWidget text={c.completed ? '✅' : (c.emoji ?? '⬜️')} style={{ fontSize: 16, marginRight: 8 }} />
-                <TextWidget text={`${c.title}${who}`} style={{ fontSize: 14, color: c.completed ? p.dim : p.fg }} maxLines={1} truncate="END" />
+                <TextWidget text={isTicked(c) ? '✅' : (c.emoji ?? '⬜️')} style={{ fontSize: 16, marginRight: 8 }} />
+                <TextWidget text={`${c.title}${who}`} style={{ fontSize: 14, color: isTicked(c) ? p.dim : p.fg }} maxLines={1} truncate="END" />
               </FlexWidget>
             )
           })}

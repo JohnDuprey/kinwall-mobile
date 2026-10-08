@@ -30,6 +30,10 @@ test('doseReminders: a finished course and a counted one with none left get noth
   assert.deepEqual(r, [])
 })
 
+test("choreNudge: a chore waiting for a parent's OK isn't left", () => {
+  assert.equal(choreNudge([{ id: 'a', title: 'Dishes', memberId: 'maya', completed: false, pending: true }], 'maya'), null)
+})
+
 test("choreNudge: the person's chores left; Done only for a single one without an open checklist", () => {
   const c = (id: string, memberId: string | null, extra = {}) => ({ id, title: id, memberId, completed: false, ...extra })
   assert.equal(choreNudge([c('dishes', 'maya'), c('trash', null)], 'sam'), null)

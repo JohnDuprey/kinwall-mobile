@@ -1,7 +1,7 @@
 // node --test test/ (npm test). The Android widgets' rows and taps.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { type FamilyList, choreRows, choreTap, medicinesOn, pickGroceries, takeNowText } from '../src/widgetData.ts'
+import { type FamilyList, choreRows, choreTap, isTicked, medicinesOn, pickGroceries, takeNowText } from '../src/widgetData.ts'
 import type { ChoreDay } from '../src/reminderPlans.ts'
 
 const list = (id: string, name: string, kind: FamilyList['kind'], archived = false, catalog?: FamilyList['catalog']): FamilyList => ({ id, name, kind, catalog, archived, openCount: 0 })
@@ -42,6 +42,15 @@ test('choreTap: ticks where it can, opens the app where it needs more', () => {
   assert.deepEqual(choreTap(chore('a', 'm3', { checklist: { total: 3, done: 1 } }), 'm3'), { tick: false, open: 'chores&done=a' })
   assert.deepEqual(choreTap(chore('a', 'm3', { checklist: { total: 3, done: 3 } }), 'm3'), { tick: true, memberId: null })
   assert.deepEqual(choreTap(chore('a', 'm3', { completed: true }), 'm3'), { tick: false, open: 'chores' })
+})
+
+test("a chore waiting for a parent's OK counts as ticked: listed with the done ones, and a tap opens Chores", () => {
+  const waiting = chore('waiting', 'm3', { pending: true })
+  assert.equal(isTicked(waiting), true)
+  assert.equal(isTicked(chore('a', 'm3')), false)
+  assert.equal(isTicked(chore('a', 'm3', { completed: true })), true)
+  assert.deepEqual(choreRows([waiting, chore('mine', 'm3')], 'm3').map((c) => c.id), ['mine', 'waiting'])
+  assert.deepEqual(choreTap(waiting, 'm3'), { tick: false, open: 'chores' })
 })
 
 test('takeNowText: a count, never a name', () => {

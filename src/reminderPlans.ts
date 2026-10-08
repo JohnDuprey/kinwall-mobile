@@ -38,14 +38,15 @@ export function doseReminders(h: MedicationDay, now: number): DoseReminder[] {
   return out
 }
 
-/** GET /api/chores/day. */
-export type ChoreDay = { id: string; title: string; emoji?: string | null; memberId: string | null; completed: boolean; checklist?: { total: number; done: number } | null }
+/** GET /api/chores/day. `pending`: ticked from the widgets' key and waiting for a parent's OK (not
+ * `completed`, no points yet); missing from servers older than approvals. */
+export type ChoreDay = { id: string; title: string; emoji?: string | null; memberId: string | null; completed: boolean; pending?: boolean; checklist?: { total: number; done: number } | null }
 export type ChoreNudge = { title: string; body: string; choreId: string | null }
 
 /** The server's chore nudge ("2 chores left today"), for the person's own chores that day. Done
  * only fits one chore, and not one with a checklist (it opens to finish that first). */
 export function choreNudge(chores: ChoreDay[], person: string): ChoreNudge | null {
-  const mine = chores.filter((c) => c.memberId === person && !c.completed)
+  const mine = chores.filter((c) => c.memberId === person && !c.completed && !c.pending) // waiting for an OK isn't left
   if (mine.length === 0) return null
   const one = mine.length === 1 && !(mine[0]!.checklist && mine[0]!.checklist.done < mine[0]!.checklist.total) ? mine[0]!.id : null
   return { title: `${mine.length} chore${mine.length === 1 ? '' : 's'} left today`, body: mine.slice(0, 3).map((c) => c.title).join(', '), choreId: one }

@@ -234,7 +234,7 @@ Four, rendered from JavaScript (`src/widgets.tsx`, [`react-native-android-widget
 | Widget | Size | What it does |
 |---|---|---|
 | **Now & Next** (`Kinwall`) | 3×2 | As before: now, next with the leave-by time, chores left |
-| **Chores** | 3×3 | Today's chores, ones left first. Its settings (touch and hold → the pencil) pick a person or Everyone; by default the phone's own person, else Everyone. A tap ticks it (`POST /api/chores/{id}/complete`); an Anyone chore credits the widget's person, or opens the app on "Who did it?" when it's set to Everyone; one with an open checklist opens that checklist |
+| **Chores** | 3×3 | Today's chores, ones left first. Its settings (touch and hold → the pencil) pick a person or Everyone; by default the phone's own person, else Everyone. A tap ticks it (`POST /api/chores/{id}/complete`); an Anyone chore credits the widget's person, or opens the app on "Who did it?" when it's set to Everyone; one with an open checklist opens that checklist. A chore waiting for a parent's OK (`pending`, from the widgets' key) shows ✅ with the done ones and isn't counted as left, as on iPhone, and a tap opens Chores instead of ticking it again; the chore nudge leaves it out too |
 | **List** | 3×3 | Groceries (the family's default Groceries list, else the first Groceries-type list, else one named Groceries, else the first shopping list), or a list picked in its settings. Tap an item to tick it; **+ Add** opens the list in the app, where the add field is |
 | **Take now** | 2×2 | How many medicines are due now (`GET /api/medications/due`). Never their names: a count and "Medicine" only |
 
