@@ -38,5 +38,12 @@
   "devDependencies": {
     "@types/react": "~19.2.2",
     "typescript": "~6.0.3"
+  },
+  "overrides": {
+    "@bacons/xcode": {
+      "@expo/plist": {
+        "@xmldom/xmldom": "^0.8.15"
+      }
+    }
   }
 }
