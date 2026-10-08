@@ -296,7 +296,23 @@ public enum AppSignIn {
 
     /// The server and a key: the access token (refreshed first if it's about to lapse; refresh tokens
     /// rotate, so the new ones are saved before use), else the paired key. Nil when signed out.
-    public static func credential() async throws -> Connection? {
+    /// Callers at the same moment (an event's calendars and the event) share one read: two refreshes
+    /// would race, and the loser's refresh token is already used, which signs the phone out.
+    public static func credential() async throws -> Connection? { try await OneAtATime.shared.credential() }
+
+    private actor OneAtATime {
+        static let shared = OneAtATime()
+        private var running: Task<Connection?, Error>?
+        func credential() async throws -> Connection? {
+            if let running { return try await running.value }
+            let task = Task { try await AppSignIn.readCredential() }
+            running = task
+            defer { running = nil }
+            return try await task.value
+        }
+    }
+
+    private static func readCredential() async throws -> Connection? {
         if let data = get("family.kinwall.oauth"), var t = try? JSONDecoder().decode(Tokens.self, from: data) {
             let old = OAuth.Tokens(baseURL: t.baseURL, clientId: t.clientId, accessToken: t.accessToken, refreshToken: t.refreshToken,
                                    expiresAt: Date(timeIntervalSince1970: t.expiresAt / 1000), scope: t.scope)

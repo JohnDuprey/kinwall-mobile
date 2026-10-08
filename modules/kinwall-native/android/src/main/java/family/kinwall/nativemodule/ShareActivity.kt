@@ -189,16 +189,18 @@ class ShareActivity : AppCompatActivity() {
     notThat.text = Share.notLabel(Share.Kind.EVENT)
     done.text = "Cancel"
     while (true) {
-      formError.visibility = View.GONE
+      // A form error (no title, a failed save) stays until the next tap.
       show(eventForm, *listOfNotNull(addToCalendar.takeIf { calendars.isNotEmpty() }, openInKinwall, notThat.takeIf { guessed }, done).toTypedArray())
-      when (val c = wait()) {
+      val c = wait()
+      formError.visibility = View.GONE
+      when (c) {
         Choice.Save -> {
           val event = draft() ?: continue
           setBusy(true)
           val o = withContext(Dispatchers.IO) { post(this@ShareActivity, Share.Request(kind = Share.Kind.EVENT, event = event, save = true, calendarId = calendars[calendarPicker.selectedItemPosition].id)) }
           setBusy(false)
           when (o) {
-            is Share.Outcome.Failed -> { formError.text = o.message; formError.visibility = View.VISIBLE; show(eventForm, addToCalendar, openInKinwall, done); continue }
+            is Share.Outcome.Failed -> { formError.text = o.message; formError.visibility = View.VISIBLE; continue }
             is Share.Outcome.Done -> { label.text = ""; return saved(o.result) }
           }
         }
@@ -434,8 +436,10 @@ class ShareActivity : AppCompatActivity() {
     /** The server and a key: the app's OAuth access token (src/oauth.ts; refreshed first and saved
      * back if it's about to lapse, since refresh tokens rotate and the app re-reads them before its
      * own refresh, src/session.ts), else a paired device's key (src/sharedKey.ts shareKey). Null
-     * when signed out. Never the widgets' everyday key. */
-    private fun credential(context: Context): Pair<String, String>? {
+     * when signed out. Never the widgets' everyday key. Synchronized: the calendars and the event go
+     * at once, and two refreshes would race (the loser's refresh token is already used, which signs
+     * the phone out); the second caller waits and reads the tokens the first saved. */
+    @Synchronized private fun credential(context: Context): Pair<String, String>? {
       Keychain.get(context, "family.kinwall.oauth")?.let { saved ->
         val t = JSONObject(saved)
         if (t.getDouble("expiresAt") - System.currentTimeMillis() < 5 * 60_000) {
