@@ -5,6 +5,8 @@ import family.kinwall.nativemodule.Share.Kind
 import family.kinwall.nativemodule.Share.Type
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.util.TimeZone
@@ -22,6 +24,16 @@ class ShareTest {
     assertNull("a flyer that mentions a site is words", Share.linkIn("Spring fair\nSaturday May 9\nMore at https://school.example"))
     assertNull(Share.linkIn("two https://a.example and https://b.example"))
     assertNull(Share.linkIn("no link here"))
+  }
+
+  @Test fun mapsPlaces() {
+    for (maps in listOf("https://maps.app.goo.gl/AbCd", "https://goo.gl/maps/AbCd", "https://www.google.com/maps/place/Maple+Park", "https://maps.google.co.uk/?q=Maple+Park", "https://maps.apple.com/place?name=Maple%20Park")) assertTrue(maps, Share.isMapsPlace(maps))
+    for (not in listOf("https://www.google.com/search?q=maps", "https://goo.gl/AbCd", "https://notgoogle.com/maps", "not a link")) assertFalse(not, Share.isMapsPlace(not))
+    assertEquals("https://maps.app.goo.gl/AbCd" to "Maple Park", Share.mapsPlace("Maple Park\n20 Lake Rd, Springfield\nhttps://maps.app.goo.gl/AbCd"))
+    assertEquals("https://maps.app.goo.gl/AbCd" to null, Share.mapsPlace("https://maps.app.goo.gl/AbCd"))
+    assertNull(Share.mapsPlace("Party! https://example.org/rsvp"))
+    val json = JSONObject(Share.Request(Kind.PLACE, "https://maps.app.goo.gl/AbCd", name = "Maple Park").json())
+    assertEquals(listOf("place", "https://maps.app.goo.gl/AbCd", "Maple Park"), listOf(json.getString("kind"), json.getString("url"), json.getString("name")))
   }
 
   @Test fun eventHeaders() {

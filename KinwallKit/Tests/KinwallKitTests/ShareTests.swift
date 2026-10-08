@@ -30,6 +30,17 @@ import Testing
         #expect(Share.firstLink(in: "Try this: https://example.org/tacos!")?.host == "example.org")
         #expect(Share.isMapsPlace(URL(string: "https://maps.apple.com/?q=Pizza")!))
         #expect(!Share.isMapsPlace(page))
+        for maps in ["https://maps.app.goo.gl/AbCd", "https://goo.gl/maps/AbCd", "https://www.google.com/maps/place/Maple+Park", "https://maps.google.co.uk/?q=Maple+Park", "https://google.com/maps?q=x"] {
+            #expect(Share.isMapsPlace(URL(string: maps)!), "\(maps)")
+        }
+        for not in ["https://www.google.com/search?q=maps", "https://goo.gl/AbCd", "https://notgoogle.com/maps"] {
+            #expect(!Share.isMapsPlace(URL(string: not)!), "\(not)")
+        }
+        let google = Share.mapsPlace(in: "Maple Park\n20 Lake Rd, Springfield\nhttps://maps.app.goo.gl/AbCd")
+        #expect(google?.url.absoluteString == "https://maps.app.goo.gl/AbCd" && google?.name == "Maple Park")
+        #expect(Share.mapsPlace(in: "https://maps.app.goo.gl/AbCd")?.name == nil)
+        #expect(Share.mapsPlace(in: "Party! https://example.org/rsvp") == nil)
+        #expect(Share.checkTitle(.place) == "Check the place")
         #expect(Share.vCardName("BEGIN:VCARD\r\nVERSION:3.0\r\nN:;Joe's Pizza;;;\r\nFN:Joe's Pizza\\, Main St\r\nEND:VCARD") == "Joe's Pizza, Main St")
         #expect(Share.vCardName("BEGIN:VCARD\nEND:VCARD") == nil)
     }

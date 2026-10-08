@@ -52,7 +52,9 @@ import kotlin.coroutines.resume
 
 /** "Kinwall" in Android's share sheet: sends what's shared to the family's Kinwall (POST api/share,
  * Share.kt) in a small sheet over the app it came from, like the iOS share extension
- * (targets/share). A link goes as it is (Kinwall reads the page). A photo or some text is read on the
+ * (targets/share). A link goes as it is (Kinwall reads the page). A Maps place (Google Maps shares
+ * "Name\nAddress\nhttps://maps.app.goo.gl/…") asks "Restaurant or place?" first: a restaurant for the
+ * binder, or a place for Contacts. A photo or some text is read on the
  * device (ShareReader.kt): an ISBN barcode goes as a book straight away; otherwise the sheet
  * guesses (from Gemini Nano where the phone has it, else from the dates, places and phone numbers
  * in it) and goes on as that kind, with "Not a menu?" to pick another, or asks "What is this?".
@@ -70,6 +72,7 @@ class ShareActivity : AppCompatActivity() {
   private lateinit var add: Button
   private lateinit var notThat: Button
   private lateinit var choices: LinearLayout
+  private lateinit var placeChoices: LinearLayout
   private lateinit var done: Button
   private lateinit var openSaved: Button
   private var savedResult: Share.Result? = null
@@ -140,8 +143,10 @@ class ShareActivity : AppCompatActivity() {
     val images = if (intent.type?.startsWith("image/") != true) emptyList()
       else if (intent.action == Intent.ACTION_SEND_MULTIPLE) IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty().take(MAX_PHOTOS)
       else listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
+    val maps = text?.let(Share::mapsPlace)
     val link = text?.let(Share::linkIn)
     when {
+      maps != null -> sendPlace(maps.first, maps.second)
       link != null -> send(Share.Request(url = link), "Reading the page…")
       text != null -> { busy("Reading it…"); sendWords(listOf(text)) }
       images.isNotEmpty() -> {
@@ -155,6 +160,16 @@ class ShareActivity : AppCompatActivity() {
       }
       else -> result("Share a link, a photo, some text or a contact to add it to Kinwall.")
     }
+  }
+
+  /** A Maps place: "Restaurant or place?", then its card (a restaurant for the binder, or a contact). */
+  private suspend fun sendPlace(url: String, name: String?) {
+    spinner.visibility = View.GONE
+    label.text = "Restaurant or place?"
+    done.text = "Cancel"
+    show(placeChoices, done)
+    val kind = (wait() as? Choice.Pick)?.kind ?: return
+    send(Share.Request(kind = kind, url = url, name = name), "Reading the place…")
   }
 
   /** Photos' words (each photo a page) or shared text: a guess goes on as that kind (its card or
@@ -381,12 +396,12 @@ class ShareActivity : AppCompatActivity() {
     }
     add = button("Add to Kinwall", true) { waiting?.invoke(Choice.Add) }
     notThat = button("", false) { showChoices() }
-    choices = LinearLayout(this).apply {
+    fun choiceList(vararg items: Pair<String, Share.Kind>) = LinearLayout(this).apply {
       orientation = LinearLayout.VERTICAL
-      listOf("Restaurant" to Share.Kind.RESTAURANT, "Book" to Share.Kind.BOOK, "Event" to Share.Kind.EVENT).forEach { (title, kind) ->
-        addView(button(title, false) { waiting?.invoke(Choice.Pick(kind)) })
-      }
+      items.forEach { (title, kind) -> addView(button(title, false) { waiting?.invoke(Choice.Pick(kind)) }) }
     }
+    choices = choiceList("Restaurant" to Share.Kind.RESTAURANT, "Book" to Share.Kind.BOOK, "Event" to Share.Kind.EVENT)
+    placeChoices = choiceList("Restaurant" to Share.Kind.RESTAURANT, "Place" to Share.Kind.PLACE)
     done = button("Cancel", false) { finish() }
     openSaved = button("Open", false) { savedResult?.let(::openInApp) }
     addToCalendar = button("Add to calendar", true) { waiting?.invoke(Choice.Save) }
@@ -399,7 +414,7 @@ class ShareActivity : AppCompatActivity() {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
         setPadding(dp(24), dp(24), dp(24), dp(16))
-        listOf(spinner, label, eventForm, card, add, addToCalendar, openInKinwall, notThat, choices, openSaved, done).forEach(::addView)
+        listOf(spinner, label, eventForm, card, add, addToCalendar, openInKinwall, notThat, choices, placeChoices, openSaved, done).forEach(::addView)
       })
     }
   }
@@ -463,7 +478,7 @@ class ShareActivity : AppCompatActivity() {
 
   /** Shows these of the buttons and hides the rest. */
   private fun show(vararg views: View) {
-    for (v in listOf(eventForm, card, add, addToCalendar, openInKinwall, notThat, choices, openSaved, done)) v.visibility = if (v in views) View.VISIBLE else View.GONE
+    for (v in listOf(eventForm, card, add, addToCalendar, openInKinwall, notThat, choices, placeChoices, openSaved, done)) v.visibility = if (v in views) View.VISIBLE else View.GONE
   }
 
   private fun busy(text: String) {

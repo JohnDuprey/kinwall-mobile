@@ -4,8 +4,9 @@ import UIKit
 import UniformTypeIdentifiers
 
 /// "Kinwall" in the share sheet: sends what's shared to the family's Kinwall (POST api/share, KinwallKit
-/// Share.swift) right here in the sheet. A link or an Apple Maps place goes as it is (Kinwall reads
-/// the page). A photo or some text is read on the device (native/ios/ShareReader.swift): an ISBN
+/// Share.swift) right here in the sheet. A link goes as it is (Kinwall reads the page). An Apple or
+/// Google Maps place (a link, or text with one) asks "Restaurant or place?" first: a restaurant for the
+/// binder, or a place for Contacts. A photo or some text is read on the device (native/ios/ShareReader.swift): an ISBN
 /// barcode goes as a book straight away; with Apple Intelligence the model's guess goes on as that
 /// kind, with "Not a menu?" to pick another; otherwise, or when the model isn't sure, it asks
 /// "What is this?". Several photos (a menu over pages) are read one at a time and go as one text,
@@ -34,8 +35,11 @@ final class ShareViewController: UIViewController {
     guard let self, let pages = self.guessedPages else { return }
     Task { @MainActor in await self.pickAgain(pages) }
   })
-  private lazy var choices: UIStackView = {
-    let buttons = [("Restaurant", Share.Kind.restaurant, "fork.knife"), ("Book", .book, "book"), ("Event", .event, "calendar")].map { title, kind, icon in
+  private lazy var choices = choiceStack([("Restaurant", .restaurant, "fork.knife"), ("Book", .book, "book"), ("Event", .event, "calendar")])
+  /// "Restaurant or place?" for a Maps place.
+  private lazy var placeChoices = choiceStack([("Restaurant", .restaurant, "fork.knife"), ("Place", .place, "mappin.and.ellipse")])
+  private func choiceStack(_ items: [(String, Share.Kind, String)]) -> UIStackView {
+    let buttons = items.map { title, kind, icon in
       var config = UIButton.Configuration.plain()
       config.title = title
       config.image = UIImage(systemName: icon)
@@ -48,7 +52,7 @@ final class ShareViewController: UIViewController {
     stack.axis = .vertical
     stack.spacing = 4
     return stack
-  }()
+  }
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -59,13 +63,13 @@ final class ShareViewController: UIViewController {
     label.textAlignment = .center
     label.numberOfLines = 0
     for b in [done, notThat] { b.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true }
-    for v in [notThat, choices, done] { v.isHidden = true }
+    for v in [notThat, choices, placeChoices, done] { v.isHidden = true }
     spinner.startAnimating()
     // Any touch keeps a saved result's sheet open (it closes itself otherwise).
     let touch = UITapGestureRecognizer(target: self, action: #selector(touchedSheet))
     touch.cancelsTouchesInView = false
     view.addGestureRecognizer(touch)
-    let stack = UIStackView(arrangedSubviews: [spinner, label, notThat, choices, done])
+    let stack = UIStackView(arrangedSubviews: [spinner, label, notThat, choices, placeChoices, done])
     stack.axis = .vertical
     stack.spacing = 16
     stack.translatesAutoresizingMaskIntoConstraints = false
@@ -81,9 +85,11 @@ final class ShareViewController: UIViewController {
     super.viewDidAppear(animated)
     Task { @MainActor in
       let shared = await Shared.read(extensionContext)
-      // Maps shares a place as its link and a location vCard, which isn't a contact.
-      if let place = shared.urls.first(where: Share.isMapsPlace) {
-        return await send(.init(url: place.absoluteString, name: shared.vcard.flatMap(Share.vCardName)), reading: "Reading the place…")
+      // Apple Maps shares a place as its link and a location vCard, which isn't a contact; Google Maps
+      // as text with its name first and the link last, or the link alone.
+      let inText = shared.texts.lazy.compactMap(Share.mapsPlace(in:)).first
+      if let place = shared.urls.first(where: Share.isMapsPlace) ?? inText?.url {
+        return await sendPlace(place, name: shared.vcard.flatMap(Share.vCardName) ?? inText?.name ?? shared.texts.lazy.compactMap(Share.placeName(in:)).first)
       }
       if let vcard = shared.vcard { return await importContacts(vcard) }
       if let link = shared.urls.first ?? shared.texts.lazy.compactMap(Share.onlyLink).first {
@@ -176,6 +182,15 @@ final class ShareViewController: UIViewController {
     await send(request(kind, text ?? raw), reading: "Reading it…")
   }
 
+  /// A Maps place: "Restaurant or place?", then its card (a restaurant for the binder, or a contact).
+  private func sendPlace(_ url: URL, name: String?) async {
+    showChoices("Restaurant or place?", placeChoices)
+    let kind = await wait()
+    for v in [placeChoices, done] { v.isHidden = true }
+    cancelling(false)
+    await send(.init(kind: kind, url: url.absoluteString, name: name), reading: "Reading the place…")
+  }
+
   /// What to send for words of a kind: a menu with its QR code lines first.
   private func request(_ kind: Share.Kind, _ text: String?) -> Share.Request? {
     Share.request(kind: kind, text: kind == .restaurant ? text.map { Share.withLinks(links, $0) } : text)
@@ -198,12 +213,12 @@ final class ShareViewController: UIViewController {
 
   private func wait() async -> Share.Kind { await withCheckedContinuation { waiting = $0 } }
 
-  /// "What is this?" with Restaurant, Book and Event; Cancel closes the sheet.
-  private func showChoices() {
+  /// "What is this?" with Restaurant, Book and Event (or another question and its buttons); Cancel closes the sheet.
+  private func showChoices(_ question: String = "What is this?", _ buttons: UIStackView? = nil) {
     spinner.stopAnimating()
-    label.text = "What is this?"
+    label.text = question
     notThat.isHidden = true
-    choices.isHidden = false
+    (buttons ?? choices).isHidden = false
     cancelling(true)
     done.isHidden = false
   }

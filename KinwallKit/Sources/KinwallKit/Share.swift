@@ -11,8 +11,9 @@ import Security
 /// docs/using/share-to-kinwall.md) and what its answer means. The pure parts are tested in
 /// ShareTests.swift; reading a photo's text is native/ios/ShareReader.swift.
 public enum Share {
-    /// What a photo or some text is. A link goes without one: the server reads the page.
-    public enum Kind: String, Codable, CaseIterable, Sendable { case recipe, restaurant, book, event }
+    /// What a photo or some text is. A link goes without one: the server reads the page. A Maps place
+    /// is a restaurant or a place (a contact of kind place), picked in "Restaurant or place?".
+    public enum Kind: String, Codable, CaseIterable, Sendable { case recipe, restaurant, book, event, place }
 
     public struct Request: Encodable, Equatable, Sendable {
         public var kind: Kind?
@@ -58,7 +59,7 @@ public enum Share {
 
     /// The card's title: "Check the recipe", like the event form's "Check the event".
     public static func checkTitle(_ kind: Kind) -> String {
-        switch kind { case .recipe: "Check the recipe"; case .restaurant: "Check the restaurant"; case .book: "Check the book"; case .event: "Check the event" }
+        switch kind { case .recipe: "Check the recipe"; case .restaurant: "Check the restaurant"; case .book: "Check the book"; case .event: "Check the event"; case .place: "Check the place" }
     }
 
     /// An event as Kinwall read it (or as the person changed it): a YYYY-MM-DD date and HH:MM times on
@@ -167,10 +168,28 @@ public enum Share {
         return Request(kind: kind, url: nil, text: text, name: nil)
     }
 
-    /// An Apple Maps place's link (the server's restaurant-import.ts mapsPlace). Maps shares a place
-    /// as this link and a location vCard, which isn't a contact.
+    /// An Apple or Google Maps place's link (the server's restaurant-import.ts mapsPlace). Apple Maps
+    /// shares a place as this link and a location vCard, which isn't a contact; Google Maps as text,
+    /// "Name\nAddress\nhttps://maps.app.goo.gl/…", or the link alone.
     public static func isMapsPlace(_ url: URL) -> Bool {
-        ["maps.apple.com", "maps.apple"].contains(url.host?.lowercased() ?? "")
+        let host = url.host?.lowercased() ?? "", path = url.path
+        if host == "maps.apple.com" || host == "maps.apple" || host == "maps.app.goo.gl" { return true }
+        if host == "goo.gl" { return path.hasPrefix("/maps") }
+        if host.range(of: #"^maps\.google\.[a-z.]+$"#, options: .regularExpression) != nil { return true }
+        return host.range(of: #"^(www\.)?google\.[a-z.]+$"#, options: .regularExpression) != nil && path.hasPrefix("/maps")
+    }
+
+    /// A Maps place in shared text (Google Maps on iPhone): its link, and the first line that isn't a
+    /// link as its name. Nil when the text has no Maps link.
+    public static func mapsPlace(in text: String) -> (url: URL, name: String?)? {
+        guard let url = firstLink(in: text), isMapsPlace(url) else { return nil }
+        return (url, placeName(in: text))
+    }
+
+    /// Shared text's first line that isn't a link: a Maps place's name.
+    public static func placeName(in text: String) -> String? {
+        text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty && firstLink(in: $0) == nil }
     }
 
     /// A shared vCard's FN (formatted name) line: a Maps place's name.
@@ -226,7 +245,7 @@ public enum Share {
             Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield
             Notes: anything else worth knowing, like what to bring, costs, or how to RSVP
             """
-        case .recipe: nil
+        case .recipe, .place: nil
         }
     }
     static let leaveOut = "Answer in exactly this format and nothing else, and leave out any line you can't find:"
@@ -238,7 +257,7 @@ public enum Share {
         case .restaurant: "a photo of a restaurant menu"
         case .book: "a photo of a book's cover or back"
         case .event: "a flyer, an invitation or a screenshot"
-        case .recipe: ""
+        case .recipe, .place: ""
         }
         return format(kind).map { "This is text from \(what). \(leaveOut)\n\($0)\n\n\(text)" }
     }
@@ -329,7 +348,7 @@ public enum Share {
         var lines = answer.replacingOccurrences(of: "**", with: "").split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
         while lines.first?.isEmpty == true { lines.removeFirst() }
         guard let first = lines.first, first.lowercased().hasPrefix("kind:"),
-              let kind = Kind(rawValue: first.dropFirst(5).trimmingCharacters(in: .whitespaces).lowercased()), kind != .recipe else { return nil }
+              let kind = Kind(rawValue: first.dropFirst(5).trimmingCharacters(in: .whitespaces).lowercased()), kind != .recipe, kind != .place else { return nil }
         let text = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         return text.isEmpty ? nil : (kind, text)
     }
@@ -341,6 +360,7 @@ public enum Share {
         let (what, detail): (String, String?) = switch kind {
         case .event: ("an event", [value("title"), value("date")].compactMap { $0 }.joined(separator: ", ").nilIfEmpty)
         case .book: ("a book", value("title"))
+        case .place: ("a place", nil)
         case .restaurant, .recipe: ("a menu", [value("name"), pages > 1 ? "\(pages) pages" : nil].compactMap { $0 }.joined(separator: ", ").nilIfEmpty)
         }
         return "Looks like \(what)" + (detail.map { ": \($0)" } ?? "")
@@ -348,7 +368,7 @@ public enum Share {
 
     /// The small button under a guess: "Not an event?".
     public static func notLabel(_ kind: Kind) -> String {
-        switch kind { case .event: "Not an event?"; case .book: "Not a book?"; case .restaurant, .recipe: "Not a menu?" }
+        switch kind { case .event: "Not an event?"; case .book: "Not a book?"; case .place: "Not a place?"; case .restaurant, .recipe: "Not a menu?" }
     }
 
     // MARK: Reading a photo's words

@@ -11,18 +11,20 @@ import java.util.TimeZone
  * POST /api/share (kinwall's docs/using/share-to-kinwall.md) and what its answer means. The pure
  * rules, tested in src/test (ShareTest.kt); the iOS twin is KinwallKit's Share.swift. */
 object Share {
-  /** What a photo or some text is. A link goes without one: the server reads the page. */
-  enum class Kind { RECIPE, RESTAURANT, BOOK, EVENT; val wire get() = name.lowercase() }
+  /** What a photo or some text is. A link goes without one: the server reads the page. A Maps place
+   * is a restaurant or a place (a contact of kind place), picked in "Restaurant or place?". */
+  enum class Kind { RECIPE, RESTAURANT, BOOK, EVENT, PLACE; val wire get() = name.lowercase() }
 
   /** `event` is an event as the person checked it in the sheet (sent instead of text); `save` adds it
    * to `calendarId` now instead of answering with a link to check it. `preview`: a recipe, restaurant
    * or book comes back as what would be saved (Result.preview), and nothing is saved; `token` goes
    * with the save after a link's preview, so Kinwall doesn't read the page again. */
-  data class Request(val kind: Kind? = null, val url: String? = null, val text: String? = null, val event: EventDraft? = null, val save: Boolean = false, val calendarId: String? = null, val preview: Boolean = false, val token: String? = null) {
+  data class Request(val kind: Kind? = null, val url: String? = null, val text: String? = null, val name: String? = null, val event: EventDraft? = null, val save: Boolean = false, val calendarId: String? = null, val preview: Boolean = false, val token: String? = null) {
     fun json(): String = JSONObject().apply {
       kind?.let { put("kind", it.wire) }
       url?.let { put("url", it) }
       text?.let { put("text", it) }
+      name?.let { put("name", it) }
       event?.let { put("event", it.json()) }
       if (save) put("save", true)
       calendarId?.let { put("calendarId", it) }
@@ -47,7 +49,7 @@ object Share {
   }
 
   /** The card's title: "Check the recipe", like the event form's "Check the event". */
-  fun checkTitle(kind: Kind) = "Check the " + when (kind) { Kind.RECIPE -> "recipe"; Kind.RESTAURANT -> "restaurant"; Kind.BOOK -> "book"; Kind.EVENT -> "event" }
+  fun checkTitle(kind: Kind) = "Check the " + when (kind) { Kind.RECIPE -> "recipe"; Kind.RESTAURANT -> "restaurant"; Kind.BOOK -> "book"; Kind.EVENT -> "event"; Kind.PLACE -> "place" }
 
   /** An event as Kinwall read it (or as the person changed it): a YYYY-MM-DD date and HH:MM times on
    * the household's clock; no time is all day. */
@@ -113,6 +115,22 @@ object Share {
     if (links.size != 1) return null
     val rest = t.replace(links[0], "").trim()
     return if (rest.length <= 120 && !rest.contains('\n')) links[0] else null
+  }
+
+  /** An Apple or Google Maps place's link (the server's restaurant-import.ts mapsPlace). */
+  fun isMapsPlace(url: String): Boolean {
+    val u = try { java.net.URI(url) } catch (e: Exception) { return false }
+    val host = u.host?.lowercase() ?: return false
+    val path = u.path.orEmpty()
+    return host == "maps.apple.com" || host == "maps.apple" || host == "maps.app.goo.gl" || (host == "goo.gl" && path.startsWith("/maps"))
+      || Regex("^maps\\.google\\.[a-z.]+$").matches(host) || (Regex("^(www\\.)?google\\.[a-z.]+$").matches(host) && path.startsWith("/maps"))
+  }
+
+  /** A Maps place in shared text (Google Maps shares "Name\nAddress\nhttps://maps.app.goo.gl/…"): its
+   * link, and the first line that isn't a link as its name. Null when the text has no Maps link. */
+  fun mapsPlace(text: String): Pair<String, String?>? {
+    val link = LINK.findAll(text).map { trimLink(it.value) }.firstOrNull(::isMapsPlace) ?: return null
+    return link to text.lines().map { it.trim() }.firstOrNull { it.isNotEmpty() && !LINK.containsMatchIn(it) }
   }
 
   /** The server's answer as one line: its summary, or what to do about an error without one. */
@@ -201,7 +219,7 @@ object Share {
         first(found, Type.URL)?.let { lines += "Website: $it" }
       }
       Kind.BOOK -> first(found, Type.ISBN)?.let { lines += "ISBN: $it" }
-      Kind.RECIPE -> {}
+      Kind.RECIPE, Kind.PLACE -> {}
     }
     return lines.joinToString("\n")
   }
@@ -261,7 +279,7 @@ object Share {
       Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield
       Notes: anything else worth knowing, like what to bring, costs, or how to RSVP
       """.trimIndent()
-    Kind.RECIPE -> null
+    Kind.RECIPE, Kind.PLACE -> null
   }
   private const val LEAVE_OUT = "Answer in exactly this format and nothing else, and leave out any line you can't find:"
 
@@ -271,7 +289,7 @@ object Share {
       Kind.RESTAURANT -> "a photo of a restaurant menu"
       Kind.BOOK -> "a photo of a book's cover or back"
       Kind.EVENT -> "a flyer, an invitation or a screenshot"
-      Kind.RECIPE -> return null
+      Kind.RECIPE, Kind.PLACE -> return null
     }
     return format(kind)?.let { "This is text from $what. $LEAVE_OUT\n$it\n\n${text.take(6000)}" }
   }
@@ -351,7 +369,7 @@ object Share {
     val lines = answer.replace("**", "").lines().map { it.trim() }.dropWhile { it.isEmpty() }
     val first = lines.firstOrNull() ?: return null
     if (!first.lowercase().startsWith("kind:")) return null
-    val kind = Kind.entries.firstOrNull { it.wire == first.drop(5).trim().lowercase() }?.takeIf { it != Kind.RECIPE } ?: return null
+    val kind = Kind.entries.firstOrNull { it.wire == first.drop(5).trim().lowercase() }?.takeIf { it != Kind.RECIPE && it != Kind.PLACE } ?: return null
     val text = lines.drop(1).joinToString("\n").trim()
     return if (text.isEmpty()) null else kind to text
   }
@@ -363,13 +381,14 @@ object Share {
     val (what, detail) = when (kind) {
       Kind.EVENT -> "an event" to listOfNotNull(value("title"), value("date")).joinToString(", ").takeIf { it.isNotEmpty() }
       Kind.BOOK -> "a book" to value("title")
+      Kind.PLACE -> "a place" to null
       Kind.RESTAURANT, Kind.RECIPE -> "a menu" to listOfNotNull(value("name"), if (pages > 1) "$pages pages" else null).joinToString(", ").takeIf { it.isNotEmpty() }
     }
     return "Looks like $what" + (detail?.let { ": $it" } ?: "")
   }
 
   /** The small button under a guess: "Not an event?". */
-  fun notLabel(kind: Kind) = when (kind) { Kind.EVENT -> "Not an event?"; Kind.BOOK -> "Not a book?"; else -> "Not a menu?" }
+  fun notLabel(kind: Kind) = when (kind) { Kind.EVENT -> "Not an event?"; Kind.BOOK -> "Not a book?"; Kind.PLACE -> "Not a place?"; else -> "Not a menu?" }
 
   /** An EAN-13 that's an ISBN (978/979), off a back cover's barcode. */
   fun isbnBarcode(value: String?) = value?.takeIf { it.length == 13 && it.all(Char::isDigit) && (it.startsWith("978") || it.startsWith("979")) }
