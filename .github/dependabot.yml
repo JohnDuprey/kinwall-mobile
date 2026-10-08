@@ -1,0 +1,5 @@
+version: 2
+# Keeps the SHA-pinned actions current. npm stays manual: Expo pins its packages to the SDK version
+# (`npx expo install --fix`), which Dependabot doesn't know about.
+updates:
+  - { package-ecosystem: github-actions, directory: /, schedule: { interval: monthly }, commit-message: { prefix: 'chore(deps)' } }
