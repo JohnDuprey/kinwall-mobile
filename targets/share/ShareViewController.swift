@@ -138,7 +138,9 @@ final class ShareViewController: UIViewController {
       if case .done(let r) = outcome { review(r) }
       return
     }
-    let addable = await calendars ?? []
+    // No calendar this phone can add to (none writable, or they couldn't be read): EventReview would
+    // have no Add button, so leave it for the app to check instead.
+    guard let addable = await calendars, !addable.isEmpty else { return review(r) }
     spinner.stopAnimating()
     spinner.isHidden = true
     label.isHidden = true
