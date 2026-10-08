@@ -51,6 +51,7 @@ final class ShareViewController: UIViewController {
   override func viewDidLoad() {
     super.viewDidLoad()
     view.backgroundColor = .systemBackground
+    view.tintColor = UIColor(Color.kinwallAction) // filled buttons (Done) match Add to Kinwall
     label.text = "Opening in Kinwall…" // what was shared isn't known yet
     label.font = .preferredFont(forTextStyle: .headline)
     label.textAlignment = .center

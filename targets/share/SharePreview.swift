@@ -61,6 +61,8 @@ struct SharePreview: View {
         Group { if working { ProgressView() } else { Text("Add to Kinwall").bold() } }.frame(maxWidth: .infinity, minHeight: 44)
       }
       .buttonStyle(.borderedProminent)
+      .tint(.kinwallAction)
+      .foregroundStyle(.white)
       .disabled(working)
       if guessed { Button(action: notThat) { Text(Share.notLabel(kind)).frame(maxWidth: .infinity, minHeight: 44) }.disabled(working) }
     }
@@ -68,4 +70,11 @@ struct SharePreview: View {
     .padding(.vertical, 8)
     .background(.bar)
   }
+}
+
+extension Color {
+  /// The share sheet's main button (Add to Kinwall, Add to calendar): a solid blue with white text that
+  /// reads as tappable in light and dark (the system tint drew it pale in dark mode, like a disabled
+  /// button). About 4.9:1 against white.
+  static let kinwallAction = Color(red: 0.16, green: 0.45, blue: 0.85)
 }

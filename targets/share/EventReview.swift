@@ -99,6 +99,8 @@ struct EventReview: View {
           Group { if working { ProgressView() } else { Text("Add to calendar").bold() } }.frame(maxWidth: .infinity, minHeight: 44)
         }
         .buttonStyle(.borderedProminent)
+        .tint(.kinwallAction)
+        .foregroundStyle(.white)
         .disabled(working || draft.title == nil)
       }
       if guessed { Button(action: notEvent) { Text(Share.notLabel(.event)).frame(maxWidth: .infinity, minHeight: 44) }.disabled(working) }
