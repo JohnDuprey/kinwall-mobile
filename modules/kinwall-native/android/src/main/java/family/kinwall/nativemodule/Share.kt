@@ -15,8 +15,10 @@ object Share {
   enum class Kind { RECIPE, RESTAURANT, BOOK, EVENT; val wire get() = name.lowercase() }
 
   /** `event` is an event as the person checked it in the sheet (sent instead of text); `save` adds it
-   * to `calendarId` now instead of answering with a link to check it. */
-  data class Request(val kind: Kind? = null, val url: String? = null, val text: String? = null, val event: EventDraft? = null, val save: Boolean = false, val calendarId: String? = null) {
+   * to `calendarId` now instead of answering with a link to check it. `preview`: a recipe, restaurant
+   * or book comes back as what would be saved (Result.preview), and nothing is saved; `token` goes
+   * with the save after a link's preview, so Kinwall doesn't read the page again. */
+  data class Request(val kind: Kind? = null, val url: String? = null, val text: String? = null, val event: EventDraft? = null, val save: Boolean = false, val calendarId: String? = null, val preview: Boolean = false, val token: String? = null) {
     fun json(): String = JSONObject().apply {
       kind?.let { put("kind", it.wire) }
       url?.let { put("url", it) }
@@ -24,8 +26,28 @@ object Share {
       event?.let { put("event", it.json()) }
       if (save) put("save", true)
       calendarId?.let { put("calendarId", it) }
+      if (preview) put("preview", true)
+      token?.let { put("token", it) }
     }.toString()
+
+    /** The save after `shown`'s card: the same share without preview, with its token. */
+    fun saving(shown: Result) = copy(preview = false, token = shown.preview?.token)
   }
+
+  /** What would be saved (the server's ShareResult preview), for the sheet's card: the photo or
+   * cover, the name, short lines of facts, and a line when it's already in Kinwall. */
+  data class Preview(val title: String, val imageUrl: String? = null, val lines: List<String> = emptyList(), val already: String? = null, val token: String? = null) {
+    companion object {
+      private fun JSONObject.text(key: String) = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
+      fun from(json: JSONObject?) = json?.let { p ->
+        val lines = p.optJSONArray("lines")
+        Preview(p.optString("title"), p.text("imageUrl"), (0 until (lines?.length() ?: 0)).map { lines!!.getString(it) }, p.text("already"), p.text("token"))
+      }
+    }
+  }
+
+  /** The card's title: "Check the recipe", like the event form's "Check the event". */
+  fun checkTitle(kind: Kind) = "Check the " + when (kind) { Kind.RECIPE -> "recipe"; Kind.RESTAURANT -> "restaurant"; Kind.BOOK -> "book"; Kind.EVENT -> "event" }
 
   /** An event as Kinwall read it (or as the person changed it): a YYYY-MM-DD date and HH:MM times on
    * the household's clock; no time is all day. */
@@ -37,8 +59,9 @@ object Share {
     }
   }
 
-  /** `event`: an event to check, what Kinwall read, for the sheet's fields (older servers leave it out). */
-  data class Result(val kind: Kind, val summary: String, val link: String, val review: Boolean, val event: EventDraft? = null) {
+  /** `event`: an event to check, what Kinwall read, for the sheet's fields (older servers leave it out).
+   * `preview`: with Request.preview, what would be saved (older servers save it and leave this out). */
+  data class Result(val kind: Kind, val summary: String, val link: String, val review: Boolean, val event: EventDraft? = null, val preview: Preview? = null) {
     /** Nothing saved yet (an event or a book to pick): it's checked in Kinwall. */
     val needsReview get() = review
   }
@@ -92,7 +115,7 @@ object Share {
     if (status == 200 && json != null) {
       val kind = Kind.entries.firstOrNull { it.wire == json.optString("kind") }
       val summary = json.optString("summary")
-      if (kind != null && summary.isNotEmpty()) return Outcome.Done(Result(kind, summary, json.optString("link"), json.optBoolean("review"), EventDraft.from(json.optJSONObject("event"))))
+      if (kind != null && summary.isNotEmpty()) return Outcome.Done(Result(kind, summary, json.optString("link"), json.optBoolean("review"), EventDraft.from(json.optJSONObject("event")), Preview.from(json.optJSONObject("preview"))))
     }
     json?.optString("summary")?.takeIf { it.isNotEmpty() }?.let { return Outcome.Failed(it) }
     return Outcome.Failed(when (status) {
@@ -161,9 +184,21 @@ object Share {
     return lines.joinToString("\n")
   }
 
-  /** The words to send for a kind: the header lines first (the server takes the first of each), then the words as read. */
-  fun withHeaders(kind: Kind, found: List<Found>, raw: String, zone: TimeZone = TimeZone.getDefault()) =
-    listOf(headers(kind, found, zone), raw.trim()).filter { it.isNotEmpty() }.joinToString("\n\n")
+  /** The words to send for a kind: the header lines first (the server takes the first of each), then
+   * the words as read. A menu (without the model) is named by its first line when that's words, not a
+   * price (the card shows it before anything is saved), and the lines its name, phone and address
+   * came from are left out of the words, so they aren't read as menu items. */
+  fun withHeaders(kind: Kind, found: List<Found>, raw: String, zone: TimeZone = TimeZone.getDefault()): String {
+    var head = headers(kind, found, zone)
+    var lines = raw.trim().lines()
+    if (kind == Kind.RESTAURANT) {
+      val used = useful(found).filter { it.type == Type.PHONE || it.type == Type.ADDRESS }.flatMap { it.text.lines() }.map { it.trim() }.filter { it.length >= 6 }
+      val name = lines.firstOrNull()?.trim()?.takeIf { it.length in 2..60 && it.any(Char::isLetter) && !PRICE.containsMatchIn(it) && used.none(it::contains) }
+      if (name != null) head = listOf("Name: $name", head).filter { it.isNotEmpty() }.joinToString("\n")
+      lines = lines.drop(if (name != null) 1 else 0).filter { l -> used.none(l::contains) }
+    }
+    return listOf(head, lines.joinToString("\n").trim()).filter { it.isNotEmpty() }.joinToString("\n\n")
+  }
 
   private val PRICE = Regex("""(?<![\d.])\$?\d{1,3}\.\d{2}(?![\d])""")
   /** Without the model, what the found things say it is; null when they don't make it clear
@@ -283,24 +318,6 @@ object Share {
   private fun value(label: String, text: String) = text.lines().firstNotNullOfOrNull { line ->
     val parts = line.split(':', limit = 2)
     if (parts.size == 2 && parts[0].trim().lowercase() == label) parts[1].trim().takeIf { it.isNotEmpty() } else null
-  }
-
-  /** The restaurant's name in the model's answer. */
-  fun nameIn(text: String) = value("name", text)
-
-  /** The same name to Kinwall (the server's nameKey): case, accents, spaces and punctuation ignored. */
-  fun sameName(a: String, b: String): Boolean {
-    fun key(s: String) = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFKD).lowercase().filter { it.isLetterOrDigit() }
-    return key(a).isNotEmpty() && key(a) == key(b)
-  }
-
-  /** Under the guess when the restaurant is already in the binder: its menu gets what's new. */
-  fun alreadyThere(name: String, pages: Int) = "$name is already in Kinwall, so ${if (pages > 1) "these" else "this"} will be added to its menu."
-
-  /** GET /api/restaurants' answer: the restaurant with this name (`sameName`) as it's spelled there, or null. */
-  fun existing(body: String, name: String): String? {
-    val all = org.json.JSONArray(body)
-    return (0 until all.length()).map { all.getJSONObject(it).optString("name") }.firstOrNull { sameName(it, name) }
   }
 
   /** The model's answer to `guessPrompt`: its kind and the lines to send, or null when it's unsure. */

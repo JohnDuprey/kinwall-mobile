@@ -24,9 +24,41 @@ public enum Share {
         /// Adds the event to `calendarId` now, instead of answering with a link to check it.
         public var save: Bool?
         public var calendarId: String?
-        public init(kind: Kind? = nil, url: String? = nil, text: String? = nil, name: String? = nil, event: EventDraft? = nil, save: Bool? = nil, calendarId: String? = nil) {
+        /// A recipe, restaurant or book: answer with what would be saved (Result.preview) and save
+        /// nothing. The share sheet asks for one; Shortcuts and the App Intent save straight away.
+        public var preview: Bool?
+        /// With the save after a link's preview: its token, so Kinwall doesn't read the page again.
+        public var token: String?
+        public init(kind: Kind? = nil, url: String? = nil, text: String? = nil, name: String? = nil, event: EventDraft? = nil, save: Bool? = nil, calendarId: String? = nil, preview: Bool? = nil, token: String? = nil) {
             self.kind = kind; self.url = url; self.text = text; self.name = name; self.event = event; self.save = save; self.calendarId = calendarId
+            self.preview = preview; self.token = token
         }
+
+        /// The save after `preview`'s card: the same share without preview, with its token.
+        public func saving(_ preview: Result) -> Request {
+            var r = self
+            r.preview = nil
+            r.token = preview.preview?.token
+            return r
+        }
+    }
+
+    /// What would be saved (the server's ShareResult preview), for the sheet's card: the photo or
+    /// cover, the name, short lines of facts, and a line when it's already in Kinwall.
+    public struct Preview: Decodable, Equatable, Sendable {
+        public let title: String
+        public let imageUrl: String?
+        public let lines: [String]
+        public let already: String?
+        public let token: String?
+        public init(title: String, imageUrl: String? = nil, lines: [String] = [], already: String? = nil, token: String? = nil) {
+            self.title = title; self.imageUrl = imageUrl; self.lines = lines; self.already = already; self.token = token
+        }
+    }
+
+    /// The card's title: "Check the recipe", like the event form's "Check the event".
+    public static func checkTitle(_ kind: Kind) -> String {
+        switch kind { case .recipe: "Check the recipe"; case .restaurant: "Check the restaurant"; case .book: "Check the book"; case .event: "Check the event" }
     }
 
     /// An event as Kinwall read it (or as the person changed it): a YYYY-MM-DD date and HH:MM times on
@@ -47,6 +79,8 @@ public enum Share {
         public let review: Bool
         /// An event to check: what Kinwall read, for the sheet's fields (older servers leave it out).
         public var event: EventDraft? = nil
+        /// With Request.preview: what would be saved (older servers save it and leave this out).
+        public var preview: Preview? = nil
         /// Nothing saved yet (an event or a book to pick): it's checked in Kinwall.
         public var needsReview: Bool { review }
     }
@@ -288,20 +322,6 @@ public enum Share {
         }.first
     }
 
-    /// The restaurant's name in the model's answer.
-    public static func name(in text: String) -> String? { value("name", in: text) }
-
-    /// The same name to Kinwall (the server's nameKey): case, accents, spaces and punctuation ignored.
-    public static func sameName(_ a: String, _ b: String) -> Bool {
-        func key(_ s: String) -> String { String(s.decomposedStringWithCompatibilityMapping.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(Character.init)) }
-        return !key(a).isEmpty && key(a) == key(b)
-    }
-
-    /// Under the guess when the restaurant is already in the binder: its menu gets what's new.
-    public static func alreadyThere(_ name: String, pages: Int) -> String {
-        "\(name) is already in Kinwall, so \(pages > 1 ? "these" : "this") will be added to its menu."
-    }
-
     /// The model's answer to `guessPrompt`: its kind and the lines to send, or nil when it's unsure.
     public static func guess(_ answer: String) -> (kind: Kind, text: String)? {
         var lines = answer.replacingOccurrences(of: "**", with: "").split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
@@ -438,15 +458,6 @@ extension Share {
         } catch {
             return .failed("Can't reach Kinwall. Check your connection and try again.")
         }
-    }
-
-    /// The binder's restaurant with this name (`sameName`), as it's spelled there; nil when there's
-    /// none or the binder can't be read.
-    public static func existingRestaurant(_ name: String) async -> String? {
-        struct Place: Decodable { let name: String }
-        guard let (data, status) = try? await AppSignIn.request("api/restaurants", query: [URLQueryItem(name: "search", value: name)], timeout: 8), status == 200,
-              let all = try? JSONDecoder().decode([Place].self, from: data) else { return nil }
-        return all.first { sameName($0.name, name) }?.name
     }
 
     /// The calendars this phone can add an event to (`addable`), or nil when they can't be read.

@@ -6,12 +6,13 @@ import UniformTypeIdentifiers
 /// "Kinwall" in the share sheet: sends what's shared to the family's Kinwall (POST api/share, KinwallKit
 /// Share.swift) right here in the sheet. A link or an Apple Maps place goes as it is (Kinwall reads
 /// the page). A photo or some text is read on the device (native/ios/ShareReader.swift): an ISBN
-/// barcode goes as a book straight away; with Apple Intelligence the sheet shows the model's guess
-/// ("Looks like a menu: …") with Add to Kinwall and "Not a menu?"; otherwise, or when the model
-/// isn't sure, it asks "What is this?". Several photos (a menu over pages) are read one at a time
-/// and go as one text, guessed a menu when the model can't tell ("Looks like a menu: 3 pages"). An event shows what Kinwall read, to fix and add to a calendar
-/// here (EventReview.swift) or open in the app. A book to pick opens in the app; anything saved shows
-/// Kinwall's line, and the sheet closes itself after about 3 s unless it's touched.
+/// barcode goes as a book straight away; with Apple Intelligence the model's guess goes on as that
+/// kind, with "Not a menu?" to pick another; otherwise, or when the model isn't sure, it asks
+/// "What is this?". Several photos (a menu over pages) are read one at a time and go as one text,
+/// guessed a menu when the model can't tell. A recipe, restaurant or book shows what Kinwall would
+/// save (SharePreview.swift, POST api/share with preview) with Add to Kinwall; an event shows what
+/// Kinwall read, to fix and add to a calendar here (EventReview.swift). A book to pick opens in the
+/// app; anything saved shows Kinwall's line, and the sheet closes itself after about 3 s unless it's touched.
 /// A shared contact (a vCard) is reviewed and imported the same way (ContactImport.swift).
 /// It signs in with what the app keeps in the shared Keychain group (KinwallKit AppSignIn).
 final class ShareViewController: UIViewController {
@@ -23,18 +24,21 @@ final class ShareViewController: UIViewController {
   private var savedResult: Share.Result?
   private var touched = false
   private var review: UIViewController?
-  private enum Choice { case add, kind(Share.Kind) }
-  private var waiting: CheckedContinuation<Choice, Never>?
-  private func choose(_ c: Choice) { waiting?.resume(returning: c); waiting = nil }
-  private lazy var add = UIButton(configuration: .filled(), primaryAction: UIAction(title: "Add to Kinwall") { [weak self] _ in self?.choose(.add) })
-  private lazy var notThat = UIButton(configuration: .plain(), primaryAction: UIAction { [weak self] _ in self?.showChoices() })
+  private var waiting: CheckedContinuation<Share.Kind, Never>?
+  private func choose(_ k: Share.Kind) { waiting?.resume(returning: k); waiting = nil }
+  /// A guess Kinwall couldn't use (no restaurant name in it): "Not a menu?" picks again from these words.
+  private var guessedPages: [String]?
+  private lazy var notThat = UIButton(configuration: .plain(), primaryAction: UIAction { [weak self] _ in
+    guard let self, let pages = self.guessedPages else { return }
+    Task { @MainActor in await self.pickAgain(pages) }
+  })
   private lazy var choices: UIStackView = {
     let buttons = [("Restaurant", Share.Kind.restaurant, "fork.knife"), ("Book", .book, "book"), ("Event", .event, "calendar")].map { title, kind, icon in
       var config = UIButton.Configuration.plain()
       config.title = title
       config.image = UIImage(systemName: icon)
       config.imagePadding = 8
-      let b = UIButton(configuration: config, primaryAction: UIAction { [weak self] _ in self?.choose(.kind(kind)) })
+      let b = UIButton(configuration: config, primaryAction: UIAction { [weak self] _ in self?.choose(kind) })
       b.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
       return b
     }
@@ -51,14 +55,14 @@ final class ShareViewController: UIViewController {
     label.font = .preferredFont(forTextStyle: .headline)
     label.textAlignment = .center
     label.numberOfLines = 0
-    for b in [add, done, notThat] { b.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true }
-    for v in [add, notThat, choices, done] { v.isHidden = true }
+    for b in [done, notThat] { b.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true }
+    for v in [notThat, choices, done] { v.isHidden = true }
     spinner.startAnimating()
     // Any touch keeps a saved result's sheet open (it closes itself otherwise).
     let touch = UITapGestureRecognizer(target: self, action: #selector(touchedSheet))
     touch.cancelsTouchesInView = false
     view.addGestureRecognizer(touch)
-    let stack = UIStackView(arrangedSubviews: [spinner, label, add, notThat, choices, done])
+    let stack = UIStackView(arrangedSubviews: [spinner, label, notThat, choices, done])
     stack.axis = .vertical
     stack.spacing = 16
     stack.translatesAutoresizingMaskIntoConstraints = false
@@ -76,7 +80,7 @@ final class ShareViewController: UIViewController {
       let shared = await Shared.read(extensionContext)
       // Maps shares a place as its link and a location vCard, which isn't a contact.
       if let place = shared.urls.first(where: Share.isMapsPlace) {
-        return await send(.init(url: place.absoluteString, name: shared.vcard.flatMap(Share.vCardName)), reading: "Adding the place…")
+        return await send(.init(url: place.absoluteString, name: shared.vcard.flatMap(Share.vCardName)), reading: "Reading the place…")
       }
       if let vcard = shared.vcard { return await importContacts(vcard) }
       if let link = shared.urls.first ?? shared.texts.lazy.compactMap(Share.onlyLink).first {
@@ -92,7 +96,7 @@ final class ShareViewController: UIViewController {
           self?.busy(one ? "Reading the photo…" : "Reading photo \(n + 1) of \(photos.count)…")
         }
         guard let read else { return finish(one ? "Kinwall couldn't open this photo." : "Kinwall couldn't open these photos.") }
-        if let isbn = read.isbn { return await send(.init(kind: .book, text: isbn), reading: "Adding the book…") }
+        if let isbn = read.isbn { return await send(.init(kind: .book, text: isbn), reading: "Looking up the book…") }
         guard !read.pages.isEmpty else { return finish(one ? "Kinwall couldn't find any words in this photo." : "Kinwall couldn't find any words in these photos.") }
         return await sendWords(read.pages)
       }
@@ -100,43 +104,25 @@ final class ShareViewController: UIViewController {
     }
   }
 
-  /// Photos' words (each photo a page) or shared text: the model's guess to confirm, else "What is
-  /// this?". Several photos are most likely a menu, so without the model's guess the sheet guesses
-  /// that. A menu already in the binder says its new items join it. An event goes to its fields
-  /// (checkEvent) with the words as read under the model's lines.
+  /// Photos' words (each photo a page) or shared text: the model's guess goes on as that kind
+  /// (its card or the event's fields say "Looks like…", with "Not a menu?"), else "What is this?".
+  /// Several photos are most likely a menu, so without the model's guess the sheet guesses that. An
+  /// event goes to its fields (checkEvent) with the words as read under the model's lines.
   private func sendWords(_ pages: [String]) async {
     let raw = Share.joinPages(pages)
-    var kind: Share.Kind
-    var text: String? = nil
-    var guessed = false
     let modelGuess = await ShareReader.guess(pages)
     let guess: (kind: Share.Kind, text: String?)? = modelGuess.map { ($0.kind, $0.text) } ?? (pages.count > 1 ? (.restaurant, nil) : nil)
-    if let guess, guess.kind == .event {
-      kind = .event; text = guess.text; guessed = true
-    } else if let guess {
-      var line = Share.guessLine(guess.kind, text: guess.text ?? "", pages: pages.count)
-      if guess.kind == .restaurant, let name = guess.text.flatMap(Share.name(in:)), let there = await Share.existingRestaurant(name) {
-        line += "\n" + Share.alreadyThere(there, pages: pages.count)
-      }
-      label.text = line
-      notThat.configuration?.title = Share.notLabel(guess.kind)
-      spinner.stopAnimating()
-      for v in [add, notThat, done] { v.isHidden = false }
-      cancelling(true)
-      switch await wait() {
-      case .add: kind = guess.kind; text = guess.text
-      case .kind(let k): kind = k; if k == guess.kind { text = guess.text }
-      }
-    } else {
+    let kind: Share.Kind
+    var text = guess?.text
+    if let guess { kind = guess.kind } else {
       showChoices()
-      guard case .kind(let k) = await wait() else { return }
-      kind = k
+      kind = await wait()
     }
-    for v in [add, notThat, choices, done] { v.isHidden = true }
+    for v in [notThat, choices, done] { v.isHidden = true }
     cancelling(false)
     if text == nil { busy("Reading it…"); text = await ShareReader.tidied(pages, kind: kind) ?? raw }
-    if kind == .event { return await checkEvent(Share.eventText(text, raw: raw), pages: pages, guessed: guessed) }
-    await send(Share.request(kind: kind, text: text), reading: "Adding to Kinwall…")
+    if kind == .event { return await checkEvent(Share.eventText(text, raw: raw), pages: pages, guessed: guess != nil) }
+    await send(Share.request(kind: kind, text: text), reading: "Reading it…", guessed: guess != nil ? pages : nil)
   }
 
   /// An event: what Kinwall read, with the calendars to add it to, to fix and add here (EventReview),
@@ -176,13 +162,13 @@ final class ShareViewController: UIViewController {
   private func pickAgain(_ pages: [String]) async {
     let raw = Share.joinPages(pages)
     showChoices()
-    guard case .kind(let kind) = await wait() else { return }
+    let kind = await wait()
     for v in [choices, done] { v.isHidden = true }
     cancelling(false)
     busy("Reading it…")
     let text = await ShareReader.tidied(pages, kind: kind)
     if kind == .event { return await checkEvent(Share.eventText(text, raw: raw), pages: pages, guessed: false) }
-    await send(Share.request(kind: kind, text: text ?? raw), reading: "Adding to Kinwall…")
+    await send(Share.request(kind: kind, text: text ?? raw), reading: "Reading it…")
   }
 
   private func closeReview() {
@@ -200,13 +186,13 @@ final class ShareViewController: UIViewController {
     done.configuration = config
   }
 
-  private func wait() async -> Choice { await withCheckedContinuation { waiting = $0 } }
+  private func wait() async -> Share.Kind { await withCheckedContinuation { waiting = $0 } }
 
   /// "What is this?" with Restaurant, Book and Event; Cancel closes the sheet.
   private func showChoices() {
     spinner.stopAnimating()
     label.text = "What is this?"
-    for v in [add, notThat] { v.isHidden = true }
+    notThat.isHidden = true
     choices.isHidden = false
     cancelling(true)
     done.isHidden = false
@@ -253,14 +239,45 @@ final class ShareViewController: UIViewController {
     done.isHidden = false
   }
 
-  private func send(_ request: Share.Request?, reading: String) async {
-    guard let request else { return finish("Nothing to add.") }
+  /// Asks Kinwall what it would save (preview), for SharePreview's Add to Kinwall; a Kinwall too old
+  /// for previews saves it straight away. `guessed`: the words behind a guess, for "Not a menu?".
+  private func send(_ request: Share.Request?, reading: String, guessed: [String]? = nil) async {
+    guard var request else { return finish("Nothing to add.") }
+    request.preview = true
     busy(reading)
     switch await Share.send(request) {
-    case .failed(let message): finish(message)
+    case .failed(let message):
+      finish(message)
+      // A guess that didn't fit (a "menu" with no name): pick what it is instead.
+      if let guessed, let kind = request.kind {
+        guessedPages = guessed
+        notThat.configuration?.title = Share.notLabel(kind)
+        notThat.isHidden = false
+      }
+    case .done(let r) where r.preview != nil: showPreview(r, save: request.saving(r), guessed: guessed)
     case .done(let r) where r.needsReview: review(r)
     case .done(let r): saved(r)
     }
+  }
+
+  /// What Kinwall would save, with Add to Kinwall (SharePreview); "Not a menu?" when it was a guess.
+  private func showPreview(_ r: Share.Result, save: Share.Request, guessed: [String]?) {
+    spinner.stopAnimating()
+    spinner.isHidden = true
+    label.isHidden = true
+    let context = extensionContext
+    review = embed(SharePreview(kind: r.kind, preview: r.preview!, guessed: guessed != nil,
+      add: { [weak self] in
+        switch await Share.send(save) {
+        case .failed(let message): return message
+        case .done(let saved): self?.closeReview(); self?.saved(saved); return nil
+        }
+      },
+      notThat: { [weak self] in
+        self?.closeReview()
+        if let guessed { Task { @MainActor in await self?.pickAgain(guessed) } }
+      },
+      cancel: { context?.completeRequest(returningItems: nil) }))
   }
 
   /// Saved: Kinwall's line; the sheet closes itself after about 3 s unless it's touched.

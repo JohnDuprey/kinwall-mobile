@@ -53,6 +53,15 @@ class ShareTest {
     assertEquals("Joe's menu", Share.withHeaders(Kind.BOOK, emptyList(), "Joe's menu"))
   }
 
+  @Test fun aMenuWithoutTheModelIsNamedByItsFirstLine() {
+    // The made-up menu photo as ML Kit read it: the name on top, then a line with the phone and the address.
+    val words = "Juniper Hill Kitchen\nComfort food · (555) 014-2290\n42 Orchard Lane, Springfield\nStarters\nTomato soup 6.50"
+    val found = listOf(Found(Type.PHONE, "(555) 014-2290"), Found(Type.ADDRESS, "42 Orchard Lane,\nSpringfield"))
+    assertEquals("the lines the header came from aren't menu items",
+      "Name: Juniper Hill Kitchen\nPhone: (555) 014-2290\nAddress: 42 Orchard Lane,\nSpringfield\n\nStarters\nTomato soup 6.50", Share.withHeaders(Kind.RESTAURANT, found, words))
+    assertEquals("a first line with a price isn't a name", "Pizza 12.99\nSalad 8.00", Share.withHeaders(Kind.RESTAURANT, emptyList(), "Pizza 12.99\nSalad 8.00"))
+  }
+
   @Test fun guessKind() {
     val day = Found(Type.DATE_TIME, "May 9", tenAm, 3)
     val phone = Found(Type.PHONE, "555-555-0100")
@@ -164,13 +173,21 @@ class ShareTest {
     assert(!Share.morePrompt("Sides\nFries 3").contains("Name:"))
   }
 
-  @Test fun guessLineCountsPagesAndSaysWhenTheRestaurantIsThere() {
+  @Test fun guessLineCountsPages() {
     assertEquals("Looks like a menu: Corner Slice, 3 pages", Share.guessLine(Kind.RESTAURANT, "Name: Corner Slice\nMenu:\nPizza 12", 3))
     assertEquals("Looks like a menu: 2 pages", Share.guessLine(Kind.RESTAURANT, "", 2))
     assertEquals("Looks like an event: Spring fair", Share.guessLine(Kind.EVENT, "Title: Spring fair", 2))
-    assertEquals("Corner Slice is already in Kinwall, so these will be added to its menu.", Share.alreadyThere("Corner Slice", 3))
-    assertEquals("Corner Slice", Share.existing("""[{"name":"Golden Bowl"},{"name":"Corner Slice"}]""", "corner slice!"))
-    assertNull(Share.existing("""[{"name":"Corner Cafe"}]""", "Corner Slice"))
-    assertEquals("Corner Slice", Share.nameIn("Name: Corner Slice\nMenu:"))
+  }
+
+  @Test fun aPreviewShowsWhatWouldBeSavedThenTheSameShareSavesIt() {
+    val ok = """{"kind":"restaurant","summary":"Ready to add: Corner Slice","link":"https://k/#/meals?restaurant=r1","review":true,"preview":{"title":"Corner Slice","imageUrl":null,"exists":true,"lines":["Pizza","555-0100"],"already":"Already in Kinwall: 12 new items will be added.","token":"t1"}}"""
+    val r = (Share.outcome(200, ok) as Share.Outcome.Done).result
+    assertEquals(Share.Preview("Corner Slice", null, listOf("Pizza", "555-0100"), "Already in Kinwall: 12 new items will be added.", "t1"), r.preview)
+    assertEquals("Check the restaurant", Share.checkTitle(Kind.RESTAURANT))
+    // The sheet asks for a preview; the save is the same share without it, with the preview's token.
+    val save = Share.Request(kind = Kind.RESTAURANT, text = "Name: Corner Slice", preview = true).saving(r)
+    assertEquals(setOf("kind", "text", "token"), JSONObject(save.json()).keys().asSequence().toSet())
+    // An older Kinwall saves it straight away: no preview.
+    assertNull((Share.outcome(200, """{"kind":"recipe","summary":"Imported Tacos","link":"https://k/#/meals?recipe=x","review":false}""") as Share.Outcome.Done).result.preview)
   }
 }

@@ -7,6 +7,8 @@ import android.graphics.Color
 import android.net.Uri
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import android.graphics.BitmapFactory
+import android.graphics.Typeface
 import android.os.Bundle
 import android.text.InputType
 import android.text.format.DateFormat
@@ -18,6 +20,7 @@ import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -50,10 +53,11 @@ import kotlin.coroutines.resume
 /** "Kinwall" in Android's share sheet: sends what's shared to the family's Kinwall (POST api/share,
  * Share.kt) in a small sheet over the app it came from, like the iOS share extension
  * (targets/share). A link goes as it is (Kinwall reads the page). A photo or some text is read on the
- * device (ShareReader.kt): an ISBN barcode goes as a book straight away; otherwise the sheet shows a
- * guess ("Looks like a menu: …", from Gemini Nano where the phone has it, else from the dates,
- * places and phone numbers in it) with Add to Kinwall and "Not a menu?", or asks "What is this?".
- * An event shows what Kinwall read, to fix and add to a calendar here (Add to calendar) or open in
+ * device (ShareReader.kt): an ISBN barcode goes as a book straight away; otherwise the sheet
+ * guesses (from Gemini Nano where the phone has it, else from the dates, places and phone numbers
+ * in it) and goes on as that kind, with "Not a menu?" to pick another, or asks "What is this?".
+ * A recipe, restaurant or book shows what Kinwall would save (previewCard, POST api/share with
+ * preview) with Add to Kinwall, like the iOS sheet's SharePreview. An event shows what Kinwall read, to fix and add to a calendar here (Add to calendar) or open in
  * the app (Open in Kinwall), like the iOS sheet's EventReview. A book to pick opens in the app;
  * anything saved shows Kinwall's line with Open, and the sheet closes itself after about 3 s unless
  * it's touched. Several photos (SEND_MULTIPLE, a menu over pages) are read one at a time and go as
@@ -88,6 +92,13 @@ class ShareActivity : AppCompatActivity() {
   private var start = "09:00"
   private var end = "10:00"
   private var calendars = listOf<Share.FamilyCalendar>()
+  // The card for a recipe, restaurant or book (previewCard): photo or cover, name, lines, already there.
+  private lateinit var card: LinearLayout
+  private lateinit var cardImage: ImageView
+  private lateinit var cardTitle: TextView
+  private lateinit var cardLines: TextView
+  private lateinit var cardAlready: TextView
+  private lateinit var cardError: TextView
 
   private sealed interface Choice { data object Add : Choice; data class Pick(val kind: Share.Kind) : Choice; data object Save : Choice; data object Open : Choice }
   private var waiting: ((Choice) -> Unit)? = null
@@ -137,7 +148,7 @@ class ShareActivity : AppCompatActivity() {
         val one = images.size == 1
         val read = ShareReader.read(this, images) { n -> busy(if (one) "Reading the photo…" else "Reading photo ${n + 1} of ${images.size}…") }
           ?: return result(if (one) "Kinwall couldn't open this photo." else "Kinwall couldn't open these photos.")
-        if (read.isbn != null) return send(Share.Request(kind = Share.Kind.BOOK, text = read.isbn), "Adding the book…")
+        if (read.isbn != null) return send(Share.Request(kind = Share.Kind.BOOK, text = read.isbn), "Looking up the book…")
         if (read.pages.isEmpty()) return result(if (one) "Kinwall couldn't find any words in this photo." else "Kinwall couldn't find any words in these photos.")
         sendWords(read.pages)
       }
@@ -145,47 +156,36 @@ class ShareActivity : AppCompatActivity() {
     }
   }
 
-  /** Photos' words (each photo a page) or shared text: a guess to confirm, else "What is this?".
-   * Several photos are most likely a menu, so when nothing else can tell the sheet guesses that. A
-   * menu already in the binder says its new items join it. An event goes to its fields (checkEvent)
-   * with the words as read under the model's lines. */
+  /** Photos' words (each photo a page) or shared text: a guess goes on as that kind (its card or
+   * the event's fields say "Looks like…", with "Not a menu?"), else "What is this?". Several photos
+   * are most likely a menu, so when nothing else can tell the sheet guesses that. An event goes to
+   * its fields (checkEvent) with the words as read under the model's lines. */
   private suspend fun sendWords(pages: List<String>) {
     val raw = Share.joinPages(pages)
     val found = scope.async { ShareReader.entities(raw) }
     val model = ShareReader.guess(pages)
     val guess = model ?: (Share.guessKind(found.await(), raw) ?: Share.Kind.RESTAURANT.takeIf { pages.size > 1 })?.let { it to Share.withHeaders(it, found.await(), raw) }
-    var kind: Share.Kind
-    var text: String? = null
-    if (guess != null && guess.first == Share.Kind.EVENT) {
-      kind = guess.first; text = guess.second
-    } else if (guess != null) {
-      spinner.visibility = View.GONE
-      val name = if (guess.first == Share.Kind.RESTAURANT) Share.nameIn(guess.second) else null
-      val there = name?.let { withContext(Dispatchers.IO) { existingRestaurant(this@ShareActivity, it) } }
-      label.text = Share.guessLine(guess.first, guess.second, pages.size) + (there?.let { "\n" + Share.alreadyThere(it, pages.size) } ?: "")
-      notThat.text = Share.notLabel(guess.first)
-      show(add, notThat, done)
-      when (val c = wait()) {
-        is Choice.Pick -> { kind = c.kind; if (c.kind == guess.first) text = guess.second }
-        else -> { kind = guess.first; text = guess.second }
-      }
-    } else {
+    if (guess == null) {
       showChoices()
-      kind = (wait() as Choice.Pick).kind
+      return again(pages, (wait() as Choice.Pick).kind)
     }
-    show()
-    if (text == null) {
-      busy("Reading it…")
-      text = ShareReader.tidied(pages, kind) ?: Share.withHeaders(kind, found.await(), raw)
-    }
-    if (kind == Share.Kind.EVENT) return checkEvent(Share.eventText(text, raw), pages, guess?.first == Share.Kind.EVENT)
-    send(Share.Request(kind = kind, text = text), "Adding to Kinwall…")
+    val (kind, text) = guess
+    if (kind == Share.Kind.EVENT) return checkEvent(Share.eventText(text, raw), pages, true)
+    send(Share.Request(kind = kind, text = text), "Reading it…", pages)
+  }
+
+  /** A kind picked for these words ("What is this?", "Not a menu?"): tidied for it, then on as if it were guessed right. */
+  private suspend fun again(pages: List<String>, kind: Share.Kind) {
+    val raw = Share.joinPages(pages)
+    busy("Reading it…")
+    val tidied = ShareReader.tidied(pages, kind)
+    if (kind == Share.Kind.EVENT) return checkEvent(Share.eventText(tidied, raw), pages, false)
+    send(Share.Request(kind = kind, text = tidied ?: Share.withHeaders(kind, ShareReader.entities(raw), raw)), "Reading it…")
   }
 
   /** An event: what Kinwall read and the calendars to add it to, to fix and add here, or open in the
    * app. A Kinwall too old to say what it read opens the app's event sheet, as before. */
   private suspend fun checkEvent(text: String, pages: List<String>, guessed: Boolean) {
-    val raw = Share.joinPages(pages)
     busy("Reading the event…")
     val cals = scope.async(Dispatchers.IO) { calendars(this@ShareActivity) }
     val read = withContext(Dispatchers.IO) { post(this@ShareActivity, Share.Request(kind = Share.Kind.EVENT, text = text)) }
@@ -222,13 +222,7 @@ class ShareActivity : AppCompatActivity() {
             is Share.Outcome.Done -> return openInApp(o.result)
           }
         }
-        is Choice.Pick -> { // Not an event? showed "What is this?": on as if picked first
-          val kind = c.kind
-          busy("Reading it…")
-          val tidied = ShareReader.tidied(pages, kind)
-          if (kind == Share.Kind.EVENT) return checkEvent(Share.eventText(tidied, raw), pages, false)
-          return send(Share.Request(kind = kind, text = tidied ?: Share.withHeaders(kind, ShareReader.entities(raw), raw)), "Adding to Kinwall…")
-        }
+        is Choice.Pick -> return again(pages, c.kind) // Not an event? showed "What is this?"
         Choice.Add -> {}
       }
     }
@@ -272,11 +266,64 @@ class ShareActivity : AppCompatActivity() {
     for (v in listOf(title, place, notes, dayButton, allDay, startButton, endButton, calendarPicker, addToCalendar, openInKinwall, notThat, done)) v.isEnabled = !on
   }
 
-  private suspend fun send(request: Share.Request, reading: String) {
+  /** Asks Kinwall what it would save (preview), for the card's Add to Kinwall; a Kinwall too old for
+   * previews saves it straight away. `guessed`: the words behind a guess, for "Not a menu?". */
+  private suspend fun send(request: Share.Request, reading: String, guessed: List<String>? = null) {
     busy(reading)
-    when (val o = withContext(Dispatchers.IO) { post(this@ShareActivity, request) }) {
-      is Share.Outcome.Failed -> result(o.message)
-      is Share.Outcome.Done -> if (o.result.needsReview) openInApp(o.result) else saved(o.result)
+    val ask = request.copy(preview = true)
+    when (val o = withContext(Dispatchers.IO) { post(this@ShareActivity, ask) }) {
+      is Share.Outcome.Failed -> {
+        result(o.message)
+        // A guess that didn't fit (a "menu" with no name): pick what it is instead.
+        val kind = request.kind
+        if (guessed != null && kind != null) {
+          notThat.text = Share.notLabel(kind)
+          done.text = "Cancel"
+          show(notThat, done)
+          (wait() as? Choice.Pick)?.let { again(guessed, it.kind) }
+        }
+      }
+      is Share.Outcome.Done -> when {
+        o.result.preview != null -> previewCard(o.result, ask.saving(o.result), guessed)
+        o.result.needsReview -> openInApp(o.result)
+        else -> saved(o.result)
+      }
+    }
+  }
+
+  /** What Kinwall would save: the photo or cover, the name, its lines and what saving does to one
+   * already there, with Add to Kinwall, "Not a menu?" when it was a guess, and Cancel. */
+  private suspend fun previewCard(r: Share.Result, save: Share.Request, guessed: List<String>?) {
+    val p = r.preview!!
+    spinner.visibility = View.GONE
+    label.text = if (guessed != null) Share.guessLine(r.kind, "") else Share.checkTitle(r.kind)
+    cardTitle.text = p.title
+    cardLines.text = p.lines.joinToString("\n")
+    cardLines.visibility = if (p.lines.isEmpty()) View.GONE else View.VISIBLE
+    cardAlready.text = p.already.orEmpty()
+    cardAlready.visibility = if (p.already == null) View.GONE else View.VISIBLE
+    cardImage.visibility = View.GONE
+    p.imageUrl?.let { url -> scope.launch { withContext(Dispatchers.IO) { image(url) }?.let { cardImage.setImageBitmap(it); cardImage.visibility = View.VISIBLE } } }
+    notThat.text = Share.notLabel(r.kind)
+    done.text = "Cancel"
+    while (true) {
+      show(card, add, *listOfNotNull(notThat.takeIf { guessed != null }, done).toTypedArray())
+      when (val c = wait()) {
+        Choice.Add -> {
+          cardError.visibility = View.GONE
+          for (v in listOf(add, notThat, done)) v.isEnabled = false
+          spinner.visibility = View.VISIBLE
+          val o = withContext(Dispatchers.IO) { post(this@ShareActivity, save) }
+          spinner.visibility = View.GONE
+          for (v in listOf(add, notThat, done)) v.isEnabled = true
+          when (o) {
+            is Share.Outcome.Failed -> { cardError.text = o.message; cardError.visibility = View.VISIBLE }
+            is Share.Outcome.Done -> { label.text = ""; return saved(o.result) }
+          }
+        }
+        is Choice.Pick -> return again(guessed ?: return, c.kind) // Not a menu? showed "What is this?"
+        else -> {}
+      }
     }
   }
 
@@ -339,13 +386,14 @@ class ShareActivity : AppCompatActivity() {
     addToCalendar = button("Add to calendar", true) { waiting?.invoke(Choice.Save) }
     openInKinwall = button("Open in Kinwall", false) { waiting?.invoke(Choice.Open) }
     eventForm = eventForm()
+    card = card()
     show()
     return ScrollView(this).apply {
       addView(LinearLayout(this@ShareActivity).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
         setPadding(dp(24), dp(24), dp(24), dp(16))
-        listOf(spinner, label, eventForm, add, addToCalendar, openInKinwall, notThat, choices, openSaved, done).forEach(::addView)
+        listOf(spinner, label, eventForm, card, add, addToCalendar, openInKinwall, notThat, choices, openSaved, done).forEach(::addView)
       })
     }
   }
@@ -387,9 +435,29 @@ class ShareActivity : AppCompatActivity() {
     }
   }
 
+  /** The card's views: the photo or cover (when it loads), the name, its lines, the already-there line. */
+  private fun card(): LinearLayout {
+    cardImage = ImageView(this).apply {
+      scaleType = ImageView.ScaleType.FIT_CENTER
+      adjustViewBounds = true
+      maxHeight = dp(200)
+      importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+      layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) }
+    }
+    cardTitle = TextView(this).apply { textSize = 20f; setTypeface(typeface, Typeface.BOLD); setTextColor(getColor(R.color.kinwall_share_text)) }
+    cardLines = TextView(this).apply { textSize = 15f; setTextColor(getColor(R.color.kinwall_share_dim)); setLineSpacing(0f, 1.2f); setPadding(0, dp(4), 0, 0) }
+    cardAlready = TextView(this).apply { textSize = 15f; setTextColor(getColor(R.color.kinwall_share_text)); setPadding(0, dp(10), 0, 0) }
+    cardError = TextView(this).apply { setTextColor(getColor(R.color.kinwall_share_error)); visibility = View.GONE; setPadding(0, dp(8), 0, 0) }
+    return LinearLayout(this).apply {
+      orientation = LinearLayout.VERTICAL
+      layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) }
+      listOf(cardImage, cardTitle, cardLines, cardAlready, cardError).forEach(::addView)
+    }
+  }
+
   /** Shows these of the buttons and hides the rest. */
   private fun show(vararg views: View) {
-    for (v in listOf(eventForm, add, addToCalendar, openInKinwall, notThat, choices, openSaved, done)) v.visibility = if (v in views) View.VISIBLE else View.GONE
+    for (v in listOf(eventForm, card, add, addToCalendar, openInKinwall, notThat, choices, openSaved, done)) v.visibility = if (v in views) View.VISIBLE else View.GONE
   }
 
   private fun busy(text: String) {
@@ -430,12 +498,20 @@ class ShareActivity : AppCompatActivity() {
 
     private const val MAX_PHOTOS = 10
 
-    /** The binder's restaurant with this name, as it's spelled there (Share.existing); null when there's none or it can't be read. */
-    fun existingRestaurant(context: Context, name: String): String? = try {
-      call(context, "api/restaurants?search=" + java.net.URLEncoder.encode(name, "UTF-8"), null).let { (code, body) -> if (code == 200) Share.existing(body, name) else null }
+    /** A photo or cover for the card, sized down for the sheet; null when it can't be loaded. */
+    fun image(url: String): android.graphics.Bitmap? = try {
+      http.newCall(Request.Builder().url(url).build()).execute().use { res ->
+        if (!res.isSuccessful) return null
+        val bytes = res.peekBody(MAX_IMAGE).bytes() // a bigger one is cut off and won't decode: no picture
+        val size = BitmapFactory.Options().apply { inJustDecodeBounds = true }.also { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, it) }
+        var sample = 1
+        while (size.outWidth / (sample * 2) >= 800) sample *= 2
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })
+      }
     } catch (e: Exception) {
       null
     }
+    private const val MAX_IMAGE = 8L * 1024 * 1024
 
     /** The calendars this phone can add an event to (Share.addable), or null when they can't be read. */
     fun calendars(context: Context): List<Share.FamilyCalendar>? = try {

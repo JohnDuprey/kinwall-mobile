@@ -94,6 +94,23 @@ import Testing
         #expect(body["event"] as? [String: String] == ["title": "Swim", "date": "2026-05-09"])
     }
 
+    @Test func aPreviewShowsWhatWouldBeSavedThenTheSameShareSavesIt() throws {
+        let ok = Data(#"{"kind":"restaurant","summary":"Ready to add: Corner Slice","link":"https://k/#/meals?restaurant=r1","review":true,"preview":{"title":"Corner Slice","imageUrl":null,"exists":true,"lines":["Pizza","555-0100"],"already":"Already in Kinwall: 12 new items will be added.","token":"t1","restaurant":{"items":12}}}"#.utf8)
+        guard case .done(let r) = Share.outcome(status: 200, data: ok) else { Issue.record("not done"); return }
+        #expect(r.preview == .init(title: "Corner Slice", imageUrl: nil, lines: ["Pizza", "555-0100"], already: "Already in Kinwall: 12 new items will be added.", token: "t1"))
+        #expect(Share.checkTitle(.restaurant) == "Check the restaurant" && Share.checkTitle(.book) == "Check the book")
+        // The sheet asks for a preview; the save is the same share without it, with the preview's token.
+        let asked = Share.Request(kind: .restaurant, text: "Name: Corner Slice", preview: true)
+        let save = asked.saving(r)
+        #expect(save == .init(kind: .restaurant, text: "Name: Corner Slice", token: "t1"))
+        let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(save)) as! [String: Any]
+        #expect(Set(body.keys) == ["kind", "text", "token"])
+        // An older Kinwall saves it straight away: no preview, nothing to check.
+        let saved = Data(#"{"kind":"recipe","summary":"Imported Tacos","link":"https://k/#/meals?recipe=x","review":false}"#.utf8)
+        guard case .done(let s) = Share.outcome(status: 200, data: saved) else { Issue.record("not done"); return }
+        #expect(s.preview == nil && !s.needsReview)
+    }
+
     @Test func theModelsLinesThenTheWordsAsRead() {
         #expect(Share.eventText("Title: Swim\nPlace: Oak Pool", raw: "SWIM\n9 Lake Ave") == "Title: Swim\nPlace: Oak Pool\n---\nSWIM\n9 Lake Ave")
         #expect(Share.eventText(nil, raw: "SWIM") == "SWIM")
@@ -150,14 +167,9 @@ import Testing
         #expect(Share.prompt(.restaurant, text: "Pizza")!.contains("Name:"))
     }
 
-    @Test func guessLineCountsPagesAndSaysWhenTheRestaurantIsThere() {
+    @Test func guessLineCountsPages() {
         #expect(Share.guessLine(.restaurant, text: "Name: Corner Slice\nMenu:\nPizza 12", pages: 3) == "Looks like a menu: Corner Slice, 3 pages")
         #expect(Share.guessLine(.restaurant, text: "", pages: 2) == "Looks like a menu: 2 pages")
         #expect(Share.guessLine(.event, text: "Title: Spring fair", pages: 2) == "Looks like an event: Spring fair")
-        #expect(Share.alreadyThere("Corner Slice", pages: 3) == "Corner Slice is already in Kinwall, so these will be added to its menu.")
-        #expect(Share.alreadyThere("Corner Slice", pages: 1) == "Corner Slice is already in Kinwall, so this will be added to its menu.")
-        #expect(Share.name(in: "Name: Corner Slice\nMenu:") == "Corner Slice")
-        #expect(Share.sameName("corner slice!", "Corner Slice"))
-        #expect(!Share.sameName("Corner Slice", "Corner Cafe"))
     }
 }
