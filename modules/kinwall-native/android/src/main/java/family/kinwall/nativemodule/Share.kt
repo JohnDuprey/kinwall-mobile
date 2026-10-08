@@ -192,7 +192,7 @@ object Share {
       Address: its address on one line
       Website: its website
       Menu:
-      then each menu section's name on its own line, with each of its items on its own line below it as the item's name and then its price, like "Large cheese 14.99"
+      $MENU_LINES
       """.trimIndent()
     Kind.BOOK -> """
       ISBN: the ISBN, from the barcode's number
@@ -208,6 +208,7 @@ object Share {
       """.trimIndent()
     Kind.RECIPE -> null
   }
+  private const val MENU_LINES = "then each menu section's name on its own line, with each of its items on its own line below it as the item's name and then its price, like \"Large cheese 14.99\""
   private const val LEAVE_OUT = "Answer in exactly this format and nothing else, and leave out any line you can't find:"
 
   /** Rewrites a photo's text into the lines Kinwall reads for a kind the person picked. */
@@ -237,6 +238,71 @@ object Share {
     |${text.take(6000)}
     """.trimMargin()
 
+  /** A long menu's later part (`chunks`), as menu lines only; the name and the other header lines come from the first part. */
+  fun morePrompt(text: String) = "This is more text from the same restaurant menu. Answer with only its menu, in exactly this format and nothing else: $MENU_LINES\n\n$text"
+
+  // --- Several photos (a menu over pages) ---------------------------------------------------------
+
+  /** The line between photos' words, which Kinwall skips ("--- Page 2 ---"). */
+  fun pageLine(n: Int) = "--- Page $n ---"
+
+  /** Several photos' words (or one) as one text, in the order shared, a page line between them. */
+  fun joinPages(pages: List<String>) = pages.map { it.trim() }.filter { it.isNotEmpty() }
+    .mapIndexed { i, p -> if (i == 0) p else "${pageLine(i + 1)}\n$p" }.joinToString("\n")
+
+  /** How much text Gemini Nano takes in one go: about 4,000 tokens for the prompt, the words and its
+   * answer together, and a menu's answer is about as long as its words. */
+  const val PAGE_LIMIT = 4000
+
+  /** The joined words in parts of at most `limit` characters for the model: all of them when they
+   * fit, else whole pages together while they fit, and a page over the limit split between lines. */
+  fun chunks(pages: List<String>, limit: Int = PAGE_LIMIT): List<String> {
+    val joined = joinPages(pages)
+    if (joined.length <= limit) return if (joined.isEmpty()) emptyList() else listOf(joined)
+    val pieces = mutableListOf<String>()
+    pages.map { it.trim() }.filter { it.isNotEmpty() }.forEachIndexed { i, p ->
+      val page = if (i == 0) p else "${pageLine(i + 1)}\n$p"
+      if (page.length <= limit) { pieces += page; return@forEachIndexed }
+      var part = ""
+      for (whole in page.split("\n")) {
+        var line = whole
+        while (line.length > limit) { // one line too long on its own: cut it
+          if (part.isNotEmpty()) { pieces += part; part = "" }
+          pieces += line.take(limit); line = line.drop(limit)
+        }
+        part = when { part.isEmpty() -> line; part.length + 1 + line.length <= limit -> "$part\n$line"; else -> { pieces += part; line } }
+      }
+      if (part.isNotEmpty()) pieces += part
+    }
+    val out = mutableListOf<String>()
+    for (piece in pieces) if (out.isNotEmpty() && out.last().length + 1 + piece.length <= limit) out[out.lastIndex] = out.last() + "\n" + piece else out += piece
+    return out
+  }
+
+  /** A line's value in the model's answer ("Name: Corner Slice" → "Corner Slice"). */
+  private fun value(label: String, text: String) = text.lines().firstNotNullOfOrNull { line ->
+    val parts = line.split(':', limit = 2)
+    if (parts.size == 2 && parts[0].trim().lowercase() == label) parts[1].trim().takeIf { it.isNotEmpty() } else null
+  }
+
+  /** The restaurant's name in the model's answer. */
+  fun nameIn(text: String) = value("name", text)
+
+  /** The same name to Kinwall (the server's nameKey): case, accents, spaces and punctuation ignored. */
+  fun sameName(a: String, b: String): Boolean {
+    fun key(s: String) = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFKD).lowercase().filter { it.isLetterOrDigit() }
+    return key(a).isNotEmpty() && key(a) == key(b)
+  }
+
+  /** Under the guess when the restaurant is already in the binder: its menu gets what's new. */
+  fun alreadyThere(name: String, pages: Int) = "$name is already in Kinwall, so ${if (pages > 1) "these" else "this"} will be added to its menu."
+
+  /** GET /api/restaurants' answer: the restaurant with this name (`sameName`) as it's spelled there, or null. */
+  fun existing(body: String, name: String): String? {
+    val all = org.json.JSONArray(body)
+    return (0 until all.length()).map { all.getJSONObject(it).optString("name") }.firstOrNull { sameName(it, name) }
+  }
+
   /** The model's answer to `guessPrompt`: its kind and the lines to send, or null when it's unsure. */
   fun guess(answer: String): Pair<Kind, String>? {
     val lines = answer.replace("**", "").lines().map { it.trim() }.dropWhile { it.isEmpty() }
@@ -247,18 +313,16 @@ object Share {
     return if (text.isEmpty()) null else kind to text
   }
 
-  /** The sheet's one line for a guess: "Looks like an event: Spring fair, Saturday, May 9, 2026". */
-  fun guessLine(kind: Kind, text: String): String {
-    fun value(label: String) = text.lines().firstNotNullOfOrNull { line ->
-      val parts = line.split(':', limit = 2)
-      if (parts.size == 2 && parts[0].trim().lowercase() == label) parts[1].trim().takeIf { it.isNotEmpty() } else null
-    }
+  /** The sheet's one line for a guess: "Looks like an event: Spring fair, Saturday, May 9, 2026", or
+   * for several photos of a menu "Looks like a menu: Corner Slice, 3 pages". */
+  fun guessLine(kind: Kind, text: String, pages: Int = 1): String {
+    fun value(label: String) = value(label, text)?.let { if (it.length > 60) it.take(59) + "…" else it }
     val (what, detail) = when (kind) {
       Kind.EVENT -> "an event" to listOfNotNull(value("title"), value("date")).joinToString(", ").takeIf { it.isNotEmpty() }
       Kind.BOOK -> "a book" to value("title")
-      Kind.RESTAURANT, Kind.RECIPE -> "a menu" to value("name")
+      Kind.RESTAURANT, Kind.RECIPE -> "a menu" to listOfNotNull(value("name"), if (pages > 1) "$pages pages" else null).joinToString(", ").takeIf { it.isNotEmpty() }
     }
-    return "Looks like $what" + (detail?.let { ": " + if (it.length > 60) it.take(59) + "…" else it } ?: "")
+    return "Looks like $what" + (detail?.let { ": $it" } ?: "")
   }
 
   /** The small button under a guess: "Not an event?". */

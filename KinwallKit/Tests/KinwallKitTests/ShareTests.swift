@@ -119,4 +119,45 @@ import Testing
                 == .init(title: "Fair", date: "2026-05-09"))
         #expect(Share.pickerDate(nil, "10:00") == nil)
     }
+
+    // Several photos of one menu (the share sheet, Add to Kinwall).
+
+    @Test func photosAreJoinedWithPageLines() {
+        #expect(Share.joinPages(["Pizza\nCheese 12", "  ", "Sides\nFries 3\n"]) == "Pizza\nCheese 12\n--- Page 2 ---\nSides\nFries 3")
+        #expect(Share.joinPages(["Only one\n"]) == "Only one")
+        #expect(Share.joinPages([]) == "")
+    }
+
+    @Test func aLongMenuIsChunkedByPageThenByLine() {
+        let short = ["Name: Corner Slice\nPizza\nCheese 12", "Sides\nFries 3"]
+        #expect(Share.chunks(short, limit: 100) == [Share.joinPages(short)], "short enough: one go")
+        let page = (1...30).map { "Item \($0) 9.99" }.joined(separator: "\n") // ~400 characters
+        let three = [page, page, page]
+        let parts = Share.chunks(three, limit: 900)
+        #expect(parts.count == 2, "two pages fit, then the third")
+        #expect(parts.allSatisfy { $0.count <= 900 })
+        #expect(parts[1].hasPrefix("--- Page 3 ---"))
+        // A page over the limit on its own is split between lines; nothing is lost.
+        let long = Share.chunks([page], limit: 150)
+        #expect(long.allSatisfy { $0.count <= 150 })
+        #expect(long.joined(separator: "\n") == page)
+    }
+
+    @Test func laterChunksAskForMenuLinesOnly() {
+        let more = Share.morePrompt(text: "Sides\nFries 3")
+        #expect(more.contains("Fries 3"))
+        #expect(!more.contains("Name:"))
+        #expect(Share.prompt(.restaurant, text: "Pizza")!.contains("Name:"))
+    }
+
+    @Test func guessLineCountsPagesAndSaysWhenTheRestaurantIsThere() {
+        #expect(Share.guessLine(.restaurant, text: "Name: Corner Slice\nMenu:\nPizza 12", pages: 3) == "Looks like a menu: Corner Slice, 3 pages")
+        #expect(Share.guessLine(.restaurant, text: "", pages: 2) == "Looks like a menu: 2 pages")
+        #expect(Share.guessLine(.event, text: "Title: Spring fair", pages: 2) == "Looks like an event: Spring fair")
+        #expect(Share.alreadyThere("Corner Slice", pages: 3) == "Corner Slice is already in Kinwall, so these will be added to its menu.")
+        #expect(Share.alreadyThere("Corner Slice", pages: 1) == "Corner Slice is already in Kinwall, so this will be added to its menu.")
+        #expect(Share.name(in: "Name: Corner Slice\nMenu:") == "Corner Slice")
+        #expect(Share.sameName("corner slice!", "Corner Slice"))
+        #expect(!Share.sameName("Corner Slice", "Corner Cafe"))
+    }
 }

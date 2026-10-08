@@ -8,7 +8,8 @@ import UniformTypeIdentifiers
 /// the page). A photo or some text is read on the device (native/ios/ShareReader.swift): an ISBN
 /// barcode goes as a book straight away; with Apple Intelligence the sheet shows the model's guess
 /// ("Looks like a menu: …") with Add to Kinwall and "Not a menu?"; otherwise, or when the model
-/// isn't sure, it asks "What is this?". An event shows what Kinwall read, to fix and add to a calendar
+/// isn't sure, it asks "What is this?". Several photos (a menu over pages) are read one at a time
+/// and go as one text, guessed a menu when the model can't tell ("Looks like a menu: 3 pages"). An event shows what Kinwall read, to fix and add to a calendar
 /// here (EventReview.swift) or open in the app. A book to pick opens in the app; anything saved shows
 /// Kinwall's line, and the sheet closes itself after about 3 s unless it's touched.
 /// A shared contact (a vCard) is reviewed and imported the same way (ContactImport.swift).
@@ -83,30 +84,41 @@ final class ShareViewController: UIViewController {
       }
       if let text = shared.texts.first(where: { $0.nilIfBlank != nil }) {
         busy("Reading it…")
-        return await sendWords(text)
+        return await sendWords([text])
       }
-      if let image = shared.image {
-        busy("Reading the photo…")
-        guard let read = ShareReader.read(image) else { return finish("Kinwall couldn't open this photo.") }
+      if !shared.images.isEmpty {
+        let photos = shared.images, one = photos.count == 1
+        let read = await ShareReader.read(count: photos.count, load: { await Shared.data(photos[$0]) }) { [weak self] n in
+          self?.busy(one ? "Reading the photo…" : "Reading photo \(n + 1) of \(photos.count)…")
+        }
+        guard let read else { return finish(one ? "Kinwall couldn't open this photo." : "Kinwall couldn't open these photos.") }
         if let isbn = read.isbn { return await send(.init(kind: .book, text: isbn), reading: "Adding the book…") }
-        guard let text = read.text else { return finish("Kinwall couldn't find any words in this photo.") }
-        return await sendWords(text)
+        guard !read.pages.isEmpty else { return finish(one ? "Kinwall couldn't find any words in this photo." : "Kinwall couldn't find any words in these photos.") }
+        return await sendWords(read.pages)
       }
       finish("Share a link, a photo, some text or a contact to add it to Kinwall.")
     }
   }
 
-  /// A photo's words or shared text: the model's guess to confirm, else "What is this?". An event goes
-  /// to its fields (checkEvent) with the words as read under the model's lines.
-  private func sendWords(_ raw: String) async {
+  /// Photos' words (each photo a page) or shared text: the model's guess to confirm, else "What is
+  /// this?". Several photos are most likely a menu, so without the model's guess the sheet guesses
+  /// that. A menu already in the binder says its new items join it. An event goes to its fields
+  /// (checkEvent) with the words as read under the model's lines.
+  private func sendWords(_ pages: [String]) async {
+    let raw = Share.joinPages(pages)
     var kind: Share.Kind
     var text: String? = nil
     var guessed = false
-    let guess = await ShareReader.guess(raw)
+    let modelGuess = await ShareReader.guess(pages)
+    let guess: (kind: Share.Kind, text: String?)? = modelGuess.map { ($0.kind, $0.text) } ?? (pages.count > 1 ? (.restaurant, nil) : nil)
     if let guess, guess.kind == .event {
       kind = .event; text = guess.text; guessed = true
     } else if let guess {
-      label.text = Share.guessLine(guess.kind, text: guess.text)
+      var line = Share.guessLine(guess.kind, text: guess.text ?? "", pages: pages.count)
+      if guess.kind == .restaurant, let name = guess.text.flatMap(Share.name(in:)), let there = await Share.existingRestaurant(name) {
+        line += "\n" + Share.alreadyThere(there, pages: pages.count)
+      }
+      label.text = line
       notThat.configuration?.title = Share.notLabel(guess.kind)
       spinner.stopAnimating()
       for v in [add, notThat, done] { v.isHidden = false }
@@ -122,14 +134,14 @@ final class ShareViewController: UIViewController {
     }
     for v in [add, notThat, choices, done] { v.isHidden = true }
     cancelling(false)
-    if text == nil { busy("Reading it…"); text = await ShareReader.tidied(raw, kind: kind) ?? raw }
-    if kind == .event { return await checkEvent(Share.eventText(text, raw: raw), raw: raw, guessed: guessed) }
+    if text == nil { busy("Reading it…"); text = await ShareReader.tidied(pages, kind: kind) ?? raw }
+    if kind == .event { return await checkEvent(Share.eventText(text, raw: raw), pages: pages, guessed: guessed) }
     await send(Share.request(kind: kind, text: text), reading: "Adding to Kinwall…")
   }
 
   /// An event: what Kinwall read, with the calendars to add it to, to fix and add here (EventReview),
   /// or open in the app. A Kinwall too old to say what it read opens the app's event sheet, as before.
-  private func checkEvent(_ text: String, raw: String, guessed: Bool) async {
+  private func checkEvent(_ text: String, pages: [String], guessed: Bool) async {
     busy("Reading the event…")
     async let calendars = Share.calendars()
     let outcome = await Share.send(.init(kind: .event, text: text))
@@ -154,21 +166,22 @@ final class ShareViewController: UIViewController {
       },
       notEvent: { [weak self] in
         self?.closeReview()
-        Task { @MainActor in await self?.pickAgain(raw) }
+        Task { @MainActor in await self?.pickAgain(pages) }
       },
       cancel: { context?.completeRequest(returningItems: nil) }))
     review = host
   }
 
   /// "Not an event?": "What is this?", then on as if picked first.
-  private func pickAgain(_ raw: String) async {
+  private func pickAgain(_ pages: [String]) async {
+    let raw = Share.joinPages(pages)
     showChoices()
     guard case .kind(let kind) = await wait() else { return }
     for v in [choices, done] { v.isHidden = true }
     cancelling(false)
     busy("Reading it…")
-    let text = await ShareReader.tidied(raw, kind: kind)
-    if kind == .event { return await checkEvent(Share.eventText(text, raw: raw), raw: raw, guessed: false) }
+    let text = await ShareReader.tidied(pages, kind: kind)
+    if kind == .event { return await checkEvent(Share.eventText(text, raw: raw), pages: pages, guessed: false) }
     await send(Share.request(kind: kind, text: text ?? raw), reading: "Adding to Kinwall…")
   }
 
@@ -199,9 +212,15 @@ final class ShareViewController: UIViewController {
     done.isHidden = false
   }
 
-  /// What's shared: web links, text, the first photo, and any vCards' text.
+  /// What's shared: web links, text, the photos (up to `maxPhotos`, in the order shared; read later,
+  /// one at a time, to stay under a share extension's memory limit), and any vCards' text.
   struct Shared {
-    var urls: [URL] = [], texts: [String] = [], image: Data?, vcard: String?
+    var urls: [URL] = [], texts: [String] = [], images: [NSItemProvider] = [], vcard: String?
+    static let maxPhotos = 10
+
+    static func data(_ p: NSItemProvider) async -> Data? {
+      await withCheckedContinuation { done in _ = p.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in done.resume(returning: data) } }
+    }
 
     static func read(_ context: NSExtensionContext?) async -> Shared {
       let items = context?.inputItems as? [NSExtensionItem] ?? []
@@ -212,12 +231,10 @@ final class ShareViewController: UIViewController {
            let url = try? await p.loadItem(forTypeIdentifier: UTType.url.identifier) as? URL, url.scheme == "https" || url.scheme == "http" { s.urls.append(url) }
         else if p.hasItemConformingToTypeIdentifier(UTType.plainText.identifier), !p.hasItemConformingToTypeIdentifier(UTType.vCard.identifier),
                 let text = try? await p.loadItem(forTypeIdentifier: UTType.plainText.identifier) as? String { s.texts.append(text) }
-        else if s.image == nil, p.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
-          s.image = await withCheckedContinuation { done in _ = p.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in done.resume(returning: data) } }
-        }
+        else if s.images.count < maxPhotos, p.hasItemConformingToTypeIdentifier(UTType.image.identifier) { s.images.append(p) }
       }
       // A page's title that comes with its link isn't something to add on its own.
-      if s.urls.isEmpty, s.image == nil { s.texts += items.compactMap { $0.attributedContentText?.string } }
+      if s.urls.isEmpty, s.images.isEmpty { s.texts += items.compactMap { $0.attributedContentText?.string } }
       return s
     }
   }

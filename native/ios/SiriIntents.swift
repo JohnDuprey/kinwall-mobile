@@ -354,12 +354,13 @@ struct ShareCalendarQuery: EntityStringQuery {
 /// Kinwall's answer says where it went) (KinwallKit Share.swift, ShareReader.swift). Signed in
 /// as the app is, so it's for a parent's phone; never the widgets' key. Answers with Kinwall's one
 /// line and a link that opens the app at what was added, or at what to check (an event, a book to pick).
-/// With a Calendar, an event is saved there straight away.
+/// With a Calendar, an event is saved there straight away. Several photos (a menu over pages) are
+/// read in order and go as one text, a menu when the model can't tell.
 struct AddToKinwallIntent: AppIntent {
     static let title: LocalizedStringResource = "Add to Kinwall"
-    static let description = IntentDescription("Adds a recipe or restaurant link, a place, a photo of a menu, book or flyer, or some text to Kinwall. With Apple Intelligence it tells what a photo or text is; otherwise it asks. An event is added to the Calendar you pick, or without one opens to check first. Returns a link that opens the Kinwall app at it.")
+    static let description = IntentDescription("Adds a recipe or restaurant link, a place, photos of a menu (one or several pages), a book or a flyer, or some text to Kinwall. With Apple Intelligence it tells what a photo or text is; otherwise it asks. An event is added to the Calendar you pick, or without one opens to check first. Returns a link that opens the Kinwall app at it.")
     @Parameter(title: "What it is", default: .automatic) var kind: ShareKindEnum
-    @Parameter(title: "Photo") var photo: IntentFile? // supportedContentTypes: [.image] is iOS 18+
+    @Parameter(title: "Photos") var photo: [IntentFile]? // supportedContentTypes: [.image] is iOS 18+
     @Parameter(title: "Text or link") var text: String?
     @Parameter(title: "Calendar", description: "For an event: the calendar to add it to. Without one, it opens to check first.") var calendar: ShareCalendarEntity?
 
@@ -367,27 +368,32 @@ struct AddToKinwallIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ReturnsValue<URL?> & ProvidesDialog {
         if DemoFamily.isOn { throw KinwallIntentError.said("Kinwall is showing the demo, so nothing was added. Sign in to your family in Kinwall first.") }
-        if photo == nil, text?.nilIfBlank == nil { throw $text.needsValueError("What should I add?") }
+        let photos = photo ?? []
+        if photos.isEmpty, text?.nilIfBlank == nil { throw $text.needsValueError("What should I add?") }
         var kind = kind.kind
         var content = text?.nilIfBlank
         var isbn = false
-        if let photo {
-            guard let read = ShareReader.read(photo.data) else { throw KinwallIntentError.said("Kinwall couldn't open this photo.") }
+        var pages = content.map { [$0] } ?? []
+        if !photos.isEmpty {
+            let one = photos.count == 1
+            guard let read = await ShareReader.read(count: photos.count, load: { photos[$0].data }, reading: { _ in })
+            else { throw KinwallIntentError.said(one ? "Kinwall couldn't open this photo." : "Kinwall couldn't open these photos.") }
             if let found = read.isbn { kind = .book; content = found; isbn = true }
-            else if let words = read.text { content = words }
-            else { throw KinwallIntentError.said("Kinwall couldn't find any words in this photo.") }
+            else if !read.pages.isEmpty { pages = read.pages; content = Share.joinPages(pages) }
+            else { throw KinwallIntentError.said(one ? "Kinwall couldn't find any words in this photo." : "Kinwall couldn't find any words in these photos.") }
         }
         // A link goes as it is; an ISBN is a book. Other words: the model's guess (Apple Intelligence),
-        // else "What is this?", then the model tidies them when it can.
-        if let words = content, !isbn, photo != nil || Share.onlyLink(words) == nil {
-            if kind == nil || kind == .recipe, let guess = await ShareReader.guess(words) {
+        // else (several photos) a menu or "What is this?", then the model tidies them when it can.
+        if let words = content, !isbn, !photos.isEmpty || Share.onlyLink(words) == nil {
+            if kind == nil || kind == .recipe, let guess = await ShareReader.guess(pages) {
                 kind = guess.kind
                 content = guess.text
             } else {
+                if (kind == nil || kind == .recipe), photos.count > 1 { kind = .restaurant }
                 if kind == nil || kind == .recipe {
                     kind = try await $kind.requestDisambiguation(among: [.restaurant, .book, .event], dialog: "What is this?").kind
                 }
-                if let kind { content = await ShareReader.tidied(words, kind: kind) ?? words }
+                if let kind { content = await ShareReader.tidied(pages, kind: kind) ?? words }
             }
             // An event goes with the words as read under the model's lines (a street it left out).
             if kind == .event { content = Share.eventText(content, raw: words) }

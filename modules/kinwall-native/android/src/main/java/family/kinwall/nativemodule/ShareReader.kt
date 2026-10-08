@@ -48,6 +48,45 @@ object ShareReader {
     return Read(null, text?.takeIf { it.isNotBlank() })
   }
 
+  data class Pages(val isbn: String?, val pages: List<String>)
+
+  /** Several photos (or one), read one at a time so only one is in memory: an ISBN on any of them
+   * (a book), else each one's words in the order shared. `reading` is told which one is being read.
+   * Null when none could be opened. */
+  suspend fun read(context: Context, uris: List<Uri>, reading: (Int) -> Unit): Pages? {
+    val pages = mutableListOf<String>()
+    var opened = false
+    for ((n, uri) in uris.withIndex()) {
+      reading(n)
+      val read = read(context, uri) ?: continue
+      opened = true
+      if (read.isbn != null) return Pages(read.isbn, emptyList())
+      read.text?.let { pages += it }
+    }
+    return if (opened) Pages(null, pages) else null
+  }
+
+  /** Gemini Nano's guess at what the words are, in the lines Kinwall reads; null without it, or when
+   * it isn't sure. Words too long for it in one go (Share.chunks): the first part decides, and a
+   * menu's other parts add their menu lines. */
+  suspend fun guess(pages: List<String>): Pair<Share.Kind, String>? {
+    val parts = Share.chunks(pages)
+    val guess = ask(parts.firstOrNull()?.let(Share::guessPrompt))?.let(Share::guess) ?: return null
+    return if (guess.first == Share.Kind.RESTAURANT && parts.size > 1) guess.first to rest(parts, guess.second) else guess
+  }
+
+  /** The words in a kind's lines (after the person picked it), or null without Gemini Nano. A long
+   * menu goes part by part: the first gives the name and the other header lines, every part its menu
+   * lines; a part the model fails on goes as it was read. */
+  suspend fun tidied(pages: List<String>, kind: Share.Kind): String? {
+    val parts = Share.chunks(pages)
+    val first = ask(parts.firstOrNull()?.let { Share.prompt(kind, it) }) ?: return null
+    return if (kind == Share.Kind.RESTAURANT && parts.size > 1) rest(parts, first) else first
+  }
+
+  private suspend fun rest(parts: List<String>, first: String) =
+    Share.joinPages(listOf(first) + parts.drop(1).map { ask(Share.morePrompt(it)) ?: it })
+
   /** At most 3000 px on the long side, turned upright: plenty for reading text, and a 50 MP photo
    * decoded whole would be ~200 MB. */
   private fun downscaled(context: Context, uri: Uri): Bitmap? {

@@ -21,16 +21,44 @@ enum ShareReader {
         return (nil, recognizedText(in: cg)?.nilIfBlank)
     }
 
-    /// The model's guess at what the text is, in the lines Kinwall reads; nil without Apple
-    /// Intelligence, or when it isn't sure.
-    static func guess(_ text: String) async -> (kind: Share.Kind, text: String)? {
-        await ask(Share.guessPrompt(text: String(text.prefix(6000)))).flatMap(Share.guess)
+    /// Several photos (or one), read one at a time so only one is in memory: an ISBN on any of them
+    /// (a book), else each one's words in the order shared. `load` gives the nth photo's data;
+    /// `reading` is told which one is being read. Nil when none could be opened.
+    @MainActor static func read(count: Int, load: (Int) async -> Data?, reading: (Int) -> Void) async -> (isbn: String?, pages: [String])? {
+        var pages: [String] = [], opened = false
+        for n in 0..<count {
+            reading(n)
+            guard let data = await load(n), let read = read(data) else { continue }
+            opened = true
+            if let isbn = read.isbn { return (isbn, []) }
+            if let text = read.text { pages.append(text) }
+        }
+        return opened ? (nil, pages) : nil
     }
 
-    /// The text in a kind's lines (after the person picked it), or nil without the model.
-    static func tidied(_ text: String, kind: Share.Kind) async -> String? {
-        guard let prompt = Share.prompt(kind, text: String(text.prefix(6000))) else { return nil }
-        return await ask(prompt)
+    /// The model's guess at what the words are, in the lines Kinwall reads; nil without Apple
+    /// Intelligence, or when it isn't sure. Words too long for the model in one go (Share.chunks):
+    /// the first part decides, and a menu's other parts add their menu lines.
+    static func guess(_ pages: [String]) async -> (kind: Share.Kind, text: String)? {
+        let parts = Share.chunks(pages)
+        guard let first = parts.first, let guess = await ask(Share.guessPrompt(text: first)).flatMap(Share.guess) else { return nil }
+        guard guess.kind == .restaurant, parts.count > 1 else { return guess }
+        return (guess.kind, await rest(of: parts, after: guess.text))
+    }
+
+    /// The words in a kind's lines (after the person picked it), or nil without the model. A long
+    /// menu goes part by part (Share.chunks): the first part gives the name and the other header
+    /// lines, every part its menu lines; a part the model fails on goes as it was read.
+    static func tidied(_ pages: [String], kind: Share.Kind) async -> String? {
+        let parts = Share.chunks(pages)
+        guard let first = parts.first, let prompt = Share.prompt(kind, text: first), let answer = await ask(prompt) else { return nil }
+        return kind == .restaurant && parts.count > 1 ? await rest(of: parts, after: answer) : answer
+    }
+
+    private static func rest(of parts: [String], after first: String) async -> String {
+        var answers = [first]
+        for part in parts.dropFirst() { answers.append(await ask(Share.morePrompt(text: part)) ?? part) }
+        return Share.joinPages(answers)
     }
 
     /// At most 3000 px on the long side, turned upright: a 48 MP photo decoded whole would be ~190 MB,

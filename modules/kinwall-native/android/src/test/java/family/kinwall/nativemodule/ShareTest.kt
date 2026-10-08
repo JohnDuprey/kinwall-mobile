@@ -142,4 +142,35 @@ class ShareTest {
     assertEquals("00:30", Share.movedEnd("22:00", "23:00", "23:30"))
     assertEquals(true, Share.prompt(Kind.EVENT, "f")!!.contains("Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield\nNotes: anything else worth knowing, like what to bring, costs, or how to RSVP"))
   }
+
+  // Several photos of one menu, as on iOS (KinwallKit ShareTests).
+  @Test fun photosAreJoinedWithPageLines() {
+    assertEquals("Pizza\nCheese 12\n--- Page 2 ---\nSides\nFries 3", Share.joinPages(listOf("Pizza\nCheese 12", "  ", "Sides\nFries 3\n")))
+    assertEquals("Only one", Share.joinPages(listOf("Only one\n")))
+    assertEquals("", Share.joinPages(emptyList()))
+  }
+
+  @Test fun aLongMenuIsChunkedByPageThenByLine() {
+    val short = listOf("Name: Corner Slice\nPizza\nCheese 12", "Sides\nFries 3")
+    assertEquals("short enough: one go", listOf(Share.joinPages(short)), Share.chunks(short, 100))
+    val page = (1..30).joinToString("\n") { "Item $it 9.99" }
+    val parts = Share.chunks(listOf(page, page, page), 900)
+    assertEquals("two pages fit, then the third", 2, parts.size)
+    assert(parts.all { it.length <= 900 })
+    assert(parts[1].startsWith("--- Page 3 ---"))
+    val long = Share.chunks(listOf(page), 150)
+    assert(long.all { it.length <= 150 })
+    assertEquals("nothing is lost", page, long.joinToString("\n"))
+    assert(!Share.morePrompt("Sides\nFries 3").contains("Name:"))
+  }
+
+  @Test fun guessLineCountsPagesAndSaysWhenTheRestaurantIsThere() {
+    assertEquals("Looks like a menu: Corner Slice, 3 pages", Share.guessLine(Kind.RESTAURANT, "Name: Corner Slice\nMenu:\nPizza 12", 3))
+    assertEquals("Looks like a menu: 2 pages", Share.guessLine(Kind.RESTAURANT, "", 2))
+    assertEquals("Looks like an event: Spring fair", Share.guessLine(Kind.EVENT, "Title: Spring fair", 2))
+    assertEquals("Corner Slice is already in Kinwall, so these will be added to its menu.", Share.alreadyThere("Corner Slice", 3))
+    assertEquals("Corner Slice", Share.existing("""[{"name":"Golden Bowl"},{"name":"Corner Slice"}]""", "corner slice!"))
+    assertNull(Share.existing("""[{"name":"Corner Cafe"}]""", "Corner Slice"))
+    assertEquals("Corner Slice", Share.nameIn("Name: Corner Slice\nMenu:"))
+  }
 }

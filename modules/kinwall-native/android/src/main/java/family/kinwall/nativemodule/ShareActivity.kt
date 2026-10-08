@@ -56,7 +56,8 @@ import kotlin.coroutines.resume
  * An event shows what Kinwall read, to fix and add to a calendar here (Add to calendar) or open in
  * the app (Open in Kinwall), like the iOS sheet's EventReview. A book to pick opens in the app;
  * anything saved shows Kinwall's line with Open, and the sheet closes itself after about 3 s unless
- * it's touched. A contact shared as text goes on to MainActivity's contact review
+ * it's touched. Several photos (SEND_MULTIPLE, a menu over pages) are read one at a time and go as
+ * one text, guessed a menu when nothing else can tell ("Looks like a menu: 3 pages"). A contact shared as text goes on to MainActivity's contact review
  * (plugins/withKinwallNative.js), as before. */
 class ShareActivity : AppCompatActivity() {
   private val scope = MainScope()
@@ -124,36 +125,44 @@ class ShareActivity : AppCompatActivity() {
 
   private suspend fun run() {
     val text = intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() }
-    val image = if (intent.type?.startsWith("image/") != true) null
-      else if (intent.action == Intent.ACTION_SEND_MULTIPLE) IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)?.firstOrNull()
-      else IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+    // Photos in the order shared, at most MAX_PHOTOS.
+    val images = if (intent.type?.startsWith("image/") != true) emptyList()
+      else if (intent.action == Intent.ACTION_SEND_MULTIPLE) IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty().take(MAX_PHOTOS)
+      else listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
     val link = text?.let(Share::linkIn)
     when {
       link != null -> send(Share.Request(url = link), "Reading the page…")
-      text != null -> { busy("Reading it…"); sendWords(text) }
-      image != null -> {
-        busy("Reading the photo…")
-        val read = ShareReader.read(this, image) ?: return result("Kinwall couldn't open this photo.")
+      text != null -> { busy("Reading it…"); sendWords(listOf(text)) }
+      images.isNotEmpty() -> {
+        val one = images.size == 1
+        val read = ShareReader.read(this, images) { n -> busy(if (one) "Reading the photo…" else "Reading photo ${n + 1} of ${images.size}…") }
+          ?: return result(if (one) "Kinwall couldn't open this photo." else "Kinwall couldn't open these photos.")
         if (read.isbn != null) return send(Share.Request(kind = Share.Kind.BOOK, text = read.isbn), "Adding the book…")
-        sendWords(read.text ?: return result("Kinwall couldn't find any words in this photo."))
+        if (read.pages.isEmpty()) return result(if (one) "Kinwall couldn't find any words in this photo." else "Kinwall couldn't find any words in these photos.")
+        sendWords(read.pages)
       }
       else -> result("Share a link, a photo, some text or a contact to add it to Kinwall.")
     }
   }
 
-  /** A photo's words or shared text: a guess to confirm, else "What is this?". An event goes to its
-   * fields (checkEvent) with the words as read under the model's lines. */
-  private suspend fun sendWords(raw: String) {
+  /** Photos' words (each photo a page) or shared text: a guess to confirm, else "What is this?".
+   * Several photos are most likely a menu, so when nothing else can tell the sheet guesses that. A
+   * menu already in the binder says its new items join it. An event goes to its fields (checkEvent)
+   * with the words as read under the model's lines. */
+  private suspend fun sendWords(pages: List<String>) {
+    val raw = Share.joinPages(pages)
     val found = scope.async { ShareReader.entities(raw) }
-    val model = ShareReader.ask(Share.guessPrompt(raw))?.let(Share::guess)
-    val guess = model ?: Share.guessKind(found.await(), raw)?.let { it to Share.withHeaders(it, found.await(), raw) }
+    val model = ShareReader.guess(pages)
+    val guess = model ?: (Share.guessKind(found.await(), raw) ?: Share.Kind.RESTAURANT.takeIf { pages.size > 1 })?.let { it to Share.withHeaders(it, found.await(), raw) }
     var kind: Share.Kind
     var text: String? = null
     if (guess != null && guess.first == Share.Kind.EVENT) {
       kind = guess.first; text = guess.second
     } else if (guess != null) {
       spinner.visibility = View.GONE
-      label.text = Share.guessLine(guess.first, guess.second)
+      val name = if (guess.first == Share.Kind.RESTAURANT) Share.nameIn(guess.second) else null
+      val there = name?.let { withContext(Dispatchers.IO) { existingRestaurant(this@ShareActivity, it) } }
+      label.text = Share.guessLine(guess.first, guess.second, pages.size) + (there?.let { "\n" + Share.alreadyThere(it, pages.size) } ?: "")
       notThat.text = Share.notLabel(guess.first)
       show(add, notThat, done)
       when (val c = wait()) {
@@ -167,15 +176,16 @@ class ShareActivity : AppCompatActivity() {
     show()
     if (text == null) {
       busy("Reading it…")
-      text = ShareReader.ask(Share.prompt(kind, raw)) ?: Share.withHeaders(kind, found.await(), raw)
+      text = ShareReader.tidied(pages, kind) ?: Share.withHeaders(kind, found.await(), raw)
     }
-    if (kind == Share.Kind.EVENT) return checkEvent(Share.eventText(text, raw), raw, guess?.first == Share.Kind.EVENT)
+    if (kind == Share.Kind.EVENT) return checkEvent(Share.eventText(text, raw), pages, guess?.first == Share.Kind.EVENT)
     send(Share.Request(kind = kind, text = text), "Adding to Kinwall…")
   }
 
   /** An event: what Kinwall read and the calendars to add it to, to fix and add here, or open in the
    * app. A Kinwall too old to say what it read opens the app's event sheet, as before. */
-  private suspend fun checkEvent(text: String, raw: String, guessed: Boolean) {
+  private suspend fun checkEvent(text: String, pages: List<String>, guessed: Boolean) {
+    val raw = Share.joinPages(pages)
     busy("Reading the event…")
     val cals = scope.async(Dispatchers.IO) { calendars(this@ShareActivity) }
     val read = withContext(Dispatchers.IO) { post(this@ShareActivity, Share.Request(kind = Share.Kind.EVENT, text = text)) }
@@ -215,8 +225,8 @@ class ShareActivity : AppCompatActivity() {
         is Choice.Pick -> { // Not an event? showed "What is this?": on as if picked first
           val kind = c.kind
           busy("Reading it…")
-          val tidied = ShareReader.ask(Share.prompt(kind, raw))
-          if (kind == Share.Kind.EVENT) return checkEvent(Share.eventText(tidied, raw), raw, false)
+          val tidied = ShareReader.tidied(pages, kind)
+          if (kind == Share.Kind.EVENT) return checkEvent(Share.eventText(tidied, raw), pages, false)
           return send(Share.Request(kind = kind, text = tidied ?: Share.withHeaders(kind, ShareReader.entities(raw), raw)), "Adding to Kinwall…")
         }
         Choice.Add -> {}
@@ -416,6 +426,15 @@ class ShareActivity : AppCompatActivity() {
       Share.Outcome.Failed(Share.SIGN_IN)
     } catch (e: Exception) {
       Share.Outcome.Failed("Can't reach Kinwall. Check your connection and try again.")
+    }
+
+    private const val MAX_PHOTOS = 10
+
+    /** The binder's restaurant with this name, as it's spelled there (Share.existing); null when there's none or it can't be read. */
+    fun existingRestaurant(context: Context, name: String): String? = try {
+      call(context, "api/restaurants?search=" + java.net.URLEncoder.encode(name, "UTF-8"), null).let { (code, body) -> if (code == 200) Share.existing(body, name) else null }
+    } catch (e: Exception) {
+      null
     }
 
     /** The calendars this phone can add an event to (Share.addable), or null when they can't be read. */

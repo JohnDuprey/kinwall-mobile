@@ -180,7 +180,7 @@ public enum Share {
             Address: its address on one line
             Website: its website
             Menu:
-            then each menu section's name on its own line, with each of its items on its own line below it as the item's name and then its price, like "Large cheese 14.99"
+            \(menuLines)
             """
         case .book: """
             ISBN: the ISBN, from the barcode's number
@@ -197,6 +197,7 @@ public enum Share {
         case .recipe: nil
         }
     }
+    static let menuLines = "then each menu section's name on its own line, with each of its items on its own line below it as the item's name and then its price, like \"Large cheese 14.99\""
     static let leaveOut = "Answer in exactly this format and nothing else, and leave out any line you can't find:"
 
     /// For Apple Intelligence (native/ios/ShareReader.swift): rewrites a photo's text into the lines
@@ -229,6 +230,78 @@ public enum Share {
         """
     }
 
+    /// For Apple Intelligence: a long menu's later part (`chunks`), as menu lines only; the name and
+    /// the other header lines come from the first part.
+    public static func morePrompt(text: String) -> String {
+        "This is more text from the same restaurant menu. Answer with only its menu, in exactly this format and nothing else: \(menuLines)\n\n\(text)"
+    }
+
+    // MARK: Several photos
+
+    /// The line between photos' words, which Kinwall skips ("--- Page 2 ---").
+    public static func pageLine(_ n: Int) -> String { "--- Page \(n) ---" }
+
+    /// Several photos' words (or one) as one text, in the order shared, a page line between them.
+    public static func joinPages(_ pages: [String]) -> String {
+        pages.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.enumerated()
+            .map { $0.offset == 0 ? $0.element : "\(pageLine($0.offset + 1))\n\($0.element)" }.joined(separator: "\n")
+    }
+
+    /// How much text the on-device model takes in one go: its context is about 4,000 tokens for the
+    /// prompt, the words and its answer together, and a menu's answer is about as long as its words.
+    public static let pageLimit = 4000
+
+    /// The joined words in parts of at most `limit` characters for the model: all of them when they
+    /// fit, else whole pages together while they fit, and a page over the limit split between lines.
+    public static func chunks(_ pages: [String], limit: Int = pageLimit) -> [String] {
+        let joined = joinPages(pages)
+        if joined.count <= limit { return joined.isEmpty ? [] : [joined] }
+        let kept = pages.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        var pieces: [String] = []
+        for (i, p) in kept.enumerated() {
+            let page = i == 0 ? p : "\(pageLine(i + 1))\n\(p)"
+            if page.count <= limit { pieces.append(page); continue }
+            var part = ""
+            for line in page.split(separator: "\n", omittingEmptySubsequences: false) {
+                var line = Substring(line)
+                while line.count > limit { // one line too long on its own: cut it
+                    if !part.isEmpty { pieces.append(part); part = "" }
+                    pieces.append(String(line.prefix(limit))); line = line.dropFirst(limit)
+                }
+                if part.isEmpty { part = String(line) } else if part.count + 1 + line.count <= limit { part += "\n" + line } else { pieces.append(part); part = String(line) }
+            }
+            if !part.isEmpty { pieces.append(part) }
+        }
+        var out: [String] = []
+        for piece in pieces {
+            if let last = out.last, last.count + 1 + piece.count <= limit { out[out.count - 1] = last + "\n" + piece } else { out.append(piece) }
+        }
+        return out
+    }
+
+    /// A line's value in the model's answer ("Name: Corner Slice" → "Corner Slice").
+    static func value(_ label: String, in text: String) -> String? {
+        text.split(whereSeparator: \.isNewline).lazy.compactMap { line -> String? in
+            let parts = line.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces).lowercased() == label else { return nil }
+            return parts[1].trimmingCharacters(in: .whitespaces).nilIfEmpty
+        }.first
+    }
+
+    /// The restaurant's name in the model's answer.
+    public static func name(in text: String) -> String? { value("name", in: text) }
+
+    /// The same name to Kinwall (the server's nameKey): case, accents, spaces and punctuation ignored.
+    public static func sameName(_ a: String, _ b: String) -> Bool {
+        func key(_ s: String) -> String { String(s.decomposedStringWithCompatibilityMapping.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }.map(Character.init)) }
+        return !key(a).isEmpty && key(a) == key(b)
+    }
+
+    /// Under the guess when the restaurant is already in the binder: its menu gets what's new.
+    public static func alreadyThere(_ name: String, pages: Int) -> String {
+        "\(name) is already in Kinwall, so \(pages > 1 ? "these" : "this") will be added to its menu."
+    }
+
     /// The model's answer to `guessPrompt`: its kind and the lines to send, or nil when it's unsure.
     public static func guess(_ answer: String) -> (kind: Kind, text: String)? {
         var lines = answer.replacingOccurrences(of: "**", with: "").split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
@@ -239,21 +312,16 @@ public enum Share {
         return text.isEmpty ? nil : (kind, text)
     }
 
-    /// The sheet's one line for a guess: "Looks like an event: Spring fair, Saturday, May 9".
-    public static func guessLine(_ kind: Kind, text: String) -> String {
-        func value(_ label: String) -> String? {
-            text.split(whereSeparator: \.isNewline).lazy.compactMap { line -> String? in
-                let parts = line.split(separator: ":", maxSplits: 1)
-                guard parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces).lowercased() == label else { return nil }
-                return parts[1].trimmingCharacters(in: .whitespaces).nilIfEmpty
-            }.first
-        }
+    /// The sheet's one line for a guess: "Looks like an event: Spring fair, Saturday, May 9", or for
+    /// several photos of a menu "Looks like a menu: Corner Slice, 3 pages".
+    public static func guessLine(_ kind: Kind, text: String, pages: Int = 1) -> String {
+        func value(_ label: String) -> String? { Share.value(label, in: text).map { $0.count > 60 ? $0.prefix(59) + "…" : $0 } }
         let (what, detail): (String, String?) = switch kind {
         case .event: ("an event", [value("title"), value("date")].compactMap { $0 }.joined(separator: ", ").nilIfEmpty)
         case .book: ("a book", value("title"))
-        case .restaurant, .recipe: ("a menu", value("name"))
+        case .restaurant, .recipe: ("a menu", [value("name"), pages > 1 ? "\(pages) pages" : nil].compactMap { $0 }.joined(separator: ", ").nilIfEmpty)
         }
-        return "Looks like \(what)" + (detail.map { ": \($0.count > 60 ? $0.prefix(59) + "…" : $0)" } ?? "")
+        return "Looks like \(what)" + (detail.map { ": \($0)" } ?? "")
     }
 
     /// The small button under a guess: "Not an event?".
@@ -346,9 +414,10 @@ public enum AppSignIn {
     }
 
     /// GETs (no body) or POSTs JSON to the family's server, signed in: the reply and its status, or nil when signed out.
-    public static func request(_ path: String, json body: Data? = nil, timeout: TimeInterval) async throws -> (Data, Int)? {
+    public static func request(_ path: String, query: [URLQueryItem] = [], json body: Data? = nil, timeout: TimeInterval) async throws -> (Data, Int)? {
         guard let c = try await credential() else { return nil }
-        var req = URLRequest(url: c.baseURL.appending(path: path), timeoutInterval: timeout)
+        let url = c.baseURL.appending(path: path)
+        var req = URLRequest(url: query.isEmpty ? url : url.appending(queryItems: query), timeoutInterval: timeout)
         req.httpMethod = body == nil ? "GET" : "POST"
         if body != nil { req.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         req.setValue("Bearer \(c.key)", forHTTPHeaderField: "Authorization")
@@ -369,6 +438,15 @@ extension Share {
         } catch {
             return .failed("Can't reach Kinwall. Check your connection and try again.")
         }
+    }
+
+    /// The binder's restaurant with this name (`sameName`), as it's spelled there; nil when there's
+    /// none or the binder can't be read.
+    public static func existingRestaurant(_ name: String) async -> String? {
+        struct Place: Decodable { let name: String }
+        guard let (data, status) = try? await AppSignIn.request("api/restaurants", query: [URLQueryItem(name: "search", value: name)], timeout: 8), status == 200,
+              let all = try? JSONDecoder().decode([Place].self, from: data) else { return nil }
+        return all.first { sameName($0.name, name) }?.name
     }
 
     /// The calendars this phone can add an event to (`addable`), or nil when they can't be read.
