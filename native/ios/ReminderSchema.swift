@@ -138,6 +138,7 @@ struct CreateKinwallReminderIntent {
 
     func perform() async throws -> some ReturnsValue<KinwallReminder> & ProvidesDialog {
         let kinwall = try family()
+        try await requireOn(kinwall, \.lists, "Lists") // like Add to a list: nothing saved with Lists off
         let target: KinwallReminderList
         if let list { target = list } else {
             guard let fallback = defaultList(try await kinwall?.lists() ?? DemoFamily.lists) else { throw KinwallIntentError.noList }

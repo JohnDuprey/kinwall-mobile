@@ -74,9 +74,10 @@ struct ShopGroceriesIntent: AppIntent {
     }
 }
 
-/// Control Center's Add to Groceries: opens Groceries, where the add field is.
+/// Control Center's Add to Groceries: opens Groceries, where the add field is. Titled Open Groceries
+/// so Shortcuts doesn't list two "Add to Groceries" actions (Siri's AddGroceryIntent adds the item).
 struct OpenGroceriesIntent: AppIntent {
-    static let title: LocalizedStringResource = "Add to Groceries"
+    static let title: LocalizedStringResource = "Open Groceries"
     static let description = IntentDescription("Opens Groceries in Kinwall to add something.")
     static let openAppWhenRun = true
     func perform() async throws -> some IntentResult {
