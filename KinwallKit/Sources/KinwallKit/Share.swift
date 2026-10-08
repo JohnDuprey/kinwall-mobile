@@ -212,9 +212,7 @@ public enum Share {
             Cuisine: the kind of food, like Pizza or Thai
             Phone: its phone number
             Address: its address on one line
-            Website: its website
-            Menu:
-            \(menuLines)
+            Website: its website, only when the text shows it
             """
         case .book: """
             ISBN: the ISBN, from the barcode's number
@@ -231,7 +229,6 @@ public enum Share {
         case .recipe: nil
         }
     }
-    static let menuLines = "then each menu section's name on its own line, with each of its items on its own line below it as the item's name and then its price, like \"Large cheese 14.99\""
     static let leaveOut = "Answer in exactly this format and nothing else, and leave out any line you can't find:"
 
     /// For Apple Intelligence (native/ios/ShareReader.swift): rewrites a photo's text into the lines
@@ -264,10 +261,15 @@ public enum Share {
         """
     }
 
-    /// For Apple Intelligence: a long menu's later part (`chunks`), as menu lines only; the name and
-    /// the other header lines come from the first part.
-    public static func morePrompt(text: String) -> String {
-        "This is more text from the same restaurant menu. Answer with only its menu, in exactly this format and nothing else: \(menuLines)\n\n\(text)"
+    /// What to send for a menu: the model's name, phone, address and website lines (anything else in
+    /// its answer is dropped), then "Menu:" and the words as read. The model only reads the top of a
+    /// menu: rewriting a whole menu took it 25 s and more a page, dropped sections and mixed lines
+    /// up, while Kinwall reads the words as read well (restaurant-import.ts, menu-text.ts).
+    public static func menuText(_ answer: String?, raw: String) -> String {
+        let header = (answer ?? "").replacingOccurrences(of: "**", with: "").split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.range(of: #"^(name|cuisine|phone|address|website)\s*:\s*\S"#, options: [.regularExpression, .caseInsensitive]) != nil }
+        return header.isEmpty ? raw : (header + ["Menu:", raw]).joined(separator: "\n")
     }
 
     // MARK: Several photos
@@ -347,6 +349,76 @@ public enum Share {
     /// The small button under a guess: "Not an event?".
     public static func notLabel(_ kind: Kind) -> String {
         switch kind { case .event: "Not an event?"; case .book: "Not a book?"; case .restaurant, .recipe: "Not a menu?" }
+    }
+
+    // MARK: Reading a photo's words
+
+    /// A line of text read off a photo and where it is: x and y from the top left, in any unit
+    /// (Vision's normalized boxes, ML Kit's pixels). A QR code's payload goes in one too.
+    public struct TextLine: Equatable, Sendable {
+        public var text: String
+        public var x: Double, y: Double, width: Double, height: Double
+        public init(text: String, x: Double, y: Double, width: Double, height: Double) {
+            self.text = text; self.x = x; self.y = y; self.width = width; self.height = height
+        }
+        var maxX: Double { x + width }
+        var maxY: Double { y + height }
+        var midY: Double { y + height / 2 }
+    }
+
+    /// A photo's lines as one text, in the order the reader gave them (Vision and ML Kit already read
+    /// a column at a time), with the pieces of one row put back on one line: a name and its price
+    /// read apart ("Mozzarella Sticks", "$9.35"), or words cut by a price's column. A piece joins the
+    /// line before it when they're level and it's to the right: next to it, or any way off when it's a
+    /// price (dot leaders between). ShareReader.kt's rows are the same.
+    public static func readingOrder(_ lines: [TextLine]) -> String {
+        var rows: [(text: String, last: TextLine)] = []
+        for l in lines where !l.text.trimmingCharacters(in: .whitespaces).isEmpty {
+            if let row = rows.last, abs(l.midY - row.last.midY) < min(l.height, row.last.height) * 0.6, l.x >= row.last.maxX - l.height * 0.5,
+               isPrice(l.text) || (l.x - row.last.maxX < l.height * 2 && l.text.filter(\.isLetter).count >= 3) {
+                rows[rows.count - 1] = (row.text + " " + l.text, l)
+            } else { rows.append((l.text, l)) }
+        }
+        return rows.map(\.text).joined(separator: "\n")
+    }
+
+    /// Mostly digits and money: "$8.30", "(4) $7.25 | (8) $13.50", "+$5.00".
+    static func isPrice(_ s: String) -> Bool {
+        s.filter(\.isLetter).count <= 8 && s.range(of: #"\$\s?\d|\d[.,]\d\d"#, options: .regularExpression) != nil
+    }
+
+    /// A menu's QR codes as the lines Kinwall reads (restaurant-import.ts splitMenuHeader), going by the
+    /// words beside each code: "Order online: …" when they say order, "Menu link: …" for a menu,
+    /// "Website: …" for a website, "QR code: …" (shown, not saved) when they say nothing clear. Codes
+    /// that aren't web links, or go to social media, reviews, payment or Wi-Fi, are left out. One line
+    /// of each kind, the first found. `codes` holds each code's payload and box; `words` the photo's lines.
+    public static func linkLines(codes: [TextLine], words: [TextLine]) -> [String] {
+        var out: [String: String] = [:]
+        for code in codes {
+            guard let url = URL(string: code.text.trimmingCharacters(in: .whitespacesAndNewlines)), isWeb(url), let host = url.host?.lowercased(),
+                  !skippedHosts.contains(where: { host == $0 || host.hasSuffix(".\($0)") }) else { continue }
+            let reach = max(code.width, code.height)
+            let near = words.filter { w in
+                max(w.x - code.maxX, code.x - w.maxX, 0) <= reach && max(w.y - code.maxY, code.y - w.maxY, 0) <= reach
+            }.map { $0.text.lowercased() }.joined(separator: " ")
+            let label: String?
+            if near.range(of: #"\border|\bdelivery|\bpick ?up"#, options: .regularExpression) != nil { label = "Order online" }
+            else if near.range(of: #"follow|review|\bpay|wi-?fi|survey|feedback|\blike us|\brate us|app store|download"#, options: .regularExpression) != nil { label = nil }
+            else if near.range(of: #"\bmenu"#, options: .regularExpression) != nil { label = "Menu link" }
+            else if near.range(of: #"website|\bvisit\b"#, options: .regularExpression) != nil { label = "Website" }
+            else { label = "QR code" }
+            guard let label, out[label] == nil else { continue }
+            out[label] = "\(label): \(url.absoluteString)"
+        }
+        return ["Order online", "Menu link", "Website", "QR code"].compactMap { out[$0] }
+    }
+    static let skippedHosts = ["facebook.com", "fb.com", "instagram.com", "tiktok.com", "twitter.com", "x.com", "youtube.com", "youtu.be", "yelp.com",
+                               "tripadvisor.com", "linkedin.com", "pinterest.com", "g.page", "wa.me", "venmo.com", "paypal.com", "paypal.me", "cash.app",
+                               "apps.apple.com", "play.google.com"]
+
+    /// A menu's text with its QR code lines first, where Kinwall reads its header lines.
+    public static func withLinks(_ links: [String], _ text: String) -> String {
+        links.isEmpty ? text : (links + [text]).joined(separator: "\n")
     }
 }
 

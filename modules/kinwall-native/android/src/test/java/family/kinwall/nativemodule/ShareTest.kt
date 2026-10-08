@@ -170,7 +170,46 @@ class ShareTest {
     val long = Share.chunks(listOf(page), 150)
     assert(long.all { it.length <= 150 })
     assertEquals("nothing is lost", page, long.joinToString("\n"))
-    assert(!Share.morePrompt("Sides\nFries 3").contains("Name:"))
+  }
+
+  @Test fun aMenuIsTheModelsHeaderLinesOverTheWordsAsRead() {
+    // The same prompt as KinwallKit's Share.swift: a menu's header lines only.
+    assert(Share.prompt(Kind.RESTAURANT, "m")!!.endsWith("Website: its website, only when the text shows it\n\nm"))
+    val raw = "Pizza\nCheese 12\n--- Page 2 ---\nSides\nFries 3"
+    assertEquals("the model's own menu lines are dropped", "Name: Corner Slice\nPhone: 555-0100\nWebsite: none\nMenu:\n$raw",
+      Share.menuText("Name: Corner Slice\n**Phone:** 555-0100\nMenu:\nPizza\nCheese 12.00\nWebsite: none\nCuisine:", raw))
+    assertEquals(raw, Share.menuText(null, raw))
+    assertEquals(raw, Share.menuText("Here you go", raw))
+  }
+
+  private fun line(text: String, x: Double, y: Double, w: Double = 0.2, h: Double = 0.02) = Share.TextLine(text, x, y, w, h)
+
+  @Test fun aRowsPiecesGoOnOneLineInTheReadersOrder() {
+    val lines = listOf(line("Starters", 0.1, 0.1), line("Garlic Knots", 0.1, 0.13), line("(6) $5.10 | (12) $9.20", 0.6, 0.131),
+      line("Fresh garlic, butter,", 0.1, 0.16, w = 0.15), line("parsley", 0.27, 0.161, w = 0.05),
+      line("Pretzel Bites", 0.1, 0.19), line("$7.25", 0.33, 0.25),
+      line("Desserts", 0.7, 0.1), line("0662-259-+8t", 0.82, 0.1, w = 0.05))
+    assertEquals("Starters\nGarlic Knots (6) $5.10 | (12) $9.20\nFresh garlic, butter, parsley\nPretzel Bites\n$7.25\nDesserts\n0662-259-+8t", Share.readingOrder(lines))
+    assertEquals("Garden Party\nFig & Goat", Share.readingOrder(listOf(line("Garden Party", 0.1, 0.5), line("Fig & Goat", 0.6, 0.5))))
+    assertEquals("", Share.readingOrder(emptyList()))
+  }
+
+  @Test fun aMenusQRCodeGoesByTheWordsBesideIt() {
+    val code = line("https://order.cornerslice.example/start", 0.6, 0.7, w = 0.12, h = 0.1)
+    val order = listOf(line("Scan To Order Online!", 0.6, 0.82))
+    assertEquals(listOf("Order online: https://order.cornerslice.example/start"), Share.linkLines(listOf(code), order))
+    assertEquals(listOf("Menu link: https://order.cornerslice.example/start"), Share.linkLines(listOf(code), listOf(line("See our full menu", 0.45, 0.72, w = 0.14))))
+    assertEquals(listOf("Website: https://order.cornerslice.example/start"), Share.linkLines(listOf(code), listOf(line("Visit our website", 0.75, 0.7))))
+    assertEquals("nothing clear beside it", listOf("QR code: https://order.cornerslice.example/start"), Share.linkLines(listOf(code), listOf(line("Corner Slice", 0.6, 0.65), line("Order online", 0.1, 0.1))))
+    assertEquals(emptyList<String>(), Share.linkLines(listOf(code), listOf(line("Leave us a review!", 0.6, 0.82))))
+    assertEquals(emptyList<String>(), Share.linkLines(listOf(line("https://www.instagram.com/cornerslice", 0.6, 0.7, 0.1, 0.1)), order))
+    assertEquals(emptyList<String>(), Share.linkLines(listOf(line("WIFI:S:Corner;T:WPA;P:secret;;", 0.6, 0.7, 0.1, 0.1)), order))
+    assertEquals("no QR code: nothing", emptyList<String>(), Share.linkLines(emptyList(), order))
+    val menu = line("https://cornerslice.example/menu.pdf", 0.1, 0.1, 0.1, 0.1)
+    assertEquals(listOf("Order online: https://order.cornerslice.example/start", "Menu link: https://cornerslice.example/menu.pdf"),
+      Share.linkLines(listOf(menu, code, code), order + line("Our menu", 0.1, 0.22)))
+    assertEquals("Order online: https://x.example\nPizza\nCheese 12", Share.withLinks(listOf("Order online: https://x.example"), "Pizza\nCheese 12"))
+    assertEquals("Pizza", Share.withLinks(emptyList(), "Pizza"))
   }
 
   @Test fun guessLineCountsPages() {

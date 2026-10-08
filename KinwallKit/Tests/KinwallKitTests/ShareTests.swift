@@ -58,7 +58,7 @@ import Testing
     @Test func prompts() {
         #expect(Share.prompt(.recipe, text: "x") == nil)
         #expect(Share.prompt(.book, text: "WOOL\nHugh Howey")!.hasSuffix("Author: its author\n\nWOOL\nHugh Howey"))
-        #expect(Share.prompt(.restaurant, text: "m")!.contains("Menu:\nthen each menu section's name"))
+        #expect(Share.prompt(.restaurant, text: "m")!.hasSuffix("Website: its website, only when the text shows it\n\nm"), "a menu's header lines only")
         #expect(Share.prompt(.event, text: "f")!.contains("Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield\nNotes: anything else worth knowing, like what to bring, costs, or how to RSVP"))
     }
 
@@ -160,11 +160,49 @@ import Testing
         #expect(long.joined(separator: "\n") == page)
     }
 
-    @Test func laterChunksAskForMenuLinesOnly() {
-        let more = Share.morePrompt(text: "Sides\nFries 3")
-        #expect(more.contains("Fries 3"))
-        #expect(!more.contains("Name:"))
-        #expect(Share.prompt(.restaurant, text: "Pizza")!.contains("Name:"))
+    @Test func aMenuIsTheModelsHeaderLinesOverTheWordsAsRead() {
+        let raw = "Pizza\nCheese 12\n--- Page 2 ---\nSides\nFries 3"
+        #expect(Share.menuText("Name: Corner Slice\n**Phone:** 555-0100\nMenu:\nPizza\nCheese 12.00\nWebsite: none\nCuisine:", raw: raw)
+                == "Name: Corner Slice\nPhone: 555-0100\nWebsite: none\nMenu:\n\(raw)", "the model's own menu lines are dropped")
+        #expect(Share.menuText(nil, raw: raw) == raw)
+        #expect(Share.menuText("Here you go", raw: raw) == raw)
+    }
+
+    // A photo's words and QR codes.
+
+    private func line(_ text: String, _ x: Double, _ y: Double, w: Double = 0.2, h: Double = 0.02) -> Share.TextLine {
+        Share.TextLine(text: text, x: x, y: y, width: w, height: h)
+    }
+
+    @Test func aRowsPiecesGoOnOneLineInTheReadersOrder() {
+        let lines = [line("Starters", 0.1, 0.1), line("Garlic Knots", 0.1, 0.13), line("(6) $5.10 | (12) $9.20", 0.6, 0.131),
+                     line("Fresh garlic, butter,", 0.1, 0.16, w: 0.15), line("parsley", 0.27, 0.161, w: 0.05),
+                     line("Pretzel Bites", 0.1, 0.19), line("$7.25", 0.33, 0.25), // not level: its own line
+                     line("Desserts", 0.7, 0.1), line("0662-259-+8t", 0.82, 0.1, w: 0.05)] // another column; a mailing code
+        #expect(Share.readingOrder(lines) == "Starters\nGarlic Knots (6) $5.10 | (12) $9.20\nFresh garlic, butter, parsley\nPretzel Bites\n$7.25\nDesserts\n0662-259-+8t")
+        // Level lines far apart that aren't prices are two columns.
+        #expect(Share.readingOrder([line("Garden Party", 0.1, 0.5), line("Fig & Goat", 0.6, 0.5)]) == "Garden Party\nFig & Goat")
+        #expect(Share.readingOrder([]) == "")
+    }
+
+    @Test func aMenusQRCodeGoesByTheWordsBesideIt() {
+        let code = line("https://order.cornerslice.example/start", 0.6, 0.7, w: 0.12, h: 0.1)
+        let order = [line("Scan To Order Online!", 0.6, 0.82)]
+        #expect(Share.linkLines(codes: [code], words: order) == ["Order online: https://order.cornerslice.example/start"])
+        #expect(Share.linkLines(codes: [code], words: [line("See our full menu", 0.45, 0.72, w: 0.14)]) == ["Menu link: https://order.cornerslice.example/start"])
+        #expect(Share.linkLines(codes: [code], words: [line("Visit our website", 0.75, 0.7)]) == ["Website: https://order.cornerslice.example/start"])
+        // Words beside it that say nothing clear, or ordering words too far away: not sure what it's for.
+        #expect(Share.linkLines(codes: [code], words: [line("Corner Slice", 0.6, 0.65), line("Order online", 0.1, 0.1)]) == ["QR code: https://order.cornerslice.example/start"])
+        // Social media, reviews, Wi-Fi and payments, and payloads that aren't web links, are left out.
+        #expect(Share.linkLines(codes: [code], words: [line("Leave us a review!", 0.6, 0.82)]).isEmpty)
+        #expect(Share.linkLines(codes: [line("https://www.instagram.com/cornerslice", 0.6, 0.7, w: 0.1, h: 0.1)], words: order).isEmpty)
+        #expect(Share.linkLines(codes: [line("WIFI:S:Corner;T:WPA;P:secret;;", 0.6, 0.7, w: 0.1, h: 0.1)], words: order).isEmpty)
+        #expect(Share.linkLines(codes: [], words: order).isEmpty, "no QR code: nothing")
+        // Several: the ordering one, wherever it is, and one line of each kind.
+        let menu = line("https://cornerslice.example/menu.pdf", 0.1, 0.1, w: 0.1, h: 0.1)
+        #expect(Share.linkLines(codes: [menu, code, code], words: order + [line("Our menu", 0.1, 0.22)]) == ["Order online: https://order.cornerslice.example/start", "Menu link: https://cornerslice.example/menu.pdf"])
+        #expect(Share.withLinks(["Order online: https://x.example"], "Pizza\nCheese 12") == "Order online: https://x.example\nPizza\nCheese 12")
+        #expect(Share.withLinks([], "Pizza") == "Pizza")
     }
 
     @Test func guessLineCountsPages() {

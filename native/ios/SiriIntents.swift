@@ -381,13 +381,13 @@ struct AddToKinwallIntent: AppIntent {
         var kind = kind.kind
         var content = text?.nilIfBlank
         var isbn = false
-        var pages = content.map { [$0] } ?? []
+        var pages = content.map { [$0] } ?? [], links: [String] = []
         if !photos.isEmpty {
             let one = photos.count == 1
             guard let read = await ShareReader.read(count: photos.count, load: { photos[$0].data }, reading: { _ in })
             else { throw KinwallIntentError.said(one ? "Kinwall couldn't open this photo." : "Kinwall couldn't open these photos.") }
             if let found = read.isbn { kind = .book; content = found; isbn = true }
-            else if !read.pages.isEmpty { pages = read.pages; content = Share.joinPages(pages) }
+            else if !read.pages.isEmpty { pages = read.pages; links = read.links; content = Share.joinPages(pages) }
             else { throw KinwallIntentError.said(one ? "Kinwall couldn't find any words in this photo." : "Kinwall couldn't find any words in these photos.") }
         }
         // A link goes as it is; an ISBN is a book. Other words: the model's guess (Apple Intelligence),
@@ -405,6 +405,7 @@ struct AddToKinwallIntent: AppIntent {
             }
             // An event goes with the words as read under the model's lines (a street it left out).
             if kind == .event { content = Share.eventText(content, raw: words) }
+            if kind == .restaurant { content = content.map { Share.withLinks(links, $0) } }
         }
         guard var request = Share.request(kind: kind, text: content) else { throw KinwallIntentError.said("Nothing to add.") }
         if request.kind == .event, let calendar { request.save = true; request.calendarId = calendar.id }

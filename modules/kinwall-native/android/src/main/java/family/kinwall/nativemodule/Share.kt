@@ -241,9 +241,7 @@ object Share {
       Cuisine: the kind of food, like Pizza or Thai
       Phone: its phone number
       Address: its address on one line
-      Website: its website
-      Menu:
-      $MENU_LINES
+      Website: its website, only when the text shows it
       """.trimIndent()
     Kind.BOOK -> """
       ISBN: the ISBN, from the barcode's number
@@ -259,7 +257,6 @@ object Share {
       """.trimIndent()
     Kind.RECIPE -> null
   }
-  private const val MENU_LINES = "then each menu section's name on its own line, with each of its items on its own line below it as the item's name and then its price, like \"Large cheese 14.99\""
   private const val LEAVE_OUT = "Answer in exactly this format and nothing else, and leave out any line you can't find:"
 
   /** Rewrites a photo's text into the lines Kinwall reads for a kind the person picked. */
@@ -289,8 +286,15 @@ object Share {
     |${text.take(6000)}
     """.trimMargin()
 
-  /** A long menu's later part (`chunks`), as menu lines only; the name and the other header lines come from the first part. */
-  fun morePrompt(text: String) = "This is more text from the same restaurant menu. Answer with only its menu, in exactly this format and nothing else: $MENU_LINES\n\n$text"
+  /** What to send for a menu: the model's name, phone, address and website lines (anything else in
+   * its answer is dropped), then "Menu:" and the words as read. The model only reads the top of a
+   * menu: rewriting a whole menu took it 25 s and more a page, dropped sections and mixed lines up,
+   * while Kinwall reads the words as read well (restaurant-import.ts, menu-text.ts). */
+  fun menuText(answer: String?, raw: String): String {
+    val header = (answer ?: "").replace("**", "").lines().map { it.trim() }
+      .filter { Regex("""^(name|cuisine|phone|address|website)\s*:\s*\S""", RegexOption.IGNORE_CASE).containsMatchIn(it) }
+    return if (header.isEmpty()) raw else (header + listOf("Menu:", raw)).joinToString("\n")
+  }
 
   // --- Several photos (a menu over pages) ---------------------------------------------------------
 
@@ -363,4 +367,65 @@ object Share {
 
   /** An EAN-13 that's an ISBN (978/979), off a back cover's barcode. */
   fun isbnBarcode(value: String?) = value?.takeIf { it.length == 13 && it.all(Char::isDigit) && (it.startsWith("978") || it.startsWith("979")) }
+
+  // --- Reading a photo's words (ShareReader.kt): the same as KinwallKit's Share.swift -------------
+
+  /** A line of text read off a photo and where it is: x and y from the top left, in any unit (ML
+   * Kit's pixels). A QR code's payload goes in one too. */
+  data class TextLine(val text: String, val x: Double, val y: Double, val width: Double, val height: Double) {
+    val maxX get() = x + width
+    val maxY get() = y + height
+    val midY get() = y + height / 2
+  }
+
+  /** A photo's lines as one text, in the order the reader gave them (ML Kit reads a block at a time),
+   * with the pieces of one row put back on one line: a name and its price read apart ("Mozzarella
+   * Sticks", "$9.35"), or words cut by a price's column. A piece joins the line before it when they're
+   * level and it's to the right: next to it, or any way off when it's a price (dot leaders between). */
+  fun readingOrder(lines: List<TextLine>): String {
+    val rows = mutableListOf<Pair<String, TextLine>>()
+    for (l in lines) {
+      if (l.text.isBlank()) continue
+      val row = rows.lastOrNull()
+      if (row != null && kotlin.math.abs(l.midY - row.second.midY) < minOf(l.height, row.second.height) * 0.6 && l.x >= row.second.maxX - l.height * 0.5 &&
+        (isPrice(l.text) || (l.x - row.second.maxX < l.height * 2 && l.text.count(Char::isLetter) >= 3))) rows[rows.lastIndex] = "${row.first} ${l.text}" to l
+      else rows += l.text to l
+    }
+    return rows.joinToString("\n") { it.first }
+  }
+
+  /** Mostly digits and money: "$8.30", "(4) $7.25 | (8) $13.50", "+$5.00". */
+  fun isPrice(s: String) = s.count(Char::isLetter) <= 8 && Regex("""\$\s?\d|\d[.,]\d\d""").containsMatchIn(s)
+
+  /** A menu's QR codes as the lines Kinwall reads (restaurant-import.ts splitMenuHeader), going by the
+   * words beside each code: "Order online: …" when they say order, "Menu link: …" for a menu,
+   * "Website: …" for a website, "QR code: …" (shown, not saved) when they say nothing clear. Codes
+   * that aren't web links, or go to social media, reviews, payment or Wi-Fi, are left out. One line of
+   * each kind, the first found. `codes` holds each code's payload and box; `words` the photo's lines. */
+  fun linkLines(codes: List<TextLine>, words: List<TextLine>): List<String> {
+    val out = mutableMapOf<String, String>()
+    for (code in codes) {
+      val url = try { java.net.URI(code.text.trim()) } catch (e: Exception) { null } ?: continue
+      val host = url.host?.lowercase() ?: continue
+      if (url.scheme?.lowercase() !in setOf("http", "https") || SKIPPED_HOSTS.any { host == it || host.endsWith(".$it") }) continue
+      val reach = maxOf(code.width, code.height)
+      val near = words.filter { w -> maxOf(w.x - code.maxX, code.x - w.maxX, 0.0) <= reach && maxOf(w.y - code.maxY, code.y - w.maxY, 0.0) <= reach }
+        .joinToString(" ") { it.text.lowercase() }
+      val label = when {
+        Regex("""\border|\bdelivery|\bpick ?up""").containsMatchIn(near) -> "Order online"
+        Regex("""follow|review|\bpay|wi-?fi|survey|feedback|\blike us|\brate us|app store|download""").containsMatchIn(near) -> null
+        Regex("""\bmenu""").containsMatchIn(near) -> "Menu link"
+        Regex("""website|\bvisit\b""").containsMatchIn(near) -> "Website"
+        else -> "QR code"
+      } ?: continue
+      out.putIfAbsent(label, "$label: ${code.text.trim()}")
+    }
+    return listOf("Order online", "Menu link", "Website", "QR code").mapNotNull { out[it] }
+  }
+  private val SKIPPED_HOSTS = listOf("facebook.com", "fb.com", "instagram.com", "tiktok.com", "twitter.com", "x.com", "youtube.com", "youtu.be", "yelp.com",
+    "tripadvisor.com", "linkedin.com", "pinterest.com", "g.page", "wa.me", "venmo.com", "paypal.com", "paypal.me", "cash.app",
+    "apps.apple.com", "play.google.com")
+
+  /** A menu's text with its QR code lines first, where Kinwall reads its header lines. */
+  fun withLinks(links: List<String>, text: String) = if (links.isEmpty()) text else (links + text).joinToString("\n")
 }

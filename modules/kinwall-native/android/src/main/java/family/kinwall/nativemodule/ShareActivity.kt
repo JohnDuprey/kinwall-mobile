@@ -150,6 +150,7 @@ class ShareActivity : AppCompatActivity() {
           ?: return result(if (one) "Kinwall couldn't open this photo." else "Kinwall couldn't open these photos.")
         if (read.isbn != null) return send(Share.Request(kind = Share.Kind.BOOK, text = read.isbn), "Looking up the book…")
         if (read.pages.isEmpty()) return result(if (one) "Kinwall couldn't find any words in this photo." else "Kinwall couldn't find any words in these photos.")
+        links = read.links
         sendWords(read.pages)
       }
       else -> result("Share a link, a photo, some text or a contact to add it to Kinwall.")
@@ -171,7 +172,7 @@ class ShareActivity : AppCompatActivity() {
     }
     val (kind, text) = guess
     if (kind == Share.Kind.EVENT) return checkEvent(Share.eventText(text, raw), pages, true)
-    send(Share.Request(kind = kind, text = text), "Reading it…", pages)
+    send(request(kind, text), "Reading it…", pages)
   }
 
   /** A kind picked for these words ("What is this?", "Not a menu?"): tidied for it, then on as if it were guessed right. */
@@ -180,8 +181,12 @@ class ShareActivity : AppCompatActivity() {
     busy("Reading it…")
     val tidied = ShareReader.tidied(pages, kind)
     if (kind == Share.Kind.EVENT) return checkEvent(Share.eventText(tidied, raw), pages, false)
-    send(Share.Request(kind = kind, text = tidied ?: Share.withHeaders(kind, ShareReader.entities(raw), raw)), "Reading it…")
+    send(request(kind, tidied ?: Share.withHeaders(kind, ShareReader.entities(raw), raw)), "Reading it…")
   }
+
+  /** A menu photo's QR code lines ("Order online: …"), sent over a restaurant's words. */
+  private var links: List<String> = emptyList()
+  private fun request(kind: Share.Kind, text: String) = Share.Request(kind = kind, text = if (kind == Share.Kind.RESTAURANT) Share.withLinks(links, text) else text)
 
   /** An event: what Kinwall read and the calendars to add it to, to fix and add here, or open in the
    * app. A Kinwall too old to say what it read opens the app's event sheet, as before. */

@@ -30,31 +30,43 @@ import kotlin.coroutines.resumeWithException
  * text recognition (Latin, through Google Play services) reads the words; entity extraction finds
  * dates, places, phone numbers, websites and ISBNs (Share.headers); and on a phone with Gemini Nano
  * (ML Kit GenAI Prompt API) the model guesses what it is and tidies the words, like the iOS model step
- * (Share.guessPrompt). Entity extraction and Gemini Nano need Android 8; older phones skip them. */
+ * (Share.guessPrompt); for a menu only its name, phone, address and website, with the menu as read
+ * (Share.menuText). The words keep a row's pieces on one line (Share.readingOrder), and a QR code
+ * becomes a menu's ordering or menu link when the words beside it say so (Share.linkLines). Entity
+ * extraction and Gemini Nano need Android 8; older phones skip them. */
 object ShareReader {
-  data class Read(val isbn: String?, val text: String?)
+  data class Read(val isbn: String?, val text: String?, val links: List<String> = emptyList())
 
-  /** A photo's ISBN (from its barcode), else its words. Null when it can't be opened. */
+  /** A photo's ISBN (from its barcode), else its words and its QR codes' lines for a menu ("Order
+   * online: …"). Null when it can't be opened. */
   suspend fun read(context: Context, uri: Uri): Read? {
     val bitmap = try { downscaled(context, uri) } catch (e: Exception) { null } ?: return null
     val image = InputImage.fromBitmap(bitmap, 0)
-    val scanner = BarcodeScanning.getClient(BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_EAN_13).build())
-    val isbn = try { scanner.process(image).await().firstNotNullOfOrNull { Share.isbnBarcode(it.rawValue) } } catch (e: Exception) { null } finally { scanner.close() }
-    if (isbn != null) return Read(isbn, null)
+    val scanner = BarcodeScanning.getClient(BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_EAN_13, Barcode.FORMAT_QR_CODE).build())
+    val codes = try { scanner.process(image).await() } catch (e: Exception) { emptyList() } finally { scanner.close() }
+    codes.firstNotNullOfOrNull { if (it.format == Barcode.FORMAT_EAN_13) Share.isbnBarcode(it.rawValue) else null }?.let { return Read(it, null) }
     val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     // The Play services model downloads with the app (the manifest's vision DEPENDENCIES); until it
     // has, this fails and the photo has no words.
-    val text = try { recognizer.process(image).await().text } catch (e: Exception) { null } finally { recognizer.close() }
-    return Read(null, text?.takeIf { it.isNotBlank() })
+    val words = try {
+      recognizer.process(image).await().textBlocks.flatMap { b -> b.lines.mapNotNull { l -> l.boundingBox?.let { line(l.text, it) } } }
+    } catch (e: Exception) { emptyList() } finally { recognizer.close() }
+    val qr = codes.filter { it.format == Barcode.FORMAT_QR_CODE }.mapNotNull { c -> c.rawValue?.let { v -> c.boundingBox?.let { line(v, it) } } }
+    return Read(null, Share.readingOrder(words).takeIf { it.isNotBlank() }, Share.linkLines(qr, words))
   }
 
-  data class Pages(val isbn: String?, val pages: List<String>)
+  private fun line(text: String, box: android.graphics.Rect) =
+    Share.TextLine(text, box.left.toDouble(), box.top.toDouble(), box.width().toDouble(), box.height().toDouble())
+
+  /** `links`: the QR code lines for a menu, one of each kind, the first photo's first. */
+  data class Pages(val isbn: String?, val pages: List<String>, val links: List<String> = emptyList())
 
   /** Several photos (or one), read one at a time so only one is in memory: an ISBN on any of them
    * (a book), else each one's words in the order shared. `reading` is told which one is being read.
    * Null when none could be opened. */
   suspend fun read(context: Context, uris: List<Uri>, reading: (Int) -> Unit): Pages? {
     val pages = mutableListOf<String>()
+    val links = mutableListOf<String>()
     var opened = false
     for ((n, uri) in uris.withIndex()) {
       reading(n)
@@ -62,30 +74,25 @@ object ShareReader {
       opened = true
       if (read.isbn != null) return Pages(read.isbn, emptyList())
       read.text?.let { pages += it }
+      for (l in read.links) if (links.none { it.substringBefore(':') == l.substringBefore(':') }) links += l
     }
-    return if (opened) Pages(null, pages) else null
+    return if (opened) Pages(null, pages, links) else null
   }
 
   /** Gemini Nano's guess at what the words are, in the lines Kinwall reads; null without it, or when
-   * it isn't sure. Words too long for it in one go (Share.chunks): the first part decides, and a
-   * menu's other parts add their menu lines. */
+   * it isn't sure. Words too long for it in one go (Share.chunks): the first part decides. A menu:
+   * its header lines over all the words as read (Share.menuText). */
   suspend fun guess(pages: List<String>): Pair<Share.Kind, String>? {
-    val parts = Share.chunks(pages)
-    val guess = ask(parts.firstOrNull()?.let(Share::guessPrompt))?.let(Share::guess) ?: return null
-    return if (guess.first == Share.Kind.RESTAURANT && parts.size > 1) guess.first to rest(parts, guess.second) else guess
+    val guess = ask(Share.chunks(pages).firstOrNull()?.let(Share::guessPrompt))?.let(Share::guess) ?: return null
+    return if (guess.first == Share.Kind.RESTAURANT) guess.first to Share.menuText(guess.second, Share.joinPages(pages)) else guess
   }
 
-  /** The words in a kind's lines (after the person picked it), or null without Gemini Nano. A long
-   * menu goes part by part: the first gives the name and the other header lines, every part its menu
-   * lines; a part the model fails on goes as it was read. */
+  /** The words in a kind's lines (after the person picked it), or null without Gemini Nano. The model
+   * reads the first part (Share.chunks); a menu is its header lines over all the words as read. */
   suspend fun tidied(pages: List<String>, kind: Share.Kind): String? {
-    val parts = Share.chunks(pages)
-    val first = ask(parts.firstOrNull()?.let { Share.prompt(kind, it) }) ?: return null
-    return if (kind == Share.Kind.RESTAURANT && parts.size > 1) rest(parts, first) else first
+    val answer = ask(Share.chunks(pages).firstOrNull()?.let { Share.prompt(kind, it) }) ?: return null
+    return if (kind == Share.Kind.RESTAURANT) Share.menuText(answer, Share.joinPages(pages)) else answer
   }
-
-  private suspend fun rest(parts: List<String>, first: String) =
-    Share.joinPages(listOf(first) + parts.drop(1).map { ask(Share.morePrompt(it)) ?: it })
 
   /** At most 3000 px on the long side, turned upright: plenty for reading text, and a 50 MP photo
    * decoded whole would be ~200 MB. */

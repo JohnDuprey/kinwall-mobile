@@ -28,6 +28,8 @@ final class ShareViewController: UIViewController {
   private func choose(_ k: Share.Kind) { waiting?.resume(returning: k); waiting = nil }
   /// A guess Kinwall couldn't use (no restaurant name in it): "Not a menu?" picks again from these words.
   private var guessedPages: [String]?
+  /// A menu photo's QR code lines ("Order online: …"), sent over a restaurant's words.
+  private var links: [String] = []
   private lazy var notThat = UIButton(configuration: .plain(), primaryAction: UIAction { [weak self] _ in
     guard let self, let pages = self.guessedPages else { return }
     Task { @MainActor in await self.pickAgain(pages) }
@@ -97,6 +99,7 @@ final class ShareViewController: UIViewController {
           self?.busy(one ? "Reading the photo…" : "Reading photo \(n + 1) of \(photos.count)…")
         }
         guard let read else { return finish(one ? "Kinwall couldn't open this photo." : "Kinwall couldn't open these photos.") }
+        links = read.links
         if let isbn = read.isbn { return await send(.init(kind: .book, text: isbn), reading: "Looking up the book…") }
         guard !read.pages.isEmpty else { return finish(one ? "Kinwall couldn't find any words in this photo." : "Kinwall couldn't find any words in these photos.") }
         return await sendWords(read.pages)
@@ -123,7 +126,7 @@ final class ShareViewController: UIViewController {
     cancelling(false)
     if text == nil { busy("Reading it…"); text = await ShareReader.tidied(pages, kind: kind) ?? raw }
     if kind == .event { return await checkEvent(Share.eventText(text, raw: raw), pages: pages, guessed: guess != nil) }
-    await send(Share.request(kind: kind, text: text), reading: "Reading it…", guessed: guess != nil ? pages : nil)
+    await send(request(kind, text), reading: "Reading it…", guessed: guess != nil ? pages : nil)
   }
 
   /// An event: what Kinwall read, with the calendars to add it to, to fix and add here (EventReview),
@@ -169,7 +172,12 @@ final class ShareViewController: UIViewController {
     busy("Reading it…")
     let text = await ShareReader.tidied(pages, kind: kind)
     if kind == .event { return await checkEvent(Share.eventText(text, raw: raw), pages: pages, guessed: false) }
-    await send(Share.request(kind: kind, text: text ?? raw), reading: "Reading it…")
+    await send(request(kind, text ?? raw), reading: "Reading it…")
+  }
+
+  /// What to send for words of a kind: a menu with its QR code lines first.
+  private func request(_ kind: Share.Kind, _ text: String?) -> Share.Request? {
+    Share.request(kind: kind, text: kind == .restaurant ? text.map { Share.withLinks(links, $0) } : text)
   }
 
   private func closeReview() {

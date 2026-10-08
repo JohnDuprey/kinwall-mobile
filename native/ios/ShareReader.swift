@@ -8,57 +8,59 @@ import FoundationModels
 
 // A shared photo's text, for POST /api/share (KinwallKit Share.swift), read on the device: compiled
 // into the app (Add to Kinwall, SiriIntents.swift) and the share extension (targets/share, through
-// plugins/withKinwallNative.js). An ISBN barcode means a book. Otherwise Vision reads the words, and
-// on an iPhone with Apple Intelligence (iOS 26) the on-device model says what it is and rewrites it
-// into the lines Kinwall reads (Share.guessPrompt, Share.prompt). Without the model, or when it fails
-// or takes over 20 s, the words go as they were read. FoundationModels is weak-linked on its own (the
+// plugins/withKinwallNative.js). An ISBN barcode means a book. Otherwise Vision reads the words (a
+// row's pieces put back on one line, Share.readingOrder) and any QR code (Share.linkLines), and on an
+// iPhone with Apple Intelligence (iOS 26) the on-device model says what it is and rewrites it into the
+// lines Kinwall reads (Share.guessPrompt, Share.prompt); for a menu only its name, phone, address and
+// website, with the menu as read (Share.menuText). Without the model, or when it fails or takes over
+// 20 s, the words go as they were read. FoundationModels is weak-linked on its own (the
 // linker does it for a framework newer than the iOS 17 target), so iOS 17-25 still launch.
 enum ShareReader {
-    /// A photo's ISBN (from its barcode), else its words. Nil when it can't be read.
-    static func read(_ image: Data) -> (isbn: String?, text: String?)? {
+    /// A photo's ISBN (from its barcode), else its words and its QR codes' lines for a menu
+    /// ("Order online: …"). Nil when it can't be read.
+    static func read(_ image: Data) -> (isbn: String?, text: String?, links: [String])? {
         guard let cg = downscaled(image) else { return nil }
-        if let isbn = isbn(in: cg) { return (isbn, nil) }
-        return (nil, recognizedText(in: cg)?.nilIfBlank)
+        let handler = VNImageRequestHandler(cgImage: cg)
+        let codes = VNDetectBarcodesRequest()
+        codes.symbologies = [.ean13, .qr]
+        try? handler.perform([codes])
+        if let isbn = codes.results?.filter({ $0.symbology == .ean13 }).compactMap(\.payloadStringValue)
+            .first(where: { $0.count == 13 && ($0.hasPrefix("978") || $0.hasPrefix("979")) }) { return (isbn, nil, []) }
+        let words = recognizedLines(handler)
+        let qr = codes.results?.filter { $0.symbology == .qr }.compactMap { c in c.payloadStringValue.map { line($0, c.boundingBox) } } ?? []
+        return (nil, Share.readingOrder(words).nilIfBlank, Share.linkLines(codes: qr, words: words))
     }
 
     /// Several photos (or one), read one at a time so only one is in memory: an ISBN on any of them
     /// (a book), else each one's words in the order shared. `load` gives the nth photo's data;
     /// `reading` is told which one is being read. Nil when none could be opened.
-    @MainActor static func read(count: Int, load: (Int) async -> Data?, reading: (Int) -> Void) async -> (isbn: String?, pages: [String])? {
-        var pages: [String] = [], opened = false
+    /// `links`: the QR code lines for a menu, one of each kind, the first photo's first.
+    @MainActor static func read(count: Int, load: (Int) async -> Data?, reading: (Int) -> Void) async -> (isbn: String?, pages: [String], links: [String])? {
+        var pages: [String] = [], links: [String] = [], opened = false
         for n in 0..<count {
             reading(n)
             guard let data = await load(n), let read = read(data) else { continue }
             opened = true
-            if let isbn = read.isbn { return (isbn, []) }
+            if let isbn = read.isbn { return (isbn, [], []) }
             if let text = read.text { pages.append(text) }
+            for l in read.links where !links.contains(where: { $0.prefix(while: { $0 != ":" }) == l.prefix(while: { $0 != ":" }) }) { links.append(l) }
         }
-        return opened ? (nil, pages) : nil
+        return opened ? (nil, pages, links) : nil
     }
 
     /// The model's guess at what the words are, in the lines Kinwall reads; nil without Apple
     /// Intelligence, or when it isn't sure. Words too long for the model in one go (Share.chunks):
-    /// the first part decides, and a menu's other parts add their menu lines.
+    /// the first part decides. A menu: its header lines over all the words as read (Share.menuText).
     static func guess(_ pages: [String]) async -> (kind: Share.Kind, text: String)? {
-        let parts = Share.chunks(pages)
-        guard let first = parts.first, let guess = await ask(Share.guessPrompt(text: first)).flatMap(Share.guess) else { return nil }
-        guard guess.kind == .restaurant, parts.count > 1 else { return guess }
-        return (guess.kind, await rest(of: parts, after: guess.text))
+        guard let first = Share.chunks(pages).first, let guess = await ask(Share.guessPrompt(text: first)).flatMap(Share.guess) else { return nil }
+        return guess.kind == .restaurant ? (guess.kind, Share.menuText(guess.text, raw: Share.joinPages(pages))) : guess
     }
 
-    /// The words in a kind's lines (after the person picked it), or nil without the model. A long
-    /// menu goes part by part (Share.chunks): the first part gives the name and the other header
-    /// lines, every part its menu lines; a part the model fails on goes as it was read.
+    /// The words in a kind's lines (after the person picked it), or nil without the model. The model
+    /// reads the first part (Share.chunks); a menu is its header lines over all the words as read.
     static func tidied(_ pages: [String], kind: Share.Kind) async -> String? {
-        let parts = Share.chunks(pages)
-        guard let first = parts.first, let prompt = Share.prompt(kind, text: first), let answer = await ask(prompt) else { return nil }
-        return kind == .restaurant && parts.count > 1 ? await rest(of: parts, after: answer) : answer
-    }
-
-    private static func rest(of parts: [String], after first: String) async -> String {
-        var answers = [first]
-        for part in parts.dropFirst() { answers.append(await ask(Share.morePrompt(text: part)) ?? part) }
-        return Share.joinPages(answers)
+        guard let first = Share.chunks(pages).first, let prompt = Share.prompt(kind, text: first), let answer = await ask(prompt) else { return nil }
+        return kind == .restaurant ? Share.menuText(answer, raw: Share.joinPages(pages)) : answer
     }
 
     /// At most 3000 px on the long side, turned upright: a 48 MP photo decoded whole would be ~190 MB,
@@ -70,20 +72,18 @@ enum ShareReader {
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 
-    /// An EAN-13 that's an ISBN (978/979), off the back cover's barcode.
-    static func isbn(in image: CGImage) -> String? {
-        let request = VNDetectBarcodesRequest()
-        request.symbologies = [.ean13]
-        try? VNImageRequestHandler(cgImage: image).perform([request])
-        return request.results?.compactMap(\.payloadStringValue).first { $0.count == 13 && ($0.hasPrefix("978") || $0.hasPrefix("979")) }
-    }
-
-    static func recognizedText(in image: CGImage) -> String? {
+    /// Vision's lines with where they are, in Vision's order (a column at a time).
+    static func recognizedLines(_ handler: VNImageRequestHandler) -> [Share.TextLine] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
-        try? VNImageRequestHandler(cgImage: image).perform([request])
-        return request.results?.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+        try? handler.perform([request])
+        return request.results?.compactMap { o in o.topCandidates(1).first.map { line($0.string, o.boundingBox) } } ?? []
+    }
+
+    /// Vision's box (normalized, from the bottom left) as a line from the top left.
+    static func line(_ text: String, _ box: CGRect) -> Share.TextLine {
+        Share.TextLine(text: text, x: box.minX, y: 1 - box.maxY, width: box.width, height: box.height)
     }
 
     /// The on-device model's answer, or nil: no Apple Intelligence, an error, or over `limit` seconds.
