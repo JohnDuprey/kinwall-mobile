@@ -1,5 +1,51 @@
 # Changelog
 
+## [1.2.0](https://github.com/JohnDuprey/kinwall-mobile/compare/v1.1.0...v1.2.0) (2026-10-10)
+
+
+### New
+
+* **android:** send shares and photos to kinwall from the share sheet ([742f5c7](https://github.com/JohnDuprey/kinwall-mobile/commit/742f5c7ca92c789693c0d79c2479425819436780))
+* **ios:** add dinner, reading, poll and event Siri actions ([d95200a](https://github.com/JohnDuprey/kinwall-mobile/commit/d95200a0a65a9c5def22a5c09709746ea21a5aa7))
+* **ios:** send shares and photos to kinwall from the share sheet ([08d8a77](https://github.com/JohnDuprey/kinwall-mobile/commit/08d8a77d6e2e6812b23023a38850edcfd6ecb42e))
+* **native:** show a cooking range's check on the lock screen and ring it ([2047f60](https://github.com/JohnDuprey/kinwall-mobile/commit/2047f60355576ce4bf9282664f49ea057301e89e))
+* **share:** add a shared event to a calendar right from the share sheet ([4957d2e](https://github.com/JohnDuprey/kinwall-mobile/commit/4957d2eb0c55a68c5937431bf2e8ec417a704de4))
+* **share:** add notes and default the calendar to the family's pick ([f4e7a86](https://github.com/JohnDuprey/kinwall-mobile/commit/f4e7a86533fe3c02539c1254d53faff9a0202f0f))
+* **share:** ask "Restaurant or place?" for an Apple or Google Maps place ([3b868d3](https://github.com/JohnDuprey/kinwall-mobile/commit/3b868d3f0f1eda48312fa076c2ddb5f1dcec64a7))
+* **share:** fill a new event's end from the family's usual event length ([071fbaa](https://github.com/JohnDuprey/kinwall-mobile/commit/071fbaa38bd979a216351ee2ec85bb1de3530296))
+* **share:** read menu photos row by row, with their QR order links ([9a364e2](https://github.com/JohnDuprey/kinwall-mobile/commit/9a364e21a680dc92816d88fdf141b100db251e92))
+* **share:** save events and places to Outings from the share sheet ([8779dce](https://github.com/JohnDuprey/kinwall-mobile/commit/8779dce704525420f5b345aeb2b7cd9b00b25d15))
+* **share:** send a Maps place's phone, address and website with it ([ee52067](https://github.com/JohnDuprey/kinwall-mobile/commit/ee520673db44d5473148986788566e2534c1bfec))
+* **share:** share several photos of a menu at once ([bedade7](https://github.com/JohnDuprey/kinwall-mobile/commit/bedade7dd24740faa2daf7720fc3fe6761e8f04b))
+* **share:** show what will be saved before adding a recipe, restaurant or book ([14fc90d](https://github.com/JohnDuprey/kinwall-mobile/commit/14fc90da28338e3b2e798137e4013e802a1633a2))
+* **shell:** speak words for activity plugins with the system voice ([ebaaebe](https://github.com/JohnDuprey/kinwall-mobile/commit/ebaaebe9a495a736a71c002415e323f6f07d3dfe))
+
+
+### Fixed
+
+* **android:** fill the notification icon's box so the logo isn't tiny ([d985181](https://github.com/JohnDuprey/kinwall-mobile/commit/d985181e6655244209d3023c4d0c87afdb5deb1c))
+* **android:** show chores waiting for a parent's OK as ticked ([95326e1](https://github.com/JohnDuprey/kinwall-mobile/commit/95326e1f7d2121aed46cbcdfc1a9900dc15f4c7e))
+* **android:** stop reopening the permission screen on every page load ([cc93359](https://github.com/JohnDuprey/kinwall-mobile/commit/cc93359068dc84edfd7cbc9a5cedff71f4b2829c))
+* **android:** stop the Chores widget's ticks failing with a 400 ([f2e640d](https://github.com/JohnDuprey/kinwall-mobile/commit/f2e640db97b0f81793608cb1cd7adbe9cc194599))
+* **auth:** re-read the saved sign-in before giving up on a refresh ([f99571c](https://github.com/JohnDuprey/kinwall-mobile/commit/f99571c83f6f24ac97ef68c7d519f6373efe1ebb))
+* **ios:** ask to unlock before Siri, widgets or reminders change anything ([2010b18](https://github.com/JohnDuprey/kinwall-mobile/commit/2010b184c26c80bed24d8fc38cac2cad76a93b6a))
+* **ios:** claim the audio only while a beep or a word plays ([bb6dd89](https://github.com/JohnDuprey/kinwall-mobile/commit/bb6dd89977df43b1d9ddc7602f31e3fd3bfe06e9))
+* **ios:** honor Lists off in the Reminders schema and rename Open Groceries ([af30aed](https://github.com/JohnDuprey/kinwall-mobile/commit/af30aed58237f188357f349ba629e35021aa9705))
+* **ios:** keep sign-ins and keys on this iPhone, out of backups ([c9ed396](https://github.com/JohnDuprey/kinwall-mobile/commit/c9ed3968487be143e303fafa00e6699738a95f8e))
+* **ios:** keep the calendar in view and close the share sheet with an X ([68ec512](https://github.com/JohnDuprey/kinwall-mobile/commit/68ec5122e58c853b4c466e92cd249346df06dc2c))
+* **ios:** make the share sheet's main buttons a solid blue ([8aa664a](https://github.com/JohnDuprey/kinwall-mobile/commit/8aa664a6f6bd494382abb300ca816117d05b0b0f))
+* **ios:** show chores waiting for a parent's OK as ticked ([d8013b5](https://github.com/JohnDuprey/kinwall-mobile/commit/d8013b5e3e46d8e4cdd9667a0465aa944aefe027))
+* **ios:** show the name under the logo on the splash screen ([5ba98a8](https://github.com/JohnDuprey/kinwall-mobile/commit/5ba98a8070f3e82bbc14c2255d5ba64b2c8864bf))
+* **share:** keep a menu photo's prices on their rows and missed text ([5a2281a](https://github.com/JohnDuprey/kinwall-mobile/commit/5a2281add74e2da230b5c70574c4098f4c76bb9a))
+* **share:** open the app when no calendar can take a shared event ([ceb594c](https://github.com/JohnDuprey/kinwall-mobile/commit/ceb594c2dd9d29e5179f781c7f386a603485d82d))
+* **share:** refresh the sign-in once when the calendars and the event go together ([14c5306](https://github.com/JohnDuprey/kinwall-mobile/commit/14c5306b3de97c3a3ad349fb312f1026ac7ebe3a))
+* **shell:** follow a widget link tapped twice in a row ([ab580a0](https://github.com/JohnDuprey/kinwall-mobile/commit/ab580a030859ff4529a1373325abac206b3b7292))
+* **shell:** give a waking page 8 s to answer before restarting it ([0b0800b](https://github.com/JohnDuprey/kinwall-mobile/commit/0b0800b4a499412e65476367154274d5c3911ea4))
+* **shell:** give the native screens' text links a 44pt touch target ([c29bf88](https://github.com/JohnDuprey/kinwall-mobile/commit/c29bf88135c5c1fbe3f128a4a40b4378fa2067eb))
+* **shell:** keep the welcome screen still on rotation and fit it in landscape ([7f09c44](https://github.com/JohnDuprey/kinwall-mobile/commit/7f09c445462accbd80c626e3cb57d4c3e6587b66))
+* **shell:** recover the web view instead of leaving a blank screen ([1ed1221](https://github.com/JohnDuprey/kinwall-mobile/commit/1ed122151da50bb78f2a312b079c07c2dc6fa007))
+* **shell:** skip repeat key syncs and ignore route-change load starts ([a1e4676](https://github.com/JohnDuprey/kinwall-mobile/commit/a1e4676d9c38a6de886478f3486224f1e046be79))
+
 ## [1.1.0](https://github.com/JohnDuprey/kinwall-mobile/compare/v1.0.0...v1.1.0) (2026-10-02)
 
 
