@@ -17,26 +17,28 @@ import UserNotifications
 /// AlarmKit countdown: the cooking Live Activity already counts down on the Lock Screen, so the
 /// system shows only the alert, with Stop, and has no Pause that could fall out of step with the page.
 /// Otherwise (iOS 17 to 25, or AlarmKit not allowed): a local notification at each finish.
+/// A range ("5–6 min") also lists its check (`checks`): always a plain notification, one short
+/// sound, never an alarm, since the timer keeps going. An app from before ranges ignores `checks`.
 public enum CookingAlarms {
     /// The intent Stop runs, from the app target (native/ios/LiveActivityIntents.swift
     /// StopCookingTimerIntent, set at launch by AppHooks): App Intents have to live in the app itself.
     /// It ends the timer's Live Activity. `at`: the timer's finish, ms since 1970.
     nonisolated(unsafe) public static var stopIntent: ((Double) -> any LiveActivityIntent)?
     private struct Alarm: Decodable { let at: Double; let title: String; let body: String }
-    private struct Payload: Decodable { let alarms: [Alarm]? }
+    private struct Payload: Decodable { let alarms: [Alarm]?; let checks: [Alarm]? }
     static let prefix = "cook:"
     @MainActor private static var last: Task<Void, Never>?
 
     /// The page's cooking payload (a page from before `alarms` rings nothing). `accent`: the family's
     /// accent color (#RRGGBB) for the alarm, or nil for Kinwall's.
     @MainActor static func set(json: String, accent: String? = nil) {
-        let alarms = (try? JSONDecoder().decode(Payload.self, from: Data(json.utf8)))?.alarms ?? []
+        let p = try? JSONDecoder().decode(Payload.self, from: Data(json.utf8))
         let tint = tint(accent)
-        run { await apply(alarms, tint: tint) }
+        run { await apply(p?.alarms ?? [], checks: p?.checks ?? [], tint: tint) }
     }
 
     /// Cooking mode closed, or sign-out: nothing rings, and one that's ringing stops.
-    @MainActor static func clear() { run { await apply(nil, tint: tint(nil)) } }
+    @MainActor static func clear() { run { await apply(nil, checks: [], tint: tint(nil)) } }
 
     /// The family's accent, else Kinwall's own (web/src default scheme).
     private static func tint(_ hex: String?) -> Color {
@@ -50,12 +52,13 @@ public enum CookingAlarms {
         last = Task { await before?.value; await work() }
     }
 
-    private static func apply(_ alarms: [Alarm]?, tint: Color) async {
+    private static func apply(_ alarms: [Alarm]?, checks: [Alarm], tint: Color) async {
         let now = Date().timeIntervalSince1970
         var wanted: [UUID: Alarm] = [:]
         for a in alarms ?? [] where a.at / 1000 > now { wanted[id(a)] = a }
         var left = wanted
         if #available(iOS 26, *) { left = await ring(wanted, clearing: alarms == nil, tint: tint) }
+        for c in checks where c.at / 1000 > now { left[id(c)] = c }
         await notify(left, clearing: alarms == nil)
     }
 

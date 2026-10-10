@@ -65,8 +65,13 @@ export function showSampleMedication() {
  * recipe name and a 90-second timer that rings, in the shape the web app sends. */
 export function showSampleCooking() {
   if (!__DEV__) return
-  const at = Date.now() + 90_000, recipe = 'Thai Coconut Curry with Crispy Tofu'
-  showActivity('cooking', { recipe, timer: 'Rice', step: 'Step 3 · Finish Filling', endsAt: at, done: false, more: 0, alarms: [{ at, title: "Time's up: Rice", body: `${recipe} · Step 3 · Finish Filling` }] }, null)
+  // A range (web/src/liveActivity.ts): a soft check at 1 minute, the end at 1.5.
+  const check = Date.now() + 60_000, at = check + 30_000, recipe = 'Thai Coconut Curry with Crispy Tofu', body = `${recipe} · Step 3 · Finish Filling`
+  showActivity('cooking', {
+    recipe, timer: 'Rice', step: 'Step 3 · Finish Filling', endsAt: at, done: false, more: 0,
+    alarms: [{ at, title: "Time's up: Rice", body }], checks: [{ at: check, title: 'Check it: Rice', body }],
+    check: { at: check, before: 'Check at 1:00', after: 'Check now · up to 0:30 more' },
+  }, null)
 }
 
 // Android, with no push: the leave-by and start-prep countdowns are scheduled ahead as exact alarms

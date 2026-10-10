@@ -44,7 +44,9 @@ import kotlin.concurrent.thread
  *
  * Cooking timers ring: the cooking payload's `alarms` (every running timer's finish) each get an
  * exact alarm that posts "Time's up" on its own high-importance channel, with the alarm sound
- * until Stop (or ten minutes).
+ * until Stop (or ten minutes). A range ("5–6 min") also has `checks`, its low end: a plain
+ * notification on the countdowns channel, one short sound, since the timer keeps going. An app
+ * from before ranges ignores `checks` and the shown timer's `check`, and counts to the end.
  */
 object Countdowns {
   /** Each kind's channel (Channels.kt): the page's Settings line follows the cooking and shopping one. */
@@ -88,7 +90,13 @@ object Countdowns {
     val edit = prefs(c).edit().putString(kind, payload)
     if (colors != null) edit.putString("colors", colors)
     edit.apply()
-    if (kind == "cooking") JSONObject(json).optJSONArray("alarms")?.let { rings(c, it) }
+    if (kind == "cooking") {
+      val p = JSONObject(json)
+      val all = JSONArray()
+      p.optJSONArray("alarms")?.let { for (i in 0 until it.length()) all.put(it.getJSONObject(i)) }
+      p.optJSONArray("checks")?.let { for (i in 0 until it.length()) all.put(it.getJSONObject(i).put("soft", true)) }
+      if (p.has("alarms")) rings(c, all)
+    }
     show(c, kind)
   }
 
@@ -180,21 +188,30 @@ object Countdowns {
   }
 
   /** A timer's finish: "Time's up: Rice" with the alarm sound, over and over until Stop, a tap, a
-   * swipe, or ten minutes. Its own channel, so it can be loud while the countdowns stay quiet. */
+   * swipe, or ten minutes. Its own channel, so it can be loud while the countdowns stay quiet.
+   * A range's check (`soft`): "Check it: Rice" once, on the countdowns channel. */
   @SuppressLint("MissingPermission")
   fun ring(c: Context, item: JSONObject) {
     if (onScreen(c)) return
     Channels.ensure(c)
     val id = ringUri(item).hashCode()
+    val soft = item.optBoolean("soft")
     val stop = PendingIntent.getBroadcast(c, id, Intent(c, CountdownReceiver::class.java).setAction(ACTION_RING_STOP).putExtra("id", id), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     val open = PendingIntent.getActivity(c, id, openIntent(c, null), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    fun base(title: String) = NotificationCompat.Builder(c, Channels.COOKING)
+    fun base(title: String) = NotificationCompat.Builder(c, if (soft) Channels.COUNTDOWNS else Channels.COOKING)
       .setSmallIcon(R.drawable.kinwall_countdown)
       .setContentTitle(title)
       .setColor(accent(c))
       .setGroup(GROUP + "ring")
-      .setCategory(NotificationCompat.CATEGORY_ALARM)
-      .setPriority(NotificationCompat.PRIORITY_MAX)
+      .setCategory(if (soft) NotificationCompat.CATEGORY_REMINDER else NotificationCompat.CATEGORY_ALARM)
+      .setPriority(if (soft) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_MAX)
+    if (soft) {
+      val n = base(item.optString("title").ifEmpty { "Check it" }).setContentText(item.optString("body"))
+        .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(base("Time to check the timer").build())
+        .setContentIntent(open).setAutoCancel(true).setTimeoutAfter(5 * MIN).build()
+      try { NotificationManagerCompat.from(c).notify(RING_TAG, id, n) } catch (e: SecurityException) {}
+      return
+    }
     val n = base(item.optString("title").ifEmpty { "Time's up" })
       .setContentText(item.optString("body"))
       .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
@@ -210,7 +227,7 @@ object Countdowns {
 
   // ---- Drawing ----
 
-  private class Look(
+  internal class Look(
     val title: String, val text: String, val ongoing: Boolean,
     val countdownTo: Long? = null, val until: Long? = null,
     val next: Long? = null, val link: String? = null, val chip: String? = null,
@@ -275,19 +292,7 @@ object Countdowns {
 
   /** What each kind says now, or null when it's over. `next`: when it should redraw by itself. */
   private fun look(c: Context, kind: String, p: JSONObject, now: Long): Look? = when (kind) {
-    "cooking" -> {
-      val ends = time(p.get("endsAt"))
-      val done = p.optBoolean("done") || now >= ends
-      val more = p.optInt("more")
-      if (done && now >= ends + DONE_FOR) null
-      else Look(
-        title = if (done) "Done: ${p.getString("timer")}" else p.getString("timer"),
-        text = listOfNotNull(p.optString("step").ifEmpty { null }, if (more > 0) "+$more more" else null, p.optString("recipe").ifEmpty { null }).joinToString(" · "),
-        ongoing = !done, countdownTo = if (done) null else ends, until = if (done) ends + DONE_FOR else null,
-        next = if (done) null else ends, chip = if (done) "Done" else null,
-        publicTitle = if (done) "Timer done" else "Kitchen timer",
-      )
-    }
+    "cooking" -> cooking(p, now)
     "shopping" -> {
       val left = p.getInt("left")
       // The trip's size: the most left we've seen of it.
@@ -358,6 +363,26 @@ object Countdowns {
   private fun time(v: Any): Long = when (v) {
     is Number -> v.toLong()
     else -> SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(v.toString())!!.time
+  }
+
+  /** A cooking timer now. A range (`check`, web/src/liveActivity.ts) counts to its check under the
+   * page's "Check at 5:00", then to its end under "Check now · up to 1:00 more", redrawing itself at
+   * the check; its name moves to the line under. A single time counts to its end under its name. */
+  internal fun cooking(p: JSONObject, now: Long): Look? {
+    val ends = time(p.get("endsAt"))
+    val done = p.optBoolean("done") || now >= ends
+    val more = p.optInt("more")
+    val name = p.getString("timer")
+    val check = if (done) null else p.optJSONObject("check")
+    val checkAt = check?.optLong("at")?.takeIf { it > now }
+    if (done && now >= ends + DONE_FOR) return null
+    return Look(
+      title = when { done -> "Done: $name"; check == null -> name; checkAt != null -> check.optString("before"); else -> check.optString("after") },
+      text = listOfNotNull(if (check != null) name else null, p.optString("step").ifEmpty { null }, if (more > 0) "+$more more" else null, p.optString("recipe").ifEmpty { null }).joinToString(" · "),
+      ongoing = !done, countdownTo = if (done) null else checkAt ?: ends, until = if (done) ends + DONE_FOR else null,
+      next = if (done) null else checkAt ?: ends, chip = if (done) "Done" else null,
+      publicTitle = if (done) "Timer done" else "Kitchen timer",
+    )
   }
 
   // ---- Alarms ----

@@ -22,13 +22,20 @@ public struct KinwallActivityAttributes: ActivityAttributes {
         public var count: Int
         /// Cooking: the timer rang.
         public var done: Bool
+        /// Cooking, a range ("5–6 min"): when it's time to check, and the web app's words before
+        /// ("Check at 5:00") and after ("Check now · up to 1:00 more"). Nil for a single time, and
+        /// in payloads from before ranges (KinwallKit CookingLine).
+        public var check: Date?
+        public var beforeCheck: String?
+        public var afterCheck: String?
         /// Shopping: the item to get now, then the few after it, so "Got it" can move on without the
         /// app's page and the activity can say what's after it.
         public var itemId: String?
         public var queue: [Entry]?
 
-        public init(title: String, detail: String? = nil, date: Date? = nil, count: Int = 0, done: Bool = false, itemId: String? = nil, queue: [Entry]? = nil) {
+        public init(title: String, detail: String? = nil, date: Date? = nil, count: Int = 0, done: Bool = false, itemId: String? = nil, queue: [Entry]? = nil, check: Date? = nil, beforeCheck: String? = nil, afterCheck: String? = nil) {
             self.title = title; self.detail = detail; self.date = date; self.count = count; self.done = done; self.itemId = itemId; self.queue = queue
+            self.check = check; self.beforeCheck = beforeCheck; self.afterCheck = afterCheck
         }
     }
 

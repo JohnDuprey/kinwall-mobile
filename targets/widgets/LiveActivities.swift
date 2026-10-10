@@ -111,12 +111,15 @@ extension KinwallActivityAttributes {
 
 extension ActivityViewContext<KinwallActivityAttributes> {
     var s: KinwallActivityAttributes.ContentState { state }
-    /// Past its time: a timer that's up, a leave-by or start-prep time that has come.
-    var due: Bool { isStale || s.done || (s.date.map { $0 <= .now } ?? false) }
+    /// Past its time: a timer that's up, a leave-by or start-prep time that has come. A cooking range
+    /// goes stale at its check, and isn't up until its end.
+    var due: Bool { attributes.kind == "cooking" ? cooking.countdownTo == nil || (isStale && s.check == nil) : isStale || s.done || (s.date.map { $0 <= .now } ?? false) }
+    /// A cooking timer's headline and countdown now: a range's check, then its end (KinwallKit CookingLine).
+    var cooking: CookingLine { CookingLine(title: s.title, end: s.date, done: s.done, check: s.check, before: s.beforeCheck, after: s.afterCheck, now: .now) }
 
     var headline: String {
         switch attributes.kind {
-        case "cooking": due ? "Done: \(s.title)" : s.title
+        case "cooking": due ? "Done: \(s.title)" : cooking.headline
         case "shopping": s.count == 0 ? "All done at \(attributes.name)" : s.title.isEmpty ? "\(s.count) left" : s.title
         case "medication": s.title // the web app's headline ("Time for Maya's medicine")
         default: due ? (s.detail ?? "Time to go") : s.title
@@ -126,7 +129,8 @@ extension ActivityViewContext<KinwallActivityAttributes> {
     /// A cooking timer's step and how many others are running, under the recipe.
     var stepLine: String? {
         guard attributes.kind == "cooking" else { return nil }
-        let line = [s.detail, s.count > 0 ? "+\(s.count) more" : nil].compactMap { $0 }.joined(separator: " · ")
+        // A range's headline is its check words, so its name goes in front here.
+        let line = [s.check == nil ? nil : s.title, s.detail, s.count > 0 ? "+\(s.count) more" : nil].compactMap { $0 }.joined(separator: " · ")
         return line.isEmpty ? nil : line
     }
 
@@ -150,7 +154,7 @@ struct Trailing: View {
     var body: some View {
         if context.attributes.kind == "shopping" {
             Text("\(context.s.count) left").monospacedDigit()
-        } else if let date = context.s.date, !context.due {
+        } else if let date = context.attributes.kind == "cooking" ? context.cooking.countdownTo : context.s.date, !context.due {
             Text(timerInterval: Date.now...max(date, .now), countsDown: true).monospacedDigit().multilineTextAlignment(.trailing)
         } else {
             Text(context.attributes.kind == "cooking" ? "Done" : "Now")

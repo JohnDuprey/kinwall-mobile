@@ -137,7 +137,9 @@ import Foundation
         guard let p = try? JSONDecoder().decode(CookingTimers.self, from: Data(json.utf8)) else { return [] }
         return Set([p.endsAt] + (p.alarms ?? []).map(\.at))
     }
-    private struct Cooking: Decodable { let recipe: String; let timer: String; let step: String; let endsAt: Double; let done: Bool; let more: Int }
+    /// `check`: a range's (web/src/liveActivity.ts); absent for a single time and from older pages.
+    private struct Cooking: Decodable { let recipe: String; let timer: String; let step: String; let endsAt: Double; let done: Bool; let more: Int; let check: Check? }
+    private struct Check: Decodable { let at: Double; let before: String; let after: String }
     private struct Shopping: Decodable { let listId: String; let store: String; let left: Int; let next: Attributes.Entry?; let upcoming: [Attributes.Entry] }
     private struct Medication: Decodable { let medicationId: String; let date: String; let time: String; let label: String; let headline: String; let windowEndsAt: String; let stage: String }
     private struct LeaveBy: Decodable { let activity: String; let eventId: String; let title: String; let prep: Bool; let at: String; let endsAt: String; let headline: String; let urgent: String }
@@ -153,8 +155,10 @@ import Foundation
         switch kind {
         case "cooking":
             let p = try decoder.decode(Cooking.self, from: data)
-            let ends = Date(timeIntervalSince1970: p.endsAt / 1000)
-            return (Attributes(kind: "cooking", name: p.recipe, colors: colors), .init(title: p.timer, detail: p.step, date: ends, count: p.more, done: p.done), p.done ? nil : ends)
+            let ends = Date(timeIntervalSince1970: p.endsAt / 1000), check = p.check.map { Date(timeIntervalSince1970: $0.at / 1000) }
+            // A range goes stale at its check first, so the Lock Screen redraws there and moves on to its end.
+            let stale = p.done ? nil : check.flatMap { $0 > .now ? $0 : nil } ?? ends
+            return (Attributes(kind: "cooking", name: p.recipe, colors: colors), .init(title: p.timer, detail: p.step, date: ends, count: p.more, done: p.done, check: check, beforeCheck: p.check?.before, afterCheck: p.check?.after), stale)
         case "shopping":
             let p = try decoder.decode(Shopping.self, from: data)
             return (Attributes(kind: "shopping", name: p.store, listId: p.listId, colors: colors), .init(title: p.next?.title ?? "", detail: p.next?.aisle, count: p.left, itemId: p.next?.id, queue: p.upcoming), nil)
