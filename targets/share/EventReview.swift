@@ -4,7 +4,7 @@ import SwiftUI
 /// An event the share sheet read (ShareViewController.checkEvent), to fix and add to a calendar right
 /// here: its title, date, all day or its times, place and notes, then the family's calendars this phone can
 /// add to (the first is the family's default calendar for new events). Add to calendar saves it (POST
-/// api/share with save). (A share extension can't open its app, so there's no Open in Kinwall here.)
+/// api/share with save); Save to Outings adds it to Outings instead (kind outing, with the words read). (A share extension can't open its app, so there's no Open in Kinwall here.)
 /// The pickers hold the household's wall-clock time as UTC (Share.pickerDate), so nothing shifts
 /// with the phone's own time zone.
 struct EventReview: View {
@@ -12,6 +12,8 @@ struct EventReview: View {
   let calendars: [Share.FamilyCalendar]
   /// Saves it: an error line to show, or nil once it's saved (the sheet moves on).
   let add: (Share.EventDraft, String) async -> String?
+  /// Save to Outings: an error line, or nil once it's saved. Nil: no button (a Kinwall without Outings).
+  let saveToOutings: ((Share.EventDraft) async -> String?)?
   let notEvent: () -> Void
   let cancel: () -> Void
 
@@ -28,10 +30,11 @@ struct EventReview: View {
 
   /// minutes: how long a new event lasts with no end read (the family's setting).
   init(draft: Share.EventDraft, guessed: Bool, calendars: [Share.FamilyCalendar], minutes: Int = 60, add: @escaping (Share.EventDraft, String) async -> String?,
-       notEvent: @escaping () -> Void, cancel: @escaping () -> Void) {
+       saveToOutings: ((Share.EventDraft) async -> String?)? = nil, notEvent: @escaping () -> Void, cancel: @escaping () -> Void) {
     self.guessed = guessed
     self.calendars = calendars
     self.add = add
+    self.saveToOutings = saveToOutings
     self.notEvent = notEvent
     self.cancel = cancel
     // No date read: today, on this phone, for the person to change.
@@ -103,6 +106,15 @@ struct EventReview: View {
         .buttonStyle(.borderedProminent)
         .tint(.kinwallAction)
         .foregroundStyle(.white)
+        .disabled(working || draft.title == nil)
+      }
+      if let saveToOutings {
+        Button {
+          Task { working = true; error = await saveToOutings(draft); working = false }
+        } label: {
+          Label("Save to Outings", systemImage: "ticket").frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.bordered)
         .disabled(working || draft.title == nil)
       }
       if guessed { Button(action: notEvent) { Text(Share.notLabel(.event)).frame(maxWidth: .infinity, minHeight: 44) }.disabled(working) }

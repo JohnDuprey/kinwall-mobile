@@ -106,7 +106,34 @@ import Testing
         #expect(Share.guess("Kind: unsure") == nil)
         #expect(Share.guess("Kind: event") == nil) // nothing to send
         #expect(Share.guess("Title: Wool") == nil)
-        #expect(Share.guessPrompt(text: "flyer").hasSuffix("how to RSVP\n\nflyer"))
+        #expect(Share.guessPrompt(text: "flyer").hasSuffix("Ages: the ages it's for, like 7-10 or 21+\n\nflyer"))
+        // The Outings lines come through with the event's (Kinwall reads them for Save to Outings).
+        let fair = Share.guess("Kind: event\nTitle: Fall Fest\nDate: Oct 17\nCost: $15\nEnds: Oct 18\nTickets: Register by Oct 10\nAges: 7-10")
+        #expect(fair?.kind == .event && fair?.text.hasSuffix("Cost: $15\nEnds: Oct 18\nTickets: Register by Oct 10\nAges: 7-10") == true)
+        #expect(Share.value("cost", in: fair!.text) == "$15" && Share.value("ages", in: fair!.text) == "7-10")
+        #expect(Share.guess("Kind: outing\nTitle: Fall Fest") == nil, "never a guess")
+    }
+
+    @Test func saveToOutings() throws {
+        // The event's prompt asks for the Outings lines, after the event's own.
+        let prompt = Share.prompt(.event, text: "f")!
+        for line in ["\nCost: what it costs, like $15 or Free\n", "\nEnds: the last day", "\nTickets: when tickets go on sale", "\nAges: the ages it's for, like 7-10 or 21+\n"] { #expect(prompt.contains(line), "\(line)") }
+        #expect(Share.prompt(.outing, text: "f") == nil)
+        // Save to Outings sends the event as checked and the words it was read from.
+        let event = Share.EventDraft(title: "Fall Fest", date: "2026-10-17", time: "10:00")
+        let r = Share.Request.outing(event, text: "  Title: Fall Fest\nCost: $15\n---\nFALL FEST  ")
+        #expect(r.kind == .outing && r.event == event && r.text == "Title: Fall Fest\nCost: $15\n---\nFALL FEST" && r.preview == nil)
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(r)) as! [String: Any]
+        #expect(json["kind"] as? String == "outing")
+        #expect(Share.Request.outing(event, text: " ").text == nil)
+        // An outing's answer decodes (older apps never ask for one).
+        let saved = Data(#"{"kind":"outing","summary":"Added Fall Fest to Outings","link":"https://k/#/outings?outing=o1","review":false}"#.utf8)
+        guard case .done(let done) = Share.outcome(status: 200, data: saved) else { Issue.record("not done"); return }
+        #expect(done.kind == .outing && !done.needsReview)
+        #expect(Share.checkTitle(.outing) == "Check the outing" && Share.notLabel(.outing) == "Not an outing?")
+        // A Maps place to visit goes as an outing with its card.
+        let place = Share.Request(kind: .outing, place: URL(string: "https://maps.apple.com/?name=Lakeside%20Beach")!, card: .init(name: "Lakeside Beach", address: "9 Lake Rd"))
+        #expect(place.kind == .outing && place.url == "https://maps.apple.com/?name=Lakeside%20Beach" && place.name == "Lakeside Beach" && place.address == "9 Lake Rd")
     }
 
     @Test func theGuessInOneLine() {

@@ -129,6 +129,33 @@ class ShareTest {
     assertEquals(Share.Outcome.Failed("Couldn't add it to Kinwall: error 500."), Share.outcome(500, ""))
   }
 
+  @Test fun saveToOutings() {
+    // The event's prompt asks for the Outings lines after the event's own; the guess keeps them.
+    val prompt = Share.prompt(Kind.EVENT, "f")!!
+    for (line in listOf("\nCost: what it costs, like \$15 or Free\n", "\nEnds: the last day", "\nTickets: when tickets go on sale", "\nAges: the ages it's for, like 7-10 or 21+\n")) assertEquals(line, true, prompt.contains(line))
+    assertNull(Share.prompt(Kind.OUTING, "f"))
+    val fair = Share.guess("Kind: event\nTitle: Fall Fest\nCost: \$15\nTickets: Register by Oct 10\nAges: 7-10")!!
+    assertEquals(Kind.EVENT, fair.first)
+    assertEquals(true, fair.second.endsWith("Cost: \$15\nTickets: Register by Oct 10\nAges: 7-10"))
+    assertNull(Share.guess("Kind: outing\nTitle: Fall Fest"))
+    // Save to Outings sends the event as checked and the words it was read from.
+    val event = Share.EventDraft("Fall Fest", "2026-10-17", "10:00")
+    val json = JSONObject(Share.Request.outing(event, "  Title: Fall Fest\nCost: \$15  ").json())
+    assertEquals("outing", json.getString("kind"))
+    assertEquals("Title: Fall Fest\nCost: \$15", json.getString("text"))
+    assertEquals("Fall Fest", json.getJSONObject("event").getString("title"))
+    assertEquals(false, JSONObject(Share.Request.outing(event, " ").json()).has("text"))
+    // An outing's answer is understood, and its card says so.
+    val done = Share.outcome(200, """{"kind":"outing","summary":"Added Fall Fest to Outings","link":"https://k/#/outings?outing=o1","review":false}""")
+    assertEquals(Kind.OUTING, (done as Share.Outcome.Done).result.kind)
+    assertEquals("Check the outing", Share.checkTitle(Kind.OUTING))
+    assertEquals("Not an outing?", Share.notLabel(Kind.OUTING))
+    // A Maps place to visit goes as an outing with its name and address.
+    val place = JSONObject(Share.Request(Kind.OUTING, "https://maps.app.goo.gl/AbCd", name = "Lakeside Beach", address = "9 Lake Rd").json())
+    assertEquals("outing", place.getString("kind"))
+    assertEquals("Lakeside Beach", place.getString("name"))
+  }
+
   @Test fun appLink() {
     // src/links.ts routeFor (test/links.test.ts) reads it back with URLSearchParams: + stays a plus.
     assertEquals("family.kinwall.app:/open?to=shared&link=https%3A%2F%2Fk.example%2F%23%2Fcalendar%3Fdraft%3Devent%26title%3DSpring%2Bfair",

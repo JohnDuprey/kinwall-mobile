@@ -6,13 +6,13 @@ import UniformTypeIdentifiers
 /// "Kinwall" in the share sheet: sends what's shared to the family's Kinwall (POST api/share, KinwallKit
 /// Share.swift) right here in the sheet. A link goes as it is (Kinwall reads the page). An Apple or
 /// Google Maps place (a link, or text with one) asks "Restaurant or place?" first: a restaurant for the
-/// binder, or a place for Contacts. A photo or some text is read on the device (native/ios/ShareReader.swift): an ISBN
+/// binder, a place for Contacts, or a place to visit for Outings. A photo or some text is read on the device (native/ios/ShareReader.swift): an ISBN
 /// barcode goes as a book straight away; with Apple Intelligence the model's guess goes on as that
 /// kind, with "Not a menu?" to pick another; otherwise, or when the model isn't sure, it asks
 /// "What is this?". Several photos (a menu over pages) are read one at a time and go as one text,
 /// guessed a menu when the model can't tell. A recipe, restaurant or book shows what Kinwall would
 /// save (SharePreview.swift, POST api/share with preview) with Add to Kinwall; an event shows what
-/// Kinwall read, to fix and add to a calendar here (EventReview.swift). A book to pick opens in the
+/// Kinwall read, to fix and add to a calendar or save to Outings here (EventReview.swift). A book to pick opens in the
 /// app; anything saved shows Kinwall's line, and the sheet closes itself after about 3 s unless it's touched.
 /// A shared contact (a vCard) is reviewed and imported the same way (ContactImport.swift).
 /// It signs in with what the app keeps in the shared Keychain group (KinwallKit AppSignIn).
@@ -36,8 +36,8 @@ final class ShareViewController: UIViewController {
     Task { @MainActor in await self.pickAgain(pages) }
   })
   private lazy var choices = choiceStack([("Restaurant", .restaurant, "fork.knife"), ("Book", .book, "book"), ("Event", .event, "calendar")])
-  /// "Restaurant or place?" for a Maps place.
-  private lazy var placeChoices = choiceStack([("Restaurant", .restaurant, "fork.knife"), ("Place", .place, "mappin.and.ellipse")])
+  /// "Restaurant or place?" for a Maps place: the binder, Contacts, or Outings' places to visit.
+  private lazy var placeChoices = choiceStack([("Restaurant", .restaurant, "fork.knife"), ("Place", .place, "mappin.and.ellipse"), ("Place to visit", .outing, "figure.walk")])
   private func choiceStack(_ items: [(String, Share.Kind, String)]) -> UIStackView {
     let buttons = items.map { title, kind, icon in
       var config = UIButton.Configuration.plain()
@@ -160,6 +160,13 @@ final class ShareViewController: UIViewController {
     let host = embed(EventReview(draft: draft, guessed: guessed, calendars: addable, minutes: await minutes,
       add: { [weak self] event, calendarId in
         switch await Share.send(.init(kind: .event, event: event, save: true, calendarId: calendarId)) {
+        case .failed(let message): return message
+        case .done(let saved): self?.closeReview(); self?.saved(saved); return nil
+        }
+      },
+      saveToOutings: { [weak self] event in
+        // The words go too: Kinwall reads the cost, ticket dates and ages from them.
+        switch await Share.send(.outing(event, text: text)) {
         case .failed(let message): return message
         case .done(let saved): self?.closeReview(); self?.saved(saved); return nil
         }

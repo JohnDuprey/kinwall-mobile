@@ -11,9 +11,11 @@ import java.util.TimeZone
  * POST /api/share (kinwall's docs/using/share-to-kinwall.md) and what its answer means. The pure
  * rules, tested in src/test (ShareTest.kt); the iOS twin is KinwallKit's Share.swift. */
 object Share {
-  /** What a photo or some text is. A link goes without one: the server reads the page. A Maps place
-   * is a restaurant or a place (a contact of kind place), picked in "Restaurant or place?". */
-  enum class Kind { RECIPE, RESTAURANT, BOOK, EVENT, PLACE; val wire get() = name.lowercase() }
+  /** What a photo or some text is. A link goes without one: the server reads the page (a recipe, a
+   * restaurant, or an event's or a place's page as an outing). A Maps place is a restaurant, a place
+   * (a contact of kind place) or a place to visit (an outing), picked in "Restaurant or place?".
+   * OUTING: an event's "Save to Outings", or a Maps place to visit. */
+  enum class Kind { RECIPE, RESTAURANT, BOOK, EVENT, PLACE, OUTING; val wire get() = name.lowercase() }
 
   /** `event` is an event as the person checked it in the sheet (sent instead of text); `save` adds it
    * to `calendarId` now instead of answering with a link to check it. `preview`: a recipe, restaurant
@@ -35,6 +37,12 @@ object Share {
 
     /** The save after `shown`'s card: the same share without preview, with its token. */
     fun saving(shown: Result) = copy(preview = false, token = shown.preview?.token)
+
+    companion object {
+      /** Save to Outings from the event form: the event as checked, with the words it was read from,
+       * so Kinwall also reads its cost, ticket dates and ages (the Cost:, Ends:, Tickets:, Ages: lines). */
+      fun outing(event: EventDraft, text: String?) = Request(Kind.OUTING, text = text?.trim()?.takeIf { it.isNotEmpty() }, event = event)
+    }
   }
 
   /** What would be saved (the server's ShareResult preview), for the sheet's card: the photo or
@@ -50,7 +58,7 @@ object Share {
   }
 
   /** The card's title: "Check the recipe", like the event form's "Check the event". */
-  fun checkTitle(kind: Kind) = "Check the " + when (kind) { Kind.RECIPE -> "recipe"; Kind.RESTAURANT -> "restaurant"; Kind.BOOK -> "book"; Kind.EVENT -> "event"; Kind.PLACE -> "place" }
+  fun checkTitle(kind: Kind) = "Check the " + when (kind) { Kind.RECIPE -> "recipe"; Kind.RESTAURANT -> "restaurant"; Kind.BOOK -> "book"; Kind.EVENT -> "event"; Kind.PLACE -> "place"; Kind.OUTING -> "outing" }
 
   /** An event as Kinwall read it (or as the person changed it): a YYYY-MM-DD date and HH:MM times on
    * the household's clock; no time is all day. */
@@ -224,7 +232,7 @@ object Share {
         first(found, Type.URL)?.let { lines += "Website: $it" }
       }
       Kind.BOOK -> first(found, Type.ISBN)?.let { lines += "ISBN: $it" }
-      Kind.RECIPE, Kind.PLACE -> {}
+      Kind.RECIPE, Kind.PLACE, Kind.OUTING -> {}
     }
     return lines.joinToString("\n")
   }
@@ -283,8 +291,12 @@ object Share {
       Time: its start and end time, like 10:00 AM - 2:00 PM
       Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield
       Notes: anything else worth knowing, like what to bring, costs, or how to RSVP
+      Cost: what it costs, like $15 or Free
+      Ends: the last day, when it runs over several days, like Sunday, May 10, 2026
+      Tickets: when tickets go on sale or the last day to buy them or sign up, like On sale Friday, May 1 at 10 AM or Register by May 3
+      Ages: the ages it's for, like 7-10 or 21+
       """.trimIndent()
-    Kind.RECIPE, Kind.PLACE -> null
+    Kind.RECIPE, Kind.PLACE, Kind.OUTING -> null
   }
   private const val LEAVE_OUT = "Answer in exactly this format and nothing else, and leave out any line you can't find:"
 
@@ -294,7 +306,7 @@ object Share {
       Kind.RESTAURANT -> "a photo of a restaurant menu"
       Kind.BOOK -> "a photo of a book's cover or back"
       Kind.EVENT -> "a flyer, an invitation or a screenshot"
-      Kind.RECIPE, Kind.PLACE -> return null
+      Kind.RECIPE, Kind.PLACE, Kind.OUTING -> return null
     }
     return format(kind)?.let { "This is text from $what. $LEAVE_OUT\n$it\n\n${text.take(6000)}" }
   }
@@ -374,7 +386,7 @@ object Share {
     val lines = answer.replace("**", "").lines().map { it.trim() }.dropWhile { it.isEmpty() }
     val first = lines.firstOrNull() ?: return null
     if (!first.lowercase().startsWith("kind:")) return null
-    val kind = Kind.entries.firstOrNull { it.wire == first.drop(5).trim().lowercase() }?.takeIf { it != Kind.RECIPE && it != Kind.PLACE } ?: return null
+    val kind = Kind.entries.firstOrNull { it.wire == first.drop(5).trim().lowercase() }?.takeIf { it != Kind.RECIPE && it != Kind.PLACE && it != Kind.OUTING } ?: return null
     val text = lines.drop(1).joinToString("\n").trim()
     return if (text.isEmpty()) null else kind to text
   }
@@ -387,13 +399,14 @@ object Share {
       Kind.EVENT -> "an event" to listOfNotNull(value("title"), value("date")).joinToString(", ").takeIf { it.isNotEmpty() }
       Kind.BOOK -> "a book" to value("title")
       Kind.PLACE -> "a place" to null
+      Kind.OUTING -> "an outing" to value("title")
       Kind.RESTAURANT, Kind.RECIPE -> "a menu" to listOfNotNull(value("name"), if (pages > 1) "$pages pages" else null).joinToString(", ").takeIf { it.isNotEmpty() }
     }
     return "Looks like $what" + (detail?.let { ": $it" } ?: "")
   }
 
   /** The small button under a guess: "Not an event?". */
-  fun notLabel(kind: Kind) = when (kind) { Kind.EVENT -> "Not an event?"; Kind.BOOK -> "Not a book?"; Kind.PLACE -> "Not a place?"; else -> "Not a menu?" }
+  fun notLabel(kind: Kind) = when (kind) { Kind.EVENT -> "Not an event?"; Kind.BOOK -> "Not a book?"; Kind.PLACE -> "Not a place?"; Kind.OUTING -> "Not an outing?"; else -> "Not a menu?" }
 
   /** An EAN-13 that's an ISBN (978/979), off a back cover's barcode. */
   fun isbnBarcode(value: String?) = value?.takeIf { it.length == 13 && it.all(Char::isDigit) && (it.startsWith("978") || it.startsWith("979")) }

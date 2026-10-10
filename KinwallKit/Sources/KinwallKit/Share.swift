@@ -11,9 +11,11 @@ import Security
 /// docs/using/share-to-kinwall.md) and what its answer means. The pure parts are tested in
 /// ShareTests.swift; reading a photo's text is native/ios/ShareReader.swift.
 public enum Share {
-    /// What a photo or some text is. A link goes without one: the server reads the page. A Maps place
-    /// is a restaurant or a place (a contact of kind place), picked in "Restaurant or place?".
-    public enum Kind: String, Codable, CaseIterable, Sendable { case recipe, restaurant, book, event, place }
+    /// What a photo or some text is. A link goes without one: the server reads the page (a recipe, a
+    /// restaurant, or an event's or a place's page as an outing). A Maps place is a restaurant, a place
+    /// (a contact of kind place) or a place to visit (an outing), picked in "Restaurant or place?".
+    /// outing: an event's "Save to Outings", or a Maps place to visit.
+    public enum Kind: String, Codable, CaseIterable, Sendable { case recipe, restaurant, book, event, place, outing }
 
     public struct Request: Encodable, Equatable, Sendable {
         public var kind: Kind?
@@ -44,6 +46,12 @@ public enum Share {
             phone = card.phone; address = card.address; website = card.website
         }
 
+        /// Save to Outings from the event sheet: the event as checked, with the words it was read from, so
+        /// Kinwall also reads its cost, ticket dates and ages (the Cost:, Ends:, Tickets: and Ages: lines).
+        public static func outing(_ event: EventDraft, text: String?) -> Request {
+            Request(kind: .outing, text: text?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty, event: event)
+        }
+
         /// The save after `preview`'s card: the same share without preview, with its token.
         public func saving(_ preview: Result) -> Request {
             var r = self
@@ -68,7 +76,7 @@ public enum Share {
 
     /// The card's title: "Check the recipe", like the event form's "Check the event".
     public static func checkTitle(_ kind: Kind) -> String {
-        switch kind { case .recipe: "Check the recipe"; case .restaurant: "Check the restaurant"; case .book: "Check the book"; case .event: "Check the event"; case .place: "Check the place" }
+        switch kind { case .recipe: "Check the recipe"; case .restaurant: "Check the restaurant"; case .book: "Check the book"; case .event: "Check the event"; case .place: "Check the place"; case .outing: "Check the outing" }
     }
 
     /// An event as Kinwall read it (or as the person changed it): a YYYY-MM-DD date and HH:MM times on
@@ -285,8 +293,12 @@ public enum Share {
             Time: its start and end time, like 10:00 AM - 2:00 PM
             Place: the venue's name and its full street address and town on one line, like The Rivers Residence, 12 Elm Road, Springfield
             Notes: anything else worth knowing, like what to bring, costs, or how to RSVP
+            Cost: what it costs, like $15 or Free
+            Ends: the last day, when it runs over several days, like Sunday, May 10, 2026
+            Tickets: when tickets go on sale or the last day to buy them or sign up, like On sale Friday, May 1 at 10 AM or Register by May 3
+            Ages: the ages it's for, like 7-10 or 21+
             """
-        case .recipe, .place: nil
+        case .recipe, .place, .outing: nil
         }
     }
     static let leaveOut = "Answer in exactly this format and nothing else, and leave out any line you can't find:"
@@ -298,7 +310,7 @@ public enum Share {
         case .restaurant: "a photo of a restaurant menu"
         case .book: "a photo of a book's cover or back"
         case .event: "a flyer, an invitation or a screenshot"
-        case .recipe, .place: ""
+        case .recipe, .place, .outing: ""
         }
         return format(kind).map { "This is text from \(what). \(leaveOut)\n\($0)\n\n\(text)" }
     }
@@ -389,7 +401,7 @@ public enum Share {
         var lines = answer.replacingOccurrences(of: "**", with: "").split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
         while lines.first?.isEmpty == true { lines.removeFirst() }
         guard let first = lines.first, first.lowercased().hasPrefix("kind:"),
-              let kind = Kind(rawValue: first.dropFirst(5).trimmingCharacters(in: .whitespaces).lowercased()), kind != .recipe, kind != .place else { return nil }
+              let kind = Kind(rawValue: first.dropFirst(5).trimmingCharacters(in: .whitespaces).lowercased()), kind != .recipe, kind != .place, kind != .outing else { return nil }
         let text = lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
         return text.isEmpty ? nil : (kind, text)
     }
@@ -402,6 +414,7 @@ public enum Share {
         case .event: ("an event", [value("title"), value("date")].compactMap { $0 }.joined(separator: ", ").nilIfEmpty)
         case .book: ("a book", value("title"))
         case .place: ("a place", nil)
+        case .outing: ("an outing", value("title"))
         case .restaurant, .recipe: ("a menu", [value("name"), pages > 1 ? "\(pages) pages" : nil].compactMap { $0 }.joined(separator: ", ").nilIfEmpty)
         }
         return "Looks like \(what)" + (detail.map { ": \($0)" } ?? "")
@@ -409,7 +422,7 @@ public enum Share {
 
     /// The small button under a guess: "Not an event?".
     public static func notLabel(_ kind: Kind) -> String {
-        switch kind { case .event: "Not an event?"; case .book: "Not a book?"; case .place: "Not a place?"; case .restaurant, .recipe: "Not a menu?" }
+        switch kind { case .event: "Not an event?"; case .book: "Not a book?"; case .place: "Not a place?"; case .outing: "Not an outing?"; case .restaurant, .recipe: "Not a menu?" }
     }
 
     // MARK: Reading a photo's words

@@ -59,7 +59,7 @@ import kotlin.coroutines.resume
  * guesses (from Gemini Nano where the phone has it, else from the dates, places and phone numbers
  * in it) and goes on as that kind, with "Not a menu?" to pick another, or asks "What is this?".
  * A recipe, restaurant or book shows what Kinwall would save (previewCard, POST api/share with
- * preview) with Add to Kinwall, like the iOS sheet's SharePreview. An event shows what Kinwall read, to fix and add to a calendar here (Add to calendar) or open in
+ * preview) with Add to Kinwall, like the iOS sheet's SharePreview. An event shows what Kinwall read, to fix and add to a calendar here (Add to calendar), save to Outings, or open in
  * the app (Open in Kinwall), like the iOS sheet's EventReview. A book to pick opens in the app;
  * anything saved shows Kinwall's line with Open, and the sheet closes itself after about 3 s unless
  * it's touched. Several photos (SEND_MULTIPLE, a menu over pages) are read one at a time and go as
@@ -91,6 +91,7 @@ class ShareActivity : AppCompatActivity() {
   private lateinit var formError: TextView
   private lateinit var addToCalendar: Button
   private lateinit var openInKinwall: Button
+  private lateinit var saveToOutings: Button
   private var day = ""
   private var start = "09:00"
   private var end = "10:00"
@@ -103,7 +104,7 @@ class ShareActivity : AppCompatActivity() {
   private lateinit var cardAlready: TextView
   private lateinit var cardError: TextView
 
-  private sealed interface Choice { data object Add : Choice; data class Pick(val kind: Share.Kind) : Choice; data object Save : Choice; data object Open : Choice }
+  private sealed interface Choice { data object Add : Choice; data class Pick(val kind: Share.Kind) : Choice; data object Save : Choice; data object Open : Choice; data object Outing : Choice }
   private var waiting: ((Choice) -> Unit)? = null
   private suspend fun wait(): Choice = suspendCancellableCoroutine { c -> waiting = { waiting = null; c.resume(it) } }
 
@@ -162,7 +163,7 @@ class ShareActivity : AppCompatActivity() {
     }
   }
 
-  /** A Maps place: "Restaurant or place?", then its card (a restaurant for the binder, or a contact). */
+  /** A Maps place: "Restaurant or place?", then its card (a restaurant for the binder, a contact, or a place to visit in Outings). */
   private suspend fun sendPlace(place: Share.Place) {
     spinner.visibility = View.GONE
     label.text = "Restaurant or place?"
@@ -221,7 +222,7 @@ class ShareActivity : AppCompatActivity() {
     done.text = "Cancel"
     while (true) {
       // A form error (no title, a failed save) stays until the next tap.
-      show(eventForm, *listOfNotNull(addToCalendar.takeIf { calendars.isNotEmpty() }, openInKinwall, notThat.takeIf { guessed }, done).toTypedArray())
+      show(eventForm, *listOfNotNull(addToCalendar.takeIf { calendars.isNotEmpty() }, saveToOutings, openInKinwall, notThat.takeIf { guessed }, done).toTypedArray())
       val c = wait()
       formError.visibility = View.GONE
       when (c) {
@@ -241,6 +242,17 @@ class ShareActivity : AppCompatActivity() {
           when (val o = withContext(Dispatchers.IO) { post(this@ShareActivity, Share.Request(kind = Share.Kind.EVENT, event = event)) }) {
             is Share.Outcome.Failed -> return result(o.message)
             is Share.Outcome.Done -> return openInApp(o.result)
+          }
+        }
+        Choice.Outing -> {
+          // Save to Outings: the words go too, for the cost, ticket dates and ages.
+          val event = draft() ?: continue
+          setBusy(true)
+          val o = withContext(Dispatchers.IO) { post(this@ShareActivity, Share.Request.outing(event, text)) }
+          setBusy(false)
+          when (o) {
+            is Share.Outcome.Failed -> { formError.text = o.message; formError.visibility = View.VISIBLE; continue }
+            is Share.Outcome.Done -> { label.text = ""; return saved(o.result) }
           }
         }
         is Choice.Pick -> return again(pages, c.kind) // Not an event? showed "What is this?"
@@ -284,7 +296,7 @@ class ShareActivity : AppCompatActivity() {
 
   private fun setBusy(on: Boolean) {
     spinner.visibility = if (on) View.VISIBLE else View.GONE
-    for (v in listOf(title, place, notes, dayButton, allDay, startButton, endButton, calendarPicker, addToCalendar, openInKinwall, notThat, done)) v.isEnabled = !on
+    for (v in listOf(title, place, notes, dayButton, allDay, startButton, endButton, calendarPicker, addToCalendar, saveToOutings, openInKinwall, notThat, done)) v.isEnabled = !on
   }
 
   /** Asks Kinwall what it would save (preview), for the card's Add to Kinwall; a Kinwall too old for
@@ -401,11 +413,12 @@ class ShareActivity : AppCompatActivity() {
       items.forEach { (title, kind) -> addView(button(title, false) { waiting?.invoke(Choice.Pick(kind)) }) }
     }
     choices = choiceList("Restaurant" to Share.Kind.RESTAURANT, "Book" to Share.Kind.BOOK, "Event" to Share.Kind.EVENT)
-    placeChoices = choiceList("Restaurant" to Share.Kind.RESTAURANT, "Place" to Share.Kind.PLACE)
+    placeChoices = choiceList("Restaurant" to Share.Kind.RESTAURANT, "Place" to Share.Kind.PLACE, "Place to visit" to Share.Kind.OUTING)
     done = button("Cancel", false) { finish() }
     openSaved = button("Open", false) { savedResult?.let(::openInApp) }
     addToCalendar = button("Add to calendar", true) { waiting?.invoke(Choice.Save) }
     openInKinwall = button("Open in Kinwall", false) { waiting?.invoke(Choice.Open) }
+    saveToOutings = button("Save to Outings", false) { waiting?.invoke(Choice.Outing) }
     eventForm = eventForm()
     card = card()
     show()
@@ -414,7 +427,7 @@ class ShareActivity : AppCompatActivity() {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
         setPadding(dp(24), dp(24), dp(24), dp(16))
-        listOf(spinner, label, eventForm, card, add, addToCalendar, openInKinwall, notThat, choices, placeChoices, openSaved, done).forEach(::addView)
+        listOf(spinner, label, eventForm, card, add, addToCalendar, saveToOutings, openInKinwall, notThat, choices, placeChoices, openSaved, done).forEach(::addView)
       })
     }
   }
@@ -478,7 +491,7 @@ class ShareActivity : AppCompatActivity() {
 
   /** Shows these of the buttons and hides the rest. */
   private fun show(vararg views: View) {
-    for (v in listOf(eventForm, card, add, addToCalendar, openInKinwall, notThat, choices, placeChoices, openSaved, done)) v.visibility = if (v in views) View.VISIBLE else View.GONE
+    for (v in listOf(eventForm, card, add, addToCalendar, saveToOutings, openInKinwall, notThat, choices, placeChoices, openSaved, done)) v.visibility = if (v in views) View.VISIBLE else View.GONE
   }
 
   private fun busy(text: String) {
