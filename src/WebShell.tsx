@@ -123,7 +123,8 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
     if (!web.current) return
     answered.current = false
     web.current.injectJavaScript(`try { var r = document.getElementById('root'); window.webkit.messageHandlers.kinwall.postMessage({ type: 'alive', blank: !!r && !r.firstElementChild }) } catch (e) {} true;`)
-    setTimeout(() => { if (!answered.current) restart() }, 3000)
+    // A wall tablet waking from sleep can take a few seconds to answer; a restart drops what's open on the page.
+    setTimeout(() => { if (!answered.current) restart() }, 8000)
   }
   useEffect(() => {
     if (loading || failed) return
