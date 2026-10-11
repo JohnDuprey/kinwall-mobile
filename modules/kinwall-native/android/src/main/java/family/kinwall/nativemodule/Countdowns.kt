@@ -318,12 +318,12 @@ object Countdowns {
         now < at -> Look(
           title = p.optString("headline").ifEmpty { "${if (prep) "Start prep" else "Leave"} by ${android.text.format.DateFormat.getTimeFormat(c).format(at)}" },
           text = "$title · ${if (prep) "start prep in" else "leave in"}",
-          ongoing = true, countdownTo = at, until = ends, next = at, link = "calendar",
+          ongoing = true, countdownTo = at, until = ends, next = at, link = "home",
           publicTitle = if (prep) "Time to start prep soon" else "Time to leave soon",
         )
         else -> Look(
           title = p.optString("urgent").ifEmpty { if (prep) "Time to start prep" else "Time to leave" },
-          text = title, ongoing = true, until = ends, link = "calendar", chip = "Now",
+          text = title, ongoing = true, until = ends, link = "home", chip = "Now",
           publicTitle = if (prep) "Time to start prep" else "Time to leave",
         )
       }
@@ -343,7 +343,7 @@ object Countdowns {
           p.optString("stage") == "late" -> "Still time · until ${at(until)}"
           else -> "Due now · still time until ${at(until)}"
         },
-        ongoing = true, countdownTo = until, until = until, next = snoozed, link = "calendar",
+        ongoing = true, countdownTo = until, until = until, next = snoozed, link = "home",
         publicTitle = "Medicine reminder", dose = true,
       )
     }

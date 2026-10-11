@@ -1,7 +1,7 @@
 // The app's own links (family.kinwall.app:/open?…) from widgets, Live Activities, reminders and
 // shares, as the web app's route. No React Native imports, so test/links.test.ts runs it under node.
 
-/** family.kinwall.app:/open?to=chores&done=abc → "chores?done=abc"; a trip's Live Activity, ?to=lists/<id>/shop → shopping mode
+/** family.kinwall.app:/open?to=chores&done=abc → "chores?done=abc"; ?to=home (or an older widget's ?to=calendar) → Home; a trip's Live Activity, ?to=lists/<id>/shop → shopping mode
  * (Siri adds &store=); Siri and the Controls, ?to=lists&list=<id> and ?to=night; Spotlight,
  * ?to=meals&recipe=<id> and ?to=contacts&contact=<id>; a shared contact, ?to=contacts/import; what
  * the share sheet or Add to Kinwall added, ?to=shared&link=<Kinwall's link> (its #/ route, in
@@ -28,8 +28,8 @@ export function routeFor(link: string): string | null {
     const store = q.get('store')?.trim()
     return store && store.length <= 100 ? `${to}?store=${encodeURIComponent(store)}` : to
   }
-  // The check-in widget's "Goal for today?": their check-in on the calendar (the web app opens it once it reads ?checkin=).
-  if (to === 'checkin') { const m = id(q.get('member')); return m ? `calendar?checkin=${m}` : 'calendar' }
+  // The check-in widget's "Goal for today?": their check-in on Home (the web app opens it once it reads #/home?checkin=).
+  if (to === 'checkin') { const m = id(q.get('member')); return m ? `home?checkin=${m}` : 'home' }
   if (to === 'night') return 'night' // the night screen (WebShell sends the 🌙 button's event)
   // Android's shortcuts and Quick Settings tiles, which can't know the list's id: App.tsx looks up
   // Groceries (groceriesRoute) before the page opens it.
@@ -38,9 +38,12 @@ export function routeFor(link: string): string | null {
   // Spotlight: a recipe or a contact (src/spotlight.ts).
   if (to === 'meals') { const r = id(q.get('recipe')); return r ? `meals?recipe=${r}` : 'meals' }
   if (to === 'contacts') { const c = id(q.get('contact')); return c ? `contacts?contact=${c}` : 'contacts' }
-  if (!to || !['calendar', 'chores'].includes(to)) return null
+  // Home (Board/Newscast). Widgets and Live Activities from before Home and Calendar split still say
+  // to=calendar and mean Home; events and drafts open in Calendar through to=shared or a reminder's route.
+  if (to === 'home' || to === 'calendar') return 'home'
+  if (to !== 'chores') return null
   const done = id(q.get('done'))
-  return to === 'chores' && done ? `chores?done=${done}` : to
+  return done ? `chores?done=${done}` : to
 }
 
 /** 'groceries' (add to it) or 'groceries/shop' (shopping mode) with the family's Groceries list

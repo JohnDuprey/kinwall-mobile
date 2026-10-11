@@ -106,7 +106,7 @@ struct TakeNowView: View {
                         Text(entry.what(first)).font(.caption).foregroundStyle(.secondary).lineLimit(2).privacySensitive()
                         Spacer(minLength: 0)
                         if entry.demo {
-                            Link(destination: URL(string: "family.kinwall.app:/open?to=calendar")!) { takenLabel }
+                            Link(destination: URL(string: "family.kinwall.app:/open?to=home")!) { takenLabel }
                         } else {
                             Button(intent: MarkDoseIntent(medicationId: first.medicationId, date: first.date, time: first.time, action: "taken")) { takenLabel }.buttonStyle(.plain)
                         }

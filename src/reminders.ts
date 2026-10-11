@@ -103,7 +103,7 @@ async function personal(c: Connection, person: string, now: number): Promise<Pla
   for (const d of meds ? doseReminders(meds, now) : []) {
     if (d.at <= now || d.at > now + HORIZON) continue
     out.push(at(d.at, `${PREFIX}med:${d.medicationId}:${d.date}:${d.time}`, 'medicine', MEDICINE, 'Time for your medicine', `${time(new Date(d.at))} dose`,
-      { route: 'calendar', medicationId: d.medicationId, date: d.date, time: d.time, urgent: true }))
+      { route: 'home', medicationId: d.medicationId, date: d.date, time: d.time, urgent: true }))
   }
   // The chore nudge: off unless turned on, in iPhone Settings → Kinwall (native/ios/Settings.bundle),
   // or on Android by turning on its channel, Chores, which starts off (Channels.kt); 8:00 AM there.

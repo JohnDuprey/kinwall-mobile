@@ -62,9 +62,9 @@ function NowAndNext({ p, b, problem }: { p: WidgetPalette; b: Board | null; prob
   return (
     <Frame p={p}>
       {problem ? <Note p={p} text={problem} /> : null}
-      {now ? row('NOW', now.title, `ends ${time(now.end)}`, 'calendar') : null}
-      {next ? row('NEXT', next.title, next.leaveAt && Date.parse(next.leaveAt) > Date.now() ? `🚗 leave ${time(next.leaveAt)} · ${time(next.start)}` : time(next.start), 'calendar') : null}
-      {b && !now && !next ? row('TODAY', 'Nothing more today', 'Enjoy the evening.', 'calendar') : null}
+      {now ? row('NOW', now.title, `ends ${time(now.end)}`, 'home') : null}
+      {next ? row('NEXT', next.title, next.leaveAt && Date.parse(next.leaveAt) > Date.now() ? `🚗 leave ${time(next.leaveAt)} · ${time(next.start)}` : time(next.start), 'home') : null}
+      {b && !now && !next ? row('TODAY', 'Nothing more today', 'Enjoy the evening.', 'home') : null}
       {total > 0 ? row('CHORES', remaining === 0 ? 'Chores done 🎉' : `${remaining} of ${total} left`, 'Tap to tick them off', 'chores') : null}
     </Frame>
   )
@@ -134,7 +134,7 @@ function List({ p, d, problem, demo, off }: { p: WidgetPalette; d: ListDetail | 
 
 function TakeNow({ p, due, problem }: { p: WidgetPalette; due: number | null; problem?: string }) {
   return (
-    <Frame p={p} to="calendar">
+    <Frame p={p} to="home">
       <Label p={p} text="MEDICINE" />
       {problem ? <Note p={p} text={problem} /> : (
         <FlexWidget style={{ flexDirection: 'column', marginTop: 4 }}>

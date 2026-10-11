@@ -99,11 +99,11 @@ struct SmallActivity: View {
 
 extension KinwallActivityAttributes {
     var icon: String { ["cooking": "⏲️", "shopping": "🛒", "leave": "🚗", "prep": "🍳", "medication": "💊"][kind] ?? "📅" }
-    /// Open: shopping mode for a trip, the calendar for a leave-by; the app as it was for cooking.
+    /// Open: shopping mode for a trip, Home for a leave-by, prep or medicine; the app as it was for cooking.
     var link: URL? {
         switch kind {
         case "shopping": listId.flatMap { URL(string: "family.kinwall.app:/open?to=lists/\($0)/shop") }
-        case "leave", "prep", "medication": URL(string: "family.kinwall.app:/open?to=calendar")
+        case "leave", "prep", "medication": URL(string: "family.kinwall.app:/open?to=home")
         default: nil
         }
     }

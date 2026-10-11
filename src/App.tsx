@@ -57,7 +57,7 @@ export default function App() {
   // the launch screen itself once the page has painted (src/WebShell.tsx).
   useEffect(() => { if (server === null || (server && !session)) hideSplash() }, [server, session])
 
-  // Widget links: family.kinwall.app:/open?to=chores (or calendar, lists), plus &done=<chore id>
+  // Widget links: family.kinwall.app:/open?to=chores (or home, lists), plus &done=<chore id>
   // to tap that chore in the web app (it asks "Who did it?" or opens the checklist); and what the
   // share sheet added (to=shared&link=…), to check it.
   // Every link, not useURL's latest: tapping the same widget twice is the same URL, which useURL
@@ -126,12 +126,12 @@ export default function App() {
 
 /** Android's shortcuts and tiles ask for "groceries": the family's Groceries list, found with the
  * widgets' key (src/widgetData.ts pickGroceries); Lists signed out, offline or in the demo; the
- * calendar when the family turned Lists off. */
+ * Home when the family turned Lists off. */
 async function resolve(route: string): Promise<string> {
   if (route !== 'groceries' && route !== 'groceries/shop') return route
   const c = await widgetConnection()
   const [groceries, f] = await Promise.all([c ? lists(c).then(pickGroceries).catch(() => null) : null, c ? features(c) : ({} as Features)])
-  if (f.lists === false) return 'calendar'
+  if (f.lists === false) return 'home'
   return groceriesRoute(route, groceries?.id)
 }
 

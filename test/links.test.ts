@@ -4,7 +4,9 @@ import assert from 'node:assert/strict'
 import { groceriesRoute, routeFor, importContactsScript, meetCall } from '../src/links.ts'
 
 test('routeFor: tabs and a chore to tick', () => {
-  assert.equal(routeFor('family.kinwall.app:/open?to=calendar'), 'calendar')
+  assert.equal(routeFor('family.kinwall.app:/open?to=home'), 'home')
+  assert.equal(routeFor('family.kinwall.app:/open?to=calendar'), 'home', 'widgets from before Home and Calendar split meant Home')
+  assert.equal(routeFor('family.kinwall.app:/open?to=calendar&event=e1'), 'home')
   assert.equal(routeFor('family.kinwall.app:/open?to=chores&done=c1'), 'chores?done=c1')
   assert.equal(routeFor('family.kinwall.app:/open?to=recipes/import&url=https%3A%2F%2Fexample.org%2Ftacos'), null, 'Android shares go to /api/share now')
   assert.equal(routeFor('family.kinwall.app:/open?to=settings'), null)
@@ -31,8 +33,8 @@ test('routeFor: Spotlight opens a recipe, a list or a contact', () => {
 })
 
 test('routeFor: the check-in widget opens that person\'s check-in', () => {
-  assert.equal(routeFor('family.kinwall.app:/open?to=checkin&member=m3'), 'calendar?checkin=m3')
-  assert.equal(routeFor('family.kinwall.app:/open?to=checkin&member=%3C'), 'calendar')
+  assert.equal(routeFor('family.kinwall.app:/open?to=checkin&member=m3'), 'home?checkin=m3')
+  assert.equal(routeFor('family.kinwall.app:/open?to=checkin&member=%3C'), 'home')
 })
 
 test('Android shortcuts and tiles: Groceries, found by the app', () => {
