@@ -1,18 +1,21 @@
 import Foundation
 
-/// The cooking timer Live Activity's headline and countdown at a moment. A single time counts to
-/// its end under its name. A range ("5–6 min", web/src/liveActivity.ts `check`) counts to its check
-/// with the web app's `before` words ("Check at 5:00"), then to its end with `after` ("Check now ·
-/// up to 1:00 more"). Past the end, or rung: "Done: Rice" and no countdown.
+/// The cooking timer Live Activity's headline and countdown. It always counts to the end, so it
+/// never needs a redraw partway: iOS doesn't reliably redraw an activity at its stale date, and a
+/// countdown to a range's check froze at 0:00 there. A range ("5–6 min", web/src/liveActivity.ts
+/// `check`) says when to check in the same terms as the countdown: "Check with 1:00 left" (its
+/// check notification rings then). A single time counts under its name. Past the end, or rung:
+/// "Done: Rice" and no countdown.
 public struct CookingLine: Equatable, Sendable {
     public let headline: String
     /// What the countdown counts to; nil once it's done.
     public let countdownTo: Date?
 
-    public init(title: String, end: Date?, done: Bool, check: Date?, before: String?, after: String?, now: Date) {
+    public init(title: String, end: Date?, done: Bool, check: Date?, now: Date) {
         guard !done, let end, end > now else { headline = "Done: \(title)"; countdownTo = nil; return }
-        if let check, check > now { headline = before ?? title; countdownTo = check }
-        else if check != nil { headline = after ?? title; countdownTo = end }
-        else { headline = title; countdownTo = end }
+        countdownTo = end
+        guard let check, check < end else { headline = title; return }
+        let left = Int(end.timeIntervalSince(check).rounded())
+        headline = "Check with \(left / 60):\(String(format: "%02d", left % 60)) left"
     }
 }
