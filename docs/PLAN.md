@@ -192,6 +192,8 @@ Also for the web app (2026-09-30), both optional and Android only:
 - **Let medicine through Do Not Disturb:** where the Notifications section talks about medicine reminders, when `window.kinwallNative.notificationSettings` is true, a link that posts `{ type: 'notificationSettings', channel: 'medicine' }`; the app opens the Medicine channel's page in Android Settings, where **Override Do Not Disturb** is. Any channel id works (`reminders`, `leave_by`, `medicine`, `chores`, `countdowns`, `cooking_timers`), so the chore nudge can get a "Turn on the chore nudge" link to `chores` the same way.
 - **Add a Quick Settings tile:** when `window.kinwallNative.quickSettingsTiles` is true (Android 13 and later), a button that posts `{ type: 'addTile', tile: 'groceries' }` (or `'night'`, e.g. next to the night screen); Android asks the person itself.
 
+**Android's Back button** (2026-10-15, `src/WebShell.tsx`): the app asks the page first. It dispatches a cancelable `kinwall:back` event on `window`; a page that closes an open sheet or dialog calls `preventDefault()`. The app hears the answer as a `{ type: 'back', handled }` bridge message: handled, nothing more; otherwise back through the web history, and on the first page it leaves the app (`backAction` in `src/bridge.ts`). A page without the listener (older Kinwall) never cancels it, so Back works as before; no answer within 1.5 s (a page still starting) falls back the same way.
+
 ## Server work (in the `kinwall` repo)
 
 None is needed for M0 to M5; everything above uses existing endpoints. Nice-to-haves, as they come up:

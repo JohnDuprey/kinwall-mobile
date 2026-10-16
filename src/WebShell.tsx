@@ -20,7 +20,7 @@ import KinwallNative from '../modules/kinwall-native'
 import * as Crypto from 'expo-crypto'
 import * as Speech from 'expo-speech'
 import { setAudioModeAsync, setIsAudioActiveAsync } from 'expo-audio'
-import { bridgeMessage, sameDocument, sameOrigin } from './bridge'
+import { backAction, bridgeMessage, sameDocument, sameOrigin } from './bridge'
 import { importContactsScript, meetCall } from './links'
 import { barcodeScript, scanFacing } from './barcode'
 import { Scanner } from './Scanner'
@@ -187,11 +187,31 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
     onRouteApplied()
   }, [route, loading, onRouteApplied])
 
-  // Android: back goes back in the web app's history, else leaves.
+  // Android: Back asks the page first (a cancelable 'kinwall:back' on window, which web/src closes
+  // an open sheet or dialog with), then goes back in the web app's history, else leaves. The page
+  // answers with a 'back' message (onMessage); an older page without the listener answers
+  // handled: false. No answer (a page still starting, or stuck) falls back after a moment.
+  const backTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const back = (handled: boolean) => {
+    clearTimeout(backTimer.current); backTimer.current = undefined
+    const a = backAction(handled, canGoBack.current)
+    if (a === 'goBack') web.current?.goBack()
+    else if (a === 'exit') BackHandler.exitApp()
+  }
+  const backRef = useRef(back)
+  backRef.current = back
+  const failedNow = useRef(failed)
+  failedNow.current = failed
   useEffect(() => {
     if (Platform.OS !== 'android') return
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => { if (!canGoBack.current) return false; web.current?.goBack(); return true })
-    return () => sub.remove()
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!web.current || failedNow.current) return false // the error screen: leave, as before
+      if (backTimer.current) return true // still waiting on the page's answer to the last press
+      backTimer.current = setTimeout(() => backRef.current(false), 1500)
+      web.current.injectJavaScript(`try { var h = !window.dispatchEvent(new CustomEvent('kinwall:back', { cancelable: true })); window.webkit.messageHandlers.kinwall.postMessage({ type: 'back', handled: h }) } catch (e) {} true;`)
+      return true
+    })
+    return () => { sub.remove(); clearTimeout(backTimer.current) }
   }, [])
 
   // 'night' (Siri, Control Center): the event the header's 🌙 Night screen button sends (web/src/Screensaver.tsx SAVER_START_EVENT).
@@ -212,7 +232,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   const syncKey = () => web.current?.injectJavaScript(`try { window.webkit.messageHandlers.kinwall.postMessage({ type: 'key', key: localStorage.getItem('kinwall.apiKey') }) } catch (e) {} true;`)
 
   const onMessage = async (e: WebViewMessageEvent) => {
-    const m = bridgeMessage(e.nativeEvent.data, NONCE, e.nativeEvent.url, url) as { type?: string; reason?: string; color?: string; key?: string | null; on?: boolean; kind?: unknown; payload?: unknown; channel?: unknown; tile?: unknown; facing?: unknown; blank?: boolean; id?: unknown; text?: unknown; rate?: unknown; lang?: unknown } | null
+    const m = bridgeMessage(e.nativeEvent.data, NONCE, e.nativeEvent.url, url) as { type?: string; reason?: string; color?: string; key?: string | null; on?: boolean; kind?: unknown; payload?: unknown; channel?: unknown; tile?: unknown; facing?: unknown; blank?: boolean; handled?: unknown; id?: unknown; text?: unknown; rate?: unknown; lang?: unknown } | null
     if (!m) return
     here.current = e.nativeEvent.url
     switch (m.type) {
@@ -222,6 +242,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
         else if (blankRestarts.current++ < 2) restart()
         else { blankRestarts.current = 0; setFailed("Kinwall didn't finish loading.") }
         break
+      case 'back': if (backTimer.current) back(m.handled === true); break // Android's Back, answered (above)
       case 'theme': if (m.color) setTheme(m.color); break
       case 'appearance': { // web/src/native.ts: the page's look changed
         const a = parseAppearance(m)

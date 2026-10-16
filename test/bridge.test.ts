@@ -2,7 +2,7 @@
 // messages that carry this launch's nonce.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { bridgeMessage, sameDocument, sameOrigin } from '../src/bridge.ts'
+import { backAction, bridgeMessage, sameDocument, sameOrigin } from '../src/bridge.ts'
 
 const server = 'https://sam.kinwall.family'
 
@@ -33,4 +33,11 @@ test('sameDocument: only a #/ route change on the same page', () => {
   assert.equal(sameDocument(null, `${server}/#/today`), false) // the first load
   assert.equal(sameDocument(`${server}/?start=pair`, `${server}/#/today`), false)
   assert.equal(sameDocument(`${server}/#/today`, `${server}/auth/callback?code=x`), false)
+})
+
+test('backAction: a page that closed a sheet keeps the app; otherwise history, then leave', () => {
+  assert.equal(backAction(true, true), 'done')
+  assert.equal(backAction(true, false), 'done')
+  assert.equal(backAction(false, true), 'goBack') // an older page without the listener lands here too
+  assert.equal(backAction(false, false), 'exit')
 })

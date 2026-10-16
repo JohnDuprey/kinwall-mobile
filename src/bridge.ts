@@ -25,3 +25,9 @@ export function sameDocument(from: string | null, to: string): boolean {
   if (!from || from === to) return false
   return from.split('#')[0] === to.split('#')[0]
 }
+
+/** Android's Back (src/WebShell.tsx): the page heard 'kinwall:back' and closed a sheet or dialog
+ * (`handled`), else back through its history, else leave the app. */
+export function backAction(handled: boolean, canGoBack: boolean): 'done' | 'goBack' | 'exit' {
+  return handled ? 'done' : canGoBack ? 'goBack' : 'exit'
+}
