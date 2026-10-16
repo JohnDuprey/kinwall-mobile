@@ -29,6 +29,13 @@ import KinwallNative from '../modules/kinwall-native'
 // (hideSplash), so a signed-in launch never shows the sign-in screen or the app's own colors.
 SplashScreen.preventAutoHideAsync().catch(() => {})
 
+// Links (a widget, a shortcut, the Groceries tile) are heard from the start, before App is up: the
+// process is often already running without a screen (the reminders' background refresh), and then
+// Android hands the link over as soon as the screen opens, before App listens; the tile opened Home.
+let linkTo: ((u: string) => void) | null = null
+const early: string[] = []
+Linking.addEventListener('url', (e) => { if (linkTo) linkTo(e.url); else early.push(e.url) })
+
 /** The phone and tablet app: the household's own Kinwall web app, full screen, in a native frame
  * (docs/PLAN.md). First launch asks for the server, then signs in (OAuth in the system's auth
  * sheet, or a pairing code). */
@@ -64,9 +71,10 @@ export default function App() {
   // doesn't pass on again, so the second tap left the app wherever it was.
   useEffect(() => {
     const open = (u: string | null) => { if (!u) return; if (__DEV__ && u.includes('debug=medication')) showSampleMedication(); if (__DEV__ && u.includes('debug=cooking')) showSampleCooking(); const r = routeFor(u); if (r) resolve(r).then(setRoute) }
+    linkTo = open
+    early.splice(0).forEach(open)
     Linking.getInitialURL().then(open).catch(() => {})
-    const sub = Linking.addEventListener('url', (e) => open(e.url))
-    return () => sub.remove()
+    return () => { linkTo = null }
   }, [])
   // A Google/Microsoft sign-in handed back from the in-app browser (src/providerReturn.ts): close
   // that browser (iOS; Android brings the app forward over its Custom Tab) and finish it in the web
@@ -138,10 +146,14 @@ function ScreenBar({ dark }: { dark: boolean }) {
  * Home when the family turned Lists off. */
 async function resolve(route: string): Promise<string> {
   if (route !== 'groceries' && route !== 'groceries/shop') return route
-  const c = await widgetConnection()
-  const [groceries, f] = await Promise.all([c ? lists(c).then(pickGroceries).catch(() => null) : null, c ? features(c) : ({} as Features)])
-  if (f.lists === false) return 'home'
-  return groceriesRoute(route, groceries?.id)
+  // A failed or slow lookup still opens Lists: a failed settings fetch used to drop the tap
+  // altogether, leaving the app on Home.
+  const look = async () => {
+    const c = await widgetConnection()
+    const [groceries, f] = await Promise.all([c ? lists(c).then(pickGroceries).catch(() => null) : null, c ? features(c).catch(() => ({} as Features)) : ({} as Features)])
+    return f.lists === false ? 'home' : groceriesRoute(route, groceries?.id)
+  }
+  return Promise.race([look().catch(() => 'lists'), new Promise<string>((r) => setTimeout(() => r('lists'), 5000))])
 }
 
 /** The saved session, with OAuth keys refreshed first if they've lapsed (they last an hour): the
