@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ActivityIndicator, Image, KeyboardAvoidingView, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native'
+import { useEffect, useRef, useState } from 'react'
+import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native'
 import { isKinwall } from './api'
 import { normalizeServer } from './server'
 import { logo, useUi } from './theme'
@@ -12,12 +12,20 @@ export function ServerEntry({ onConnect, onDemo }: { onConnect: (url: string) =>
   const ui = useUi()
   const { width, height } = useWindowDimensions()
   const wide = width > height && width >= 700 // a tablet in landscape; a phone's stays one column
+  // Android ignores autoFocus's keyboard on a cold launch (the window isn't focused yet, under the
+  // launch screen): ask again once it's up.
+  const field = useRef<TextInput>(null)
+  useEffect(() => {
+    if (Platform.OS !== 'android') return
+    const t = setTimeout(() => { field.current?.blur(); field.current?.focus() }, 600)
+    return () => clearTimeout(t)
+  }, [])
 
   const connect = async () => {
     const url = normalizeServer(address)
     if (!url) { setProblem("That doesn't look like a web address."); return }
     setChecking(true); setProblem(null)
-    const host = new URL(url).host
+    const host = new URL(url).host.replace(/\.$/, '') // "nnoope." would end the sentence in two periods
     try {
       if (await isKinwall(url)) onConnect(url)
       else setProblem(`${host} answered, but it isn't a Kinwall server.`)
@@ -40,7 +48,7 @@ export function ServerEntry({ onConnect, onDemo }: { onConnect: (url: string) =>
             <Text style={ui.muted}>Enter your family's Kinwall address. For hosted Kinwall, your family name is enough.</Text>
           </View>
           <View style={wide ? ui.column : ui.screenPart}>
-            <TextInput style={ui.input} placeholder="ourfamily or kinwall.example.com" placeholderTextColor={ui.c.dim} value={address}
+            <TextInput ref={field} style={ui.input} placeholder="ourfamily or kinwall.example.com" placeholderTextColor={ui.c.dim} value={address}
               onChangeText={(t) => { setAddress(t); setProblem(null) }} keyboardAppearance={ui.dark ? 'dark' : 'light'} selectionColor={ui.c.accent}
               autoCapitalize="none" autoCorrect={false} keyboardType="url" textContentType="URL" returnKeyType="go" onSubmitEditing={connect} autoFocus />
             {problem && <Text style={ui.problem}>{problem}</Text>}
@@ -51,7 +59,7 @@ export function ServerEntry({ onConnect, onDemo }: { onConnect: (url: string) =>
               <Text style={ui.link}>Try the demo</Text>
             </Pressable>
             <Text style={[ui.muted, ui.footnote]}>A sample family to look around in. Nothing is saved.</Text>
-            <Text style={[ui.muted, ui.footnote]}>You'll sign in on the next screen. An admin approves this device in Kinwall under Settings → Access.</Text>
+            <Text style={[ui.muted, ui.footnote]}>You'll sign in on the next screen. A grown-up approves this device in Kinwall under Settings → Access.</Text>
           </View>
         </View>
       </ScrollView>

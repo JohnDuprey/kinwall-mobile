@@ -5,7 +5,7 @@ import { logo, useUi } from './theme'
 import { type Session, choosePairing, signedIn } from './session'
 
 /** Sign in with Kinwall's OAuth in the system's auth sheet (passkeys work there on any domain), or
- * pair with a code an admin approves (kids' phones, wall tablets). */
+ * pair with a code a grown-up approves (kids' phones, wall tablets). */
 export function SignIn({ server, onSession, onChangeServer }: { server: string; onSession: (s: Session) => void; onChangeServer: () => void }) {
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
@@ -34,7 +34,7 @@ export function SignIn({ server, onSession, onChangeServer }: { server: string; 
       <Pressable style={[ui.button, ui.secondary]} onPress={async () => onSession(await choosePairing())} disabled={busy}>
         <Text style={[ui.buttonText, ui.secondaryText]}>Pair with a code instead</Text>
       </Pressable>
-      <Text style={[ui.muted, ui.footnote]}>For a child's phone or a wall tablet: this device shows a code, and an admin approves it in Kinwall under Settings → Access.</Text>
+      <Text style={[ui.muted, ui.footnote]}>For a child's phone or a wall tablet: this device shows a code, and a grown-up approves it in Kinwall under Settings → Access.</Text>
       <Pressable onPress={onChangeServer}><Text style={ui.link}>Use a different server</Text></Pressable>
     </View></ScrollView>
   )
