@@ -18,6 +18,18 @@ import org.json.JSONObject
 class KinwallNativeModule : Module() {
   private val context get() = requireNotNull(appContext.reactContext)
 
+  private fun padForKeyboard() {
+    val activity = appContext.currentActivity ?: return
+    activity.runOnUiThread {
+      ViewCompat.setOnApplyWindowInsetsListener(activity.findViewById<View>(android.R.id.content)) { view, insets ->
+        val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+        val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+        view.setPadding(0, 0, 0, maxOf(0, keyboard - bars))
+        insets
+      }
+    }
+  }
+
   override fun definition() = ModuleDefinition {
     Name("KinwallNative")
     Events("watchStateChanged", "activityToken")
@@ -25,19 +37,14 @@ class KinwallNativeModule : Module() {
     // Edge to edge (Android 15 and later) the window no longer shrinks for the keyboard
     // (adjustResize), so a field at the bottom of the page (shopping mode's Add an item) would sit
     // under it. The content makes room itself: the keyboard's height less the navigation bar the
-    // screens already keep clear of. The insets pass on untouched.
+    // screens already keep clear of. The insets pass on untouched. Set again whenever the app comes
+    // forward: a process started in the background (the reminders' refresh) has no activity when
+    // the module is made, and then the keyboard covered the page for the rest of that process.
     OnCreate {
       Channels.ensure(context)
-      val activity = appContext.currentActivity ?: return@OnCreate
-      activity.runOnUiThread {
-        ViewCompat.setOnApplyWindowInsetsListener(activity.findViewById<View>(android.R.id.content)) { view, insets ->
-          val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-          val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
-          view.setPadding(0, 0, 0, maxOf(0, keyboard - bars))
-          insets
-        }
-      }
+      padForKeyboard()
     }
+    OnActivityEntersForeground { padForKeyboard() }
 
     // A contact shared to the app: MainActivity (plugins/withKinwallNative.js) leaves its vCard here.
     Function("takeSharedContacts") {
