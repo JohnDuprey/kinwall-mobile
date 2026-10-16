@@ -137,7 +137,7 @@ object ShareReader {
         a.entities.mapNotNull { e ->
           when (e.type) {
             Entity.TYPE_DATE_TIME -> e.asDateTimeEntity()?.let { Share.Found(Share.Type.DATE_TIME, a.annotatedText, it.timestampMillis, it.dateTimeGranularity) }
-            Entity.TYPE_ADDRESS -> Share.Found(Share.Type.ADDRESS, a.annotatedText.replace(Regex("\\s*\\n\\s*"), ", "))
+            Entity.TYPE_ADDRESS -> Share.Found(Share.Type.ADDRESS, Share.address(a.annotatedText, text))
             Entity.TYPE_PHONE -> Share.Found(Share.Type.PHONE, a.annotatedText)
             Entity.TYPE_URL -> Share.Found(Share.Type.URL, a.annotatedText)
             Entity.TYPE_ISBN -> Share.Found(Share.Type.ISBN, a.annotatedText)

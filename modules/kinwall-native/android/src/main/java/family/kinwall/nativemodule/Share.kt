@@ -203,7 +203,7 @@ object Share {
 
   /** The header lines Kinwall reads best (share-text.ts and the menu import) for a kind, from what
    * entity extraction found: Date/Time/Place, Phone/Address/Website, or ISBN. Empty when nothing fits. */
-  fun headers(kind: Kind, found: List<Found>, zone: TimeZone = TimeZone.getDefault()): String {
+  fun headers(kind: Kind, found: List<Found>, zone: TimeZone = TimeZone.getDefault(), raw: String = ""): String {
     fun fmt(pattern: String, millis: Long) = SimpleDateFormat(pattern, Locale.US).apply { timeZone = zone }.format(millis)
     fun minuteOfDay(millis: Long) = Calendar.getInstance(zone).apply { timeInMillis = millis }.let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
     val lines = mutableListOf<String>()
@@ -224,7 +224,7 @@ object Share {
             lines += "Time: ${fmt("h:mm a", at.millis)}" + (end?.let { " - ${fmt("h:mm a", it.millis)}" } ?: "")
           }
         }
-        first(found, Type.ADDRESS)?.let { lines += "Place: $it" }
+        first(found, Type.ADDRESS)?.let { lines += "Place: ${venue(it, raw)}" }
       }
       Kind.RESTAURANT -> {
         first(found, Type.PHONE)?.let { lines += "Phone: $it" }
@@ -237,12 +237,33 @@ object Share {
     return lines.joinToString("\n")
   }
 
+  /** An address entity extraction found, on one line. Its later lines count only when they're whole
+   * lines of the words: ML Kit runs an address on into the next line's first word ("…Springfield"
+   * then "Hayrides" of "Hayrides, pumpkin carving…"). */
+  fun address(found: String, raw: String): String {
+    val whole = raw.lines().map { it.trim().trimEnd(',') }.toSet()
+    val parts = found.lines().map { it.trim().trimEnd(',') }.filter { it.isNotEmpty() }
+    if (parts.isEmpty()) return found.trim()
+    return (listOf(parts[0]) + parts.drop(1).takeWhile { it in whole }).joinToString(", ")
+  }
+
+  /** An event's place with its venue: "Riverside Park, 400 River Rd" when the words before the
+   * address on its line are a name and a comma (not "Join us at", not a date). */
+  fun venue(address: String, raw: String): String {
+    val start = address.substringBefore(',').trim()
+    val line = raw.lines().firstOrNull { start.isNotEmpty() && start in it } ?: return address
+    val before = line.substringBefore(start).trim()
+    if (!before.endsWith(',')) return address
+    val name = before.dropLast(1).substringAfterLast(',').trim()
+    return if (name.length in 2..60 && name.any(Char::isLetter) && name.none(Char::isDigit)) "$name, $address" else address
+  }
+
   /** The words to send for a kind: the header lines first (the server takes the first of each), then
    * the words as read. A menu (without the model) is named by its first line when that's words, not a
    * price (the card shows it before anything is saved), and the lines its name, phone and address
    * came from are left out of the words, so they aren't read as menu items. */
   fun withHeaders(kind: Kind, found: List<Found>, raw: String, zone: TimeZone = TimeZone.getDefault()): String {
-    var head = headers(kind, found, zone)
+    var head = headers(kind, found, zone, raw)
     var lines = raw.trim().lines()
     if (kind == Kind.RESTAURANT) {
       val used = useful(found).filter { it.type == Type.PHONE || it.type == Type.ADDRESS }.flatMap { it.text.lines() }.map { it.trim() }.filter { it.length >= 6 }

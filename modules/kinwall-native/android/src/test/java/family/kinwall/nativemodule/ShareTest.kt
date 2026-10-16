@@ -37,6 +37,17 @@ class ShareTest {
     assertEquals(listOf("place", "https://maps.app.goo.gl/AbCd", "Maple Park", "20 Lake Rd"), listOf(json.getString("kind"), json.getString("url"), json.getString("name"), json.getString("address")))
   }
 
+  @Test fun sharedEventPlace() {
+    // ML Kit's address ran on into the next line's first word, and the venue before it was dropped.
+    val raw = "Riverside Park, 400 River Rd, Springfield\nHayrides, pumpkin carving and cider\nSaturday October 17 10am"
+    val address = Share.address("400 River Rd, Springfield\nHayrides", raw)
+    assertEquals("400 River Rd, Springfield", address)
+    assertEquals("Place: Riverside Park, 400 River Rd, Springfield", Share.headers(Kind.EVENT, listOf(Found(Type.ADDRESS, address)), ny, raw))
+    assertEquals("an address over two whole lines stays whole", "12 Elm Street, Springfield, IL 62701", Share.address("12 Elm Street\nSpringfield, IL 62701", "Spring fair\n12 Elm Street\nSpringfield, IL 62701"))
+    assertEquals("words before it without a comma aren't a venue", "Place: 400 River Rd, Springfield", Share.headers(Kind.EVENT, listOf(Found(Type.ADDRESS, "400 River Rd, Springfield")), ny, "Join us at 400 River Rd, Springfield"))
+    assertEquals("a date before it isn't a venue", "Place: 400 River Rd", Share.headers(Kind.EVENT, listOf(Found(Type.ADDRESS, "400 River Rd")), ny, "Sat Oct 17, 400 River Rd"))
+  }
+
   @Test fun eventHeaders() {
     val found = listOf(Found(Type.DATE_TIME, "Saturday May 9 10am", tenAm, 5), Found(Type.DATE_TIME, "2pm", twoPm, 4), Found(Type.ADDRESS, "12 Elm St, Springfield"))
     assertEquals("Date: May 9\nTime: 10:00 AM - 2:00 PM\nPlace: 12 Elm St, Springfield", Share.headers(Kind.EVENT, found, ny))
