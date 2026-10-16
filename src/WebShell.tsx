@@ -118,6 +118,10 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   const answered = useRef(true)
   const blankRestarts = useRef(0)
   const loadCheck = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  // Where the page is now, from every navigation (a tab tap only changes its #/ route) as well as its
+  // messages: a restart used to reopen the last page that had posted a message, often Home, so
+  // coming back from the share sheet or the scanner (a probe that timed out) lost the open list.
+  const track = (u: string) => { pageUrl.current = u; if (isKinwall(u)) here.current = u }
   const restart = (at?: string) => { pageUrl.current = null; setMount((m) => ({ n: m.n + 1, at: at && isKinwall(at) ? at : here.current })) }
   const probe = () => {
     if (!web.current) return
@@ -341,9 +345,9 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       injectedJavaScriptBeforeContentLoadedForMainFrameOnly // the default, and required: the nonce is in here
       onMessage={onMessage}
       // Android sends a load start for a #/ route change, often with no end: only a real load counts.
-      onLoadStart={(e) => { const was = pageUrl.current; pageUrl.current = e.nativeEvent.url; if (sameDocument(was, e.nativeEvent.url)) return; setLoading(true); clearTimeout(loadCheck.current) }}
+      onLoadStart={(e) => { const was = pageUrl.current; track(e.nativeEvent.url); if (sameDocument(was, e.nativeEvent.url)) return; setLoading(true); clearTimeout(loadCheck.current) }}
       onLoadEnd={(e) => { pageUrl.current = e.nativeEvent.url; hideSplash(); setLoading(false); syncKey(); if (pending.current) { go(pending.current); pending.current = null }; clearTimeout(loadCheck.current); loadCheck.current = setTimeout(probe, 15_000) }}
-      onNavigationStateChange={(s) => { canGoBack.current = s.canGoBack; pageUrl.current = s.url }}
+      onNavigationStateChange={(s) => { canGoBack.current = s.canGoBack; track(s.url) }}
       onError={(e) => { pageUrl.current = null; hideSplash(); setFailed(e.nativeEvent.description) }}
       onContentProcessDidTerminate={(e) => restart(e.nativeEvent.url)} // iOS
       onRenderProcessGone={(e) => restart((e.nativeEvent as { url?: string }).url)} // Android: this web view can't be used again
