@@ -2,7 +2,7 @@ import * as Linking from 'expo-linking'
 import * as Notifications from 'expo-notifications'
 import * as WebBrowser from 'expo-web-browser'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AppState, Platform } from 'react-native'
+import { AppState, Platform, StatusBar as SystemBar } from 'react-native'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
@@ -119,11 +119,18 @@ export default function App() {
   return (
     <SafeAreaProvider>
       {server === undefined ? null
-        : !server ? <SafeAreaView style={ui.root}><StatusBar style={ui.dark ? 'light' : 'dark'} /><ServerEntry onConnect={async (u) => { await leaveDemo(); await saveServer(u); setServer(u) }} onDemo={tryDemo} /></SafeAreaView>
-        : !session ? <SafeAreaView style={ui.root}><StatusBar style={ui.dark ? 'light' : 'dark'} /><SignIn server={server} onSession={setSession} onChangeServer={changeServer} /></SafeAreaView>
+        : !server ? <SafeAreaView style={ui.root}><ScreenBar dark={ui.dark} /><ServerEntry onConnect={async (u) => { await leaveDemo(); await saveServer(u); setServer(u) }} onDemo={tryDemo} /></SafeAreaView>
+        : !session ? <SafeAreaView style={ui.root}><ScreenBar dark={ui.dark} /><SignIn server={server} onSession={setSession} onChangeServer={changeServer} /></SafeAreaView>
         : <WebShell url={server} session={session} route={route} onRouteApplied={routeApplied} onTokens={onTokens} onSignedOut={signedOut} onChangeServer={changeServer} />}
     </SafeAreaProvider>
   )
+}
+
+/** The status bar over the native screens (address, sign-in). iOS: the system's default style,
+ * which follows light and dark by itself; an explicit one could be left dark on a dark screen (the
+ * web view's own, or one set before the phone switched to dark). Android: light or dark icons. */
+function ScreenBar({ dark }: { dark: boolean }) {
+  return Platform.OS === 'ios' ? <SystemBar barStyle="default" hidden={false} /> : <StatusBar style={dark ? 'light' : 'dark'} />
 }
 
 /** Android's shortcuts and tiles ask for "groceries": the family's Groceries list, found with the
