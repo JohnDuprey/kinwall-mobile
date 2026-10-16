@@ -97,11 +97,13 @@ export default function App() {
     if (typeof r === 'string') setRoute(r)
   }, [tapped])
 
-  // Reminders are rescheduled each time the app opens or goes to the background; Spotlight follows
-  // the family's recipes, lists and contacts (src/spotlight.ts).
+  // Reminders are rescheduled each time the app opens or goes to the background (an event just
+  // added in the app gets its reminder then; the page doesn't say when its events change, and the
+  // background task may not run for hours); Spotlight follows the family's recipes, lists and
+  // contacts (src/spotlight.ts).
   useEffect(() => {
     refreshReminders(); endStaleActivities(); syncSpotlight()
-    const sub = AppState.addEventListener('change', (s) => { if (s === 'background') scheduleBackgroundRefresh(); if (s === 'active') { refreshReminders(); endStaleActivities(); syncSpotlight() } })
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'background') { scheduleBackgroundRefresh(); refreshReminders().catch(() => {}) } if (s === 'active') { refreshReminders(); endStaleActivities(); syncSpotlight() } })
     const watch = KinwallNative?.addListener('watchStateChanged', () => { syncWatch() }) // e.g. the Watch app was just installed
     return () => { sub.remove(); watch?.remove() }
   }, [])
