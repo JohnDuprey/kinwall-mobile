@@ -63,3 +63,11 @@ export function localAt(date: string, hhmm: string): number {
   const [h, m] = hhmm.split(':').map(Number) as [number, number]
   return new Date(y, mo - 1, d, h, m).getTime()
 }
+
+/** Whether to show the system's notification prompt (src/reminders.ts requestPermission). Android
+ * 13+ reports "denied" until it has asked, so "undetermined" alone never asked there; `asked`
+ * (kept on this device) stops it asking again on every launch after a "Don't allow". */
+export function shouldAskNotifications(p: { status: string; granted: boolean; canAskAgain: boolean }, asked: boolean): boolean {
+  if (p.granted) return false
+  return p.status === 'undetermined' || (p.canAskAgain && !asked)
+}

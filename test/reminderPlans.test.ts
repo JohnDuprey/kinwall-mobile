@@ -1,7 +1,7 @@
 // node --test test/ (npm test). iPhone: local medicine reminders, the chore nudge and the Focus tag.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { choreNudge, doseReminders, focusTag, localAt, type MedicationDay } from '../src/reminderPlans.ts'
+import { choreNudge, doseReminders, focusTag, localAt, shouldAskNotifications, type MedicationDay } from '../src/reminderPlans.ts'
 
 const NOW = Date.parse('2026-09-30T15:00:00Z') // a Wednesday
 const day: MedicationDay = {
@@ -47,4 +47,15 @@ test("focusTag: only someone else's event is tagged", () => {
   assert.equal(focusTag(['maya', 'sam'], 'sam'), undefined)
   assert.equal(focusTag([], 'sam'), undefined)
   assert.equal(focusTag(['maya'], null), undefined)
+})
+
+test('shouldAskNotifications: once per install, never after a real no', () => {
+  // iPhone's first time, and after a reinstall (iOS forgets the answer; the Keychain keeps the flag)
+  assert.equal(shouldAskNotifications({ status: 'undetermined', granted: false, canAskAgain: true }, true), true)
+  // Android 13+ says "denied" until it's been asked
+  assert.equal(shouldAskNotifications({ status: 'denied', granted: false, canAskAgain: true }, false), true)
+  // ...and after one "Don't allow" it could ask again, but doesn't on every launch
+  assert.equal(shouldAskNotifications({ status: 'denied', granted: false, canAskAgain: true }, true), false)
+  assert.equal(shouldAskNotifications({ status: 'denied', granted: false, canAskAgain: false }, false), false)
+  assert.equal(shouldAskNotifications({ status: 'granted', granted: true, canAskAgain: true }, false), false)
 })

@@ -1,10 +1,11 @@
 import * as BackgroundTask from 'expo-background-task'
 import * as Notifications from 'expo-notifications'
+import * as SecureStore from 'expo-secure-store'
 import * as TaskManager from 'expo-task-manager'
 import { Platform, Settings } from 'react-native'
 import KinwallNative from '../modules/kinwall-native'
 import { type Connection, type EventInstance, choresOn, events, me, medicationDay } from './api'
-import { choreNudge, doseReminders, focusTag, localAt } from './reminderPlans'
+import { choreNudge, doseReminders, focusTag, localAt, shouldAskNotifications } from './reminderPlans'
 import { widgetConnection } from './sharedKey'
 import { endStaleActivities, scheduleLeaveBy } from './liveActivities'
 import type { LeaveByEvent } from './leaveBy'
@@ -12,7 +13,8 @@ import type { LeaveByEvent } from './leaveBy'
 // Event reminders as local notifications (docs/WIDGETS-AND-WATCH.md): the app can't receive the
 // server's web push, so it schedules the same reminders itself from the event list, using each
 // event's own reminder times (or the household default the server fills in). Rescheduled whenever
-// the app opens or goes to the background, and by a background task a few times a day.
+// the app opens or goes to the background (so an event just added in the app gets its reminder),
+// and by a background task a few times a day.
 const REFRESH_TASK = 'family.kinwall.app.reminders'
 const PREFIX = 'rem:'
 /** A snoozed copy (native/ios/NotificationActions.swift): a refresh leaves it be; sign-out clears it. */
@@ -36,14 +38,20 @@ Notifications.setNotificationHandler({
   },
 })
 
-/** Asks once: only while the answer is still unknown. Called on every page load (WebShell's 'key'),
+const ASKED = 'notificationsAsked'
+/** Asks once per install (shouldAskNotifications): called on every page load (WebShell's 'key'),
  * and on Android even an answered request opens the system's see-through permission screen,
  * which pauses the app and swallows taps for a moment, and its resume probes the page
- * (WebShell's 'alive'), restarting a page still busy starting up. */
+ * (WebShell's 'alive'), restarting a page still busy starting up. Android 13+ reports "denied"
+ * until asked, so "undetermined" alone never asked there. A moment's wait first, so the prompt
+ * comes over the family's Home rather than over the change from the sign-in screen. */
 export async function requestPermission(): Promise<void> {
   await ensureChannels()
   const now = await Notifications.getPermissionsAsync().catch(() => null)
-  if (now && now.status !== 'undetermined') return
+  const asked = (() => { try { return SecureStore.getItem(ASKED) === '1' } catch { return false } })()
+  if (!now || !shouldAskNotifications(now, asked)) return
+  await new Promise((r) => setTimeout(r, 2000))
+  try { SecureStore.setItem(ASKED, '1') } catch {}
   await Notifications.requestPermissionsAsync().catch(() => {})
 }
 
