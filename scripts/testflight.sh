@@ -1,10 +1,10 @@
-#!/bin/sh
+#!/bin/bash
 # Archives Kinwall (iPhone/iPad app with its widgets and Watch app) and uploads it to App Store
 # Connect for TestFlight. Signing is automatic through the Apple account signed in to Xcode
 # (Xcode → Settings → Accounts); it creates the certificates, App IDs and profiles it needs.
 #   TEAM=ABCDE12345 scripts/testflight.sh            # archive + upload
 #   TEAM=ABCDE12345 UPLOAD=0 scripts/testflight.sh   # archive + export an .ipa only
-set -eu
+set -euo pipefail
 : "${TEAM:?Set TEAM to your Apple Developer team ID (developer.apple.com → Membership)}"
 cd "$(dirname "$0")/.."
 # Outside ~/Documents (codesign trips over Finder metadata there), and one per checkout: two worktrees

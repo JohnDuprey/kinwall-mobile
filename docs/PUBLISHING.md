@@ -5,6 +5,12 @@ are separate (see the README); store builds are signed with the publisher's acco
 
 Identifiers: iOS bundle ID and Android package are both `family.kinwall.app`.
 
+Before merging the release-please PR, run the TypeScript and JavaScript checks, `swift test
+--package-path KinwallKit`, and a clean Expo prebuild. The Checks workflow runs these on pushes
+and pull requests (prebuild uses `--no-install`; full native builds run in App builds). Review
+the generated version changes together: the manifest, app config, package and lockfile must agree.
+Store uploads also depend on account access; a successful app build alone does not confirm it.
+
 ## Apple App Store (iPhone, iPad, Apple Watch)
 
 **Once**
@@ -31,8 +37,10 @@ Identifiers: iOS bundle ID and Android package are both `family.kinwall.app`.
    so signing can create certificates and profiles. The workflow writes the key only after the
    npm and CocoaPods installs (npm runs no install scripts) and hands it only to the archive and
    upload steps; its actions are pinned to commit SHAs. From a Mac instead: `TEAM=<team ID>
-   scripts/testflight.sh`. Build numbers are `<major*10000 + minor*100 + patch>.<minutes since
-   1970>` in both, so they always go up within a version; the unsigned GitHub builds use the first
+   scripts/testflight.sh`. The local script stops if either the archive or export fails, including
+   when Xcode output is piped through the log summary. Build numbers are
+   `<major*10000 + minor*100 + patch>.<minutes since 1970>` in both, so they always go up within a
+   version; the unsigned GitHub builds use the first
    part only and are never uploaded.
 2. (EAS instead: `eas build --platform ios --profile production`, then `eas submit --platform ios`.)
 3. TestFlight: the build appears after processing; test internally, then add external testers
