@@ -366,7 +366,7 @@ struct AddToKinwallIntent: AppIntent {
     static let title: LocalizedStringResource = "Add to Kinwall"
     /// Writes to the family's Kinwall: only on an unlocked device (docs/WIDGETS-AND-WATCH.md, Locked iPhone).
     static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
-    static let description = IntentDescription("Adds a recipe or restaurant link, a place, photos of a menu (one or several pages), a book or a flyer, or some text to Kinwall. With Apple Intelligence it tells what a photo or text is; otherwise it asks. An event is added to the Calendar you pick, or without one opens to check first. Returns a link that opens the Kinwall app at it.")
+    static let description = IntentDescription("Adds a recipe or restaurant link, a place, photos of a menu (one or several pages), a book or a flyer, or some text to Kinwall. On supported devices it recognizes photos and text; otherwise it asks what to add. An event is added to the Calendar you pick, or without one opens to check first. Returns a link that opens the Kinwall app at it.")
     @Parameter(title: "What it is", default: .automatic) var kind: ShareKindEnum
     @Parameter(title: "Photos") var photo: [IntentFile]? // supportedContentTypes: [.image] is iOS 18+
     @Parameter(title: "Text or link") var text: String?

@@ -32,6 +32,11 @@ The Watch target must declare `icon` in `targets/watch/expo-target.config.js`. A
 `ASSETCATALOG_COMPILER_APPICON_NAME`, and the asset compiler generates the icon metadata
 (`CFBundleIconName` and `CFBundleIcons`) required by App Store Connect.
 
+App Intent descriptions must not contain the reserved name "Apple" (App Store validation
+error ITMS-90626). Describe the behavior in plain words instead. Apple may report this
+validation error by email after a successful upload; confirm the build finishes processing
+in App Store Connect before inviting testers.
+
 **Each release**
 
 1. Build and upload: each release runs `.github/workflows/testflight.yml` (from release-please; or
