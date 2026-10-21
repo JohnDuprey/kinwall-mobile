@@ -317,7 +317,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
           reloadWidgets()
           await requestPermission() // first time signed in: ask, then schedule
           await refreshReminders()
-          await syncWatch()
+          await syncWatch({ baseURL: url, key: m.key })
           syncSpotlight(true)
         } catch (err) { synced.current = null; throw err } // try again on the next load
         break

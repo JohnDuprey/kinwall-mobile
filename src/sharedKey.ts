@@ -1,7 +1,8 @@
 import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
 import KinwallNative from '../modules/kinwall-native'
-import { type Connection, createDeviceKey, revokeOwnKey, widgetKeyFits } from './api'
+import { personalWatchConnection } from './watchConnection'
+import { type Connection, createDeviceKey, revokeOwnKey, widgetKeyFits, watchKeyFits } from './api'
 
 // The widgets' and the Watch's own everyday-access keys (docs/WIDGETS-AND-WATCH.md): minted once
 // per server with whatever key the app is signed in with, revoked on sign-out. Never the app's
@@ -48,22 +49,34 @@ export async function revokeWidgetKey(): Promise<void> {
   await save(WIDGETS, null).catch(() => {})
 }
 
-/** iOS: give the Watch its key (minted with the widgets' key, once per server) as application context. */
-export async function syncWatch(): Promise<void> {
+// Only the active app supplies this credential; never persist another copy of its sign-in.
+let watchSource: Connection | null = null
+let watchSync: Promise<void> | null = null
+
+/** iOS: mint the Watch's personal key with the phone sign-in, never its shared widgets key. */
+export function syncWatch(signedIn?: Connection): Promise<void> {
+  if (signedIn) watchSource = signedIn
+  if (watchSync) return signedIn ? watchSync.then(() => watchSource === signedIn ? syncWatch() : undefined) : watchSync
+  watchSync = syncPersonalWatch().finally(() => { watchSync = null })
+  return watchSync
+}
+
+async function syncPersonalWatch(): Promise<void> {
   if (!KinwallNative?.watchAppInstalled()) return
-  const widgets = await load(WIDGETS)
-  if (!widgets) return
-  let watch = await load(WATCH)
-  if (!watch || !(await widgetKeyFits(watch, widgets))) { // the Watch's key goes with the widgets' (the server deletes it with them)
-    const minted = await createDeviceKey(widgets.baseURL, widgets.key, 'Apple Watch').catch(() => null)
-    if (!minted) return
-    watch = { baseURL: widgets.baseURL, key: minted.key }
-    await save(WATCH, watch)
-  }
+  const source = watchSource
+  if (!source) return // wait for the signed-in web page to provide its current credential
+  const saved = await load(WATCH)
+  const watch = await personalWatchConnection(source, saved, () => watchSource === source, { createDeviceKey, revokeOwnKey, watchKeyFits })
+  if (!watch) return
+  if (watchSource !== source) { if (watch !== saved) await revokeOwnKey(watch).catch(() => {}); return }
+  if (watch !== saved) await save(WATCH, watch)
+  if (watchSource !== source) return
   try { KinwallNative.updateWatch({ server: watch.baseURL, key: watch.key }) } catch {}
 }
 
 export async function watchSignOut(): Promise<void> {
+  watchSource = null
+  await watchSync?.catch(() => {})
   const watch = await load(WATCH)
   if (watch) await revokeOwnKey(watch).catch(() => {})
   await save(WATCH, null).catch(() => {})

@@ -8,7 +8,7 @@ A menu for M3 (widgets), M4 (Watch) and M5 (Siri), built on things Kinwall alrea
 
 ## Things that shape every feature
 
-- **Widgets and the Watch get their own key.** An OAuth key that refreshes and rotates can't safely be shared between the app, a widget and a watch, because two refreshers would end the grant. Instead, the signed-in app creates a separate everyday-access key for its widgets ("Widgets on this iPhone") and one for the Watch. Each can be revoked on its own under Settings → Access. This needs a small server route that lets an OAuth-signed-in app mint a display key for itself.
+- **Widgets and the Watch get their own key.** An OAuth key that refreshes and rotates can't safely be shared between the app, a widget and a watch, because two refreshers would end the grant. Instead, the signed-in app creates a separate everyday-access key for its widgets ("Widgets on this iPhone") and one for the Watch. Each can be revoked on its own under Settings → Access. The Watch key is minted directly with the phone’s sign-in using `purpose: "watch"`; it follows that sign-in’s person for private check-ins. A parent’s widgets remain shared and cannot mint themselves a personal Watch connection. Changing the phone’s person replaces the Watch key; changing a chores filter on the Watch does not change private access. This needs a small server route that lets an OAuth-signed-in app mint a display key for itself.
 - **Sharing that key with the widget** needs a shared Keychain group. Whether a free Personal Team allows that is still to be confirmed (see PLAN.md). If it doesn't, each widget pairs itself once with a code.
 - **Local notifications work without the paid account.** The app can schedule reminders on the device from the data it already has: event reminders, leave-by times and the chore nudge. On iPhone, that gives the app real reminders before APNs push exists. The Watch mirrors iPhone notifications automatically.
 - **Widgets update on a budget,** about every 15 to 60 minutes, plus right away after a tap inside the widget. Countdowns ("in 12 min") use the system's live timer text, so they tick without refreshes.
@@ -287,3 +287,10 @@ Checked on the Pixel emulator (Android 16): the channels are created (Chores off
 - **M5 (Siri):**
   - Add to a list, What's next, and Complete a chore.
   - These double as the actions behind the interactive widgets.
+
+
+### Personal Watch check-in setup
+
+On the iPhone, sign in to your family and choose yourself under **Settings → This device → Whose device is this?**. Return to the iPhone app, then open Kinwall on the Watch. The app replaces an older shared Watch key automatically; the Watch reloads when its new key arrives. The server update must be deployed before installing this app update. Both changes are required for an existing parent’s Watch.
+
+Personal Watch keys stay everyday-access: they can answer their owner’s check-in, not another person’s. Shared widgets keep showing the family. The server invalidates personal derived keys when the parent sign-in changes owners, and revoking the phone sign-in revokes its Watch too. No database migration or reassignment of existing keys is needed.

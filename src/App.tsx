@@ -111,7 +111,7 @@ export default function App() {
   // contacts (src/spotlight.ts).
   useEffect(() => {
     refreshReminders(); endStaleActivities(); syncSpotlight()
-    const sub = AppState.addEventListener('change', (s) => { if (s === 'background') { scheduleBackgroundRefresh(); refreshReminders().catch(() => {}) } if (s === 'active') { refreshReminders(); endStaleActivities(); syncSpotlight() } })
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'background') { scheduleBackgroundRefresh(); refreshReminders().catch(() => {}) } if (s === 'active') { refreshReminders(); endStaleActivities(); syncSpotlight(); syncWatch().catch(() => {}) } })
     const watch = KinwallNative?.addListener('watchStateChanged', () => { syncWatch() }) // e.g. the Watch app was just installed
     return () => { sub.remove(); watch?.remove() }
   }, [])

@@ -57,13 +57,19 @@ export const me = (c: Connection) => api<{ scope: string; owner: string | null; 
 /** Does the saved widgets key still open the family the app is signed in to? Not when it's for
  * another server, has been revoked (401), or opens another household there (a key left over from
  * one family let Siri add to the wrong one). Can't tell (offline, an older server): keep it. */
-export async function widgetKeyFits(saved: Connection | null, signedIn: Connection): Promise<boolean> {
+export const widgetKeyFits = (saved: Connection | null, signedIn: Connection) => deviceKeyFits(saved, signedIn)
+/** A Watch must open the same family and belong to the same person as the phone. */
+export const watchKeyFits = (saved: Connection | null, signedIn: Connection) => deviceKeyFits(saved, signedIn, true)
+
+async function deviceKeyFits(saved: Connection | null, signedIn: Connection, personal = false): Promise<boolean> {
   if (!saved || saved.baseURL !== signedIn.baseURL) return false
   const [widgets, app] = await Promise.all([me(saved), me(signedIn)].map((p) => p.catch((e: unknown) => e)))
   if (widgets instanceof ApiError && widgets.status === 401) return false
   if (widgets instanceof Error || app instanceof Error) return true
   const a = (widgets as Awaited<ReturnType<typeof me>>).householdId, b = (app as Awaited<ReturnType<typeof me>>).householdId
-  return !a || !b || a === b
+  if (a && b && a !== b) return false
+  const person = (owner: string | null | undefined) => owner && owner !== 'shared' ? owner : null
+  return !personal || person((widgets as Awaited<ReturnType<typeof me>>).owner) === person((app as Awaited<ReturnType<typeof me>>).owner)
 }
 export const medicationDay = (c: Connection, memberId: string) =>
   api<MedicationDay>(c.baseURL, c.key, 'GET', `api/members/${encodeURIComponent(memberId)}/medications?days=1`)
@@ -88,8 +94,8 @@ export const setItemDone = (c: Connection, listId: string, itemId: string, done:
 /** The doses due now (names only where the server shares them; the widget shows only the count). */
 export const dueDoses = (c: Connection) => api<{ doses: unknown[] }>(c.baseURL, c.key, 'GET', 'api/medications/due')
 /** An everyday-access key for widgets or the watch; the plaintext comes back once. */
-export const createDeviceKey = (baseURL: string, key: string, name: string) =>
-  api<{ id: string; key: string }>(baseURL, key, 'POST', 'api/device-keys', { name })
+export const createDeviceKey = (baseURL: string, key: string, name: string, purpose?: 'watch') =>
+  api<{ id: string; key: string }>(baseURL, key, 'POST', 'api/device-keys', { name, ...(purpose ? { purpose } : {}) })
 export const revokeOwnKey = (c: Connection) => api<{ ok: boolean }>(c.baseURL, c.key, 'DELETE', 'api/device-keys/self')
 
 /** Timed events today that haven't ended: the one under way, and the next one. */
