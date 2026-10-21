@@ -27,6 +27,11 @@ Store uploads also depend on account access; a successful app build alone does n
 5. Signing: let EAS manage certificates and profiles (`eas credentials`), or Xcode's automatic
    signing with the paid team.
 
+The Watch target must declare `icon` in `targets/watch/expo-target.config.js`. An
+`AppIcon.appiconset` on its own is not enough: apple-targets uses that declaration to set
+`ASSETCATALOG_COMPILER_APPICON_NAME`, and the asset compiler generates the icon metadata
+(`CFBundleIconName` and `CFBundleIcons`) required by App Store Connect.
+
 **Each release**
 
 1. Build and upload: each release runs `.github/workflows/testflight.yml` (from release-please; or

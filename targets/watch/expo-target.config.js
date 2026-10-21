@@ -3,6 +3,8 @@ module.exports = {
   type: 'watch',
   name: 'KinwallWatch',
   displayName: 'Kinwall',
+  // apple-targets also uses this to select AppIcon for asset compilation.
+  icon: '../../assets/icon.png',
   bundleIdentifier: '.watchkitapp',
   deploymentTarget: '10.0',
   frameworks: ['SwiftUI', 'WatchConnectivity', 'WidgetKit'],
