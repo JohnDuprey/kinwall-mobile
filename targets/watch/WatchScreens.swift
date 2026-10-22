@@ -69,7 +69,7 @@ struct ChoresView: View {
     @State private var members: [Member] = []
     @State private var chores: [ChoreDay] = []
     @State private var day = ""
-    @State private var failed = false
+    @State private var phase = WatchLoadPhase.loading
     @State private var off = false // the family turned chores off
 
     var body: some View {
@@ -77,10 +77,13 @@ struct ChoresView: View {
             List {
                 if off {
                     Text("Chores are turned off in Kinwall.").foregroundStyle(.secondary)
-                } else if members.isEmpty && !failed {
+                } else if phase == .loading {
                     ProgressView()
-                } else if failed {
+                } else if phase == .failed {
                     Text("Can't reach Kinwall right now").foregroundStyle(.secondary)
+                    Button("Try again") { Task { await load() } }
+                } else if members.isEmpty {
+                    Text("No family members yet. Add someone in Kinwall on your iPhone.").foregroundStyle(.secondary)
                 } else if personId.isEmpty || !members.contains(where: { $0.id == personId }) {
                     Section("Whose Watch is this?") {
                         ForEach(members) { m in
@@ -129,7 +132,8 @@ struct ChoresView: View {
     }
 
     private func load() async {
-        do {
+        phase = .loading
+        phase = await WatchLoadPhase.completing {
             let settings = try? await client.settings()
             off = settings?.on.chores == false
             if off { return }
@@ -137,8 +141,7 @@ struct ChoresView: View {
             async let m = client.members()
             async let c = client.chores(on: day)
             (members, chores) = try await (m, c)
-            failed = false
-        } catch { failed = members.isEmpty }
+        }
     }
 }
 
@@ -150,6 +153,7 @@ struct CheckInView: View {
     let client: KinwallClient
     @State private var person: String?
     @State private var check: TempCheck?
+    @State private var phase = WatchLoadPhase.loading
     @State private var shared = false
     @State private var off = false // the family turned check-ins off
 
@@ -158,6 +162,11 @@ struct CheckInView: View {
             List {
                 if off {
                     Text("Check-ins are turned off in Kinwall.").foregroundStyle(.secondary)
+                } else if phase == .loading {
+                    ProgressView()
+                } else if phase == .failed {
+                    Text("Can't reach Kinwall right now").foregroundStyle(.secondary)
+                    Button("Try again") { Task { await load() } }
                 } else if shared {
                     Text("Check-in is only on a person's own Watch.").foregroundStyle(.secondary)
                 } else if let check, let person {
@@ -188,12 +197,19 @@ struct CheckInView: View {
     }
 
     private func load() async {
-        off = await !client.features().checkIns
-        if off { return }
-        guard let me = try? await client.me() else { return }
-        guard let id = me.person else { shared = true; return }
-        person = id
-        check = try? await client.tempCheck(id)
+        phase = .loading
+        phase = await WatchLoadPhase.completing {
+            shared = false
+            person = nil
+            check = nil
+            off = await !client.features().checkIns
+            if off { return }
+            let me = try await client.me()
+            guard let id = me.person else { shared = true; return }
+            let loaded = try await client.tempCheck(id)
+            person = id
+            check = loaded
+        }
     }
 }
 
