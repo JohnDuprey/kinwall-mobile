@@ -2,9 +2,10 @@ import * as WebBrowser from 'expo-web-browser'
 import Constants from 'expo-constants'
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
 import { StatusBar } from 'expo-status-bar'
+import * as SecureStore from 'expo-secure-store'
 import { useEffect, useRef, useState } from 'react'
 import { AppState, BackHandler, Dimensions, Linking, Platform, Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 import type { Tokens } from './oauth'
 import { doseChanged, refreshReminders, requestPermission } from './reminders'
@@ -25,6 +26,7 @@ import { backAction, bridgeMessage, sameDocument, sameOrigin } from './bridge'
 import { importContactsScript, meetCall } from './links'
 import { barcodeScript, scanFacing } from './barcode'
 import { Scanner } from './Scanner'
+import { readStatusBarHidden, saveStatusBarHidden, statusBarMessage, statusBarScript, statusBarSurface } from './statusBar'
 
 // Web pages open in an in-app browser: handing them to the system lets another app claim the link
 // (the GitHub app drops ?template=, so both Help forms landed on the same page). Maps and
@@ -52,8 +54,8 @@ const NONCE = Array.from(Crypto.getRandomValues(new Uint8Array(16)), (b) => b.to
  * `frame`: the family's last colors (src/appearance.ts), put on <html> before anything paints so
  * the page's first frame ("Loading…") is already in them; the page's own theme takes over once
  * its settings load (web/src/useTheme.ts). */
-const bridge = (origin: string, token: string | null, frame: (Surface & { dark: boolean }) | null, push: boolean) => `
-window.kinwallNative = { platform: ${JSON.stringify(Platform.OS)}, version: ${JSON.stringify(VERSION)}, providerReturn: true, nativePush: ${JSON.stringify(push)}, liveActivities: ${JSON.stringify(activitiesEnabled())}, notificationSettings: ${JSON.stringify(Platform.OS === 'android')}, quickSettingsTiles: ${JSON.stringify(Platform.OS === 'android' && Number(Platform.Version) >= 33)}, videoCall: ${JSON.stringify(Platform.OS === 'android')}, barcodeScanner: true, speech: true };
+const bridge = (origin: string, token: string | null, frame: (Surface & { dark: boolean }) | null, push: boolean, statusBarHidden: boolean) => `
+window.kinwallNative = { platform: ${JSON.stringify(Platform.OS)}, version: ${JSON.stringify(VERSION)}, providerReturn: true, nativePush: ${JSON.stringify(push)}, liveActivities: ${JSON.stringify(activitiesEnabled())}, notificationSettings: ${JSON.stringify(Platform.OS === 'android')}, quickSettingsTiles: ${JSON.stringify(Platform.OS === 'android' && Number(Platform.Version) >= 33)}, videoCall: ${JSON.stringify(Platform.OS === 'android')}, barcodeScanner: true, speech: true, statusBar: true, statusBarHidden: ${JSON.stringify(statusBarHidden)} };
 ${token ? `if (location.origin === ${JSON.stringify(origin)}) try { localStorage.setItem('kinwall.apiKey', ${JSON.stringify(token)}) } catch (e) {}` : ''}
 ${frame ? `try { var r = document.documentElement; r.setAttribute('data-theme', ${JSON.stringify(frame.dark ? 'dark' : 'light')}); r.style.setProperty('--bg', ${JSON.stringify(frame.bg)}); r.style.setProperty('--card', ${JSON.stringify(frame.card)}) } catch (e) {}` : ''}
 (function () {
@@ -94,10 +96,13 @@ type Props = {
 export function WebShell({ url, session, route, onRouteApplied, onTokens, onSignedOut, onChangeServer }: Props) {
   const web = useRef<WebView>(null)
   const ui = useUi()
+  const insets = useSafeAreaInsets()
+  const systemDark = useColorScheme() === 'dark'
+  const [statusBarHidden, setStatusBarHidden] = useState(() => readStatusBarHidden(SecureStore, Platform.OS))
   // The family's colors from last time (never the demo's), so the frame starts in them; updated
   // live from the page. `theme` is the older servers' meta theme-color, used until then.
   const [look, setLook] = useState(() => (session.mode === 'demo' ? null : savedAppearance()))
-  const frame = frameColors(look, useColorScheme() === 'dark')
+  const frame = frameColors(look, systemDark)
   const [theme, setTheme] = useState<string | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -107,6 +112,9 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   const canGoBack = useRef(false)
   const origin = new URL(url).origin
   const token = session.mode === 'oauth' ? session.tokens.accessToken : null
+  useEffect(() => {
+    web.current?.injectJavaScript(`if (location.origin === ${JSON.stringify(origin)}) { ${statusBarScript(statusBarHidden)} } true;`)
+  }, [statusBarHidden, origin])
 
   // The page can go blank under the app: iOS ends a background web view's process to free memory
   // (it comes back white), Android's renderer can go, a script can fail to load at launch. So the
@@ -268,6 +276,11 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
         break
       case 'back': if (backTimer.current) back(m.handled === true); break // Android's Back, answered (above)
       case 'theme': if (m.color) setTheme(m.color); break
+      case 'statusBar': {
+        const hidden = statusBarMessage(m)
+        if (hidden !== null && saveStatusBarHidden(SecureStore, hidden)) setStatusBarHidden(hidden)
+        break
+      }
       case 'appearance': { // web/src/native.ts: the page's look changed
         const a = parseAppearance(m)
         if (a) { setLook(a); if (session.mode !== 'demo') saveAppearance(a) }
@@ -357,6 +370,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
 
   const bg = frame?.bg ?? theme ?? ui.c.bg
   const dark = frame ? frame.dark : theme ? isDark(theme) : ui.dark
+  const bar = statusBarSurface(look, systemDark, bg)
   useEffect(() => { if (Platform.OS === 'android') KinwallNative?.navigationBar(dark) }, [dark])
   const view = failed ? (
     <View style={ui.root}><View style={ui.screen}>
@@ -372,7 +386,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       key={mount.n}
       source={{ uri: mount.at ?? (startsPairing ? `${url}?start=pair` : url) }}
       applicationNameForUserAgent={`KinwallApp/${VERSION}`}
-      injectedJavaScriptBeforeContentLoaded={bridge(origin, token, frame, session.mode !== 'demo' && nativePushAvailable())}
+      injectedJavaScriptBeforeContentLoaded={bridge(origin, token, frame, session.mode !== 'demo' && nativePushAvailable(), statusBarHidden)}
       injectedJavaScriptBeforeContentLoadedForMainFrameOnly // the default, and required: the nonce is in here
       onMessage={onMessage}
       // Android sends a load start for a #/ route change, often with no end: only a real load counts.
@@ -405,19 +419,23 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   )
 
   const scanner = scanning && <Scanner facing={scanning} onDone={(code) => { setScanning(null); web.current?.injectJavaScript(barcodeScript(code)) }} />
+  // Native owns the system-bar strip; the WebView still lays out clear of its safe-area inset.
+  const statusBarBackground = !statusBarHidden && <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, height: insets.top, backgroundColor: bar.color }} />
 
-  // iOS: the page uses the full screen and drops its status-bar gap in the app (data-native).
-  // Android: the page starts under the status bar; the insets are painted in the page's color.
+  // iOS: WebKit supplies the notch and status-bar insets; the page adapts to the chosen visibility.
+  // Android: SafeAreaView follows system insets when visibility changes, including camera cutouts.
   return Platform.OS === 'ios' ? (
     <View style={[styles.root, { backgroundColor: bg }]}>
-      <StatusBar hidden style={dark ? 'light' : 'dark'} />
+      <StatusBar hidden={statusBarHidden} style={bar.style} />
       {view}
+      {statusBarBackground}
       {scanner}
     </View>
   ) : (
     <SafeAreaView style={[styles.root, { backgroundColor: bg }]}>
-      <StatusBar style={dark ? 'light' : 'dark'} />
+      <StatusBar hidden={statusBarHidden} style={bar.style} />
       {view}
+      {statusBarBackground}
       {scanner}
     </SafeAreaView>
   )

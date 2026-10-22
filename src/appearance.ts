@@ -4,7 +4,7 @@
 // test/appearance.test.ts runs it under plain node.
 
 export type Surface = { bg: string; card: string }
-export type Appearance = { mode: 'light' | 'dark' | 'auto' | 'scheduled'; dark: boolean; colors: { light: Surface; dark: Surface } }
+export type Appearance = { mode: 'light' | 'dark' | 'auto' | 'scheduled'; dark: boolean; colors: { light: Surface; dark: Surface }; statusBarColors?: { light: string; dark: string } }
 
 const HEX = /^#[0-9a-f]{6}$/i
 const MODES = ['light', 'dark', 'auto', 'scheduled']
@@ -20,7 +20,9 @@ export function parseAppearance(v: unknown): Appearance | null {
   try { a = typeof v === 'string' ? JSON.parse(v) : v } catch { return null }
   if (!a || typeof a !== 'object' || !MODES.includes(a.mode as string) || typeof a.dark !== 'boolean') return null
   const light = surface(a.colors?.light), dark = surface(a.colors?.dark)
-  return light && dark ? { mode: a.mode!, dark: a.dark, colors: { light, dark } } : null
+  const bars = a.statusBarColors
+  if (bars !== undefined && (!bars || typeof bars.light !== 'string' || !HEX.test(bars.light) || typeof bars.dark !== 'string' || !HEX.test(bars.dark))) return null
+  return light && dark ? { mode: a.mode!, dark: a.dark, colors: { light, dark }, ...(bars ? { statusBarColors: { light: bars.light, dark: bars.dark } } : {}) } : null
 }
 
 /** The frame's colors now: 'auto' follows the system's current appearance; the other modes use
