@@ -256,17 +256,19 @@ struct MedsView: View {
 /// The family's lists; big rows to tick off while shopping, and dictation to add.
 struct ListsView: View {
     let client: KinwallClient
-    @State private var lists: [FamilyList] = []
-    @State private var failed = false
-    @State private var off = false // the family turned lists off
+    @State private var state = WatchListsState.loading
 
     var body: some View {
         NavigationStack {
             List {
-                if off { Text("Lists are turned off in Kinwall.").foregroundStyle(.secondary) }
-                else if lists.isEmpty && !failed { ProgressView() }
-                if failed { Text("Can't reach Kinwall right now").foregroundStyle(.secondary) }
-                ForEach(lists) { l in
+                switch state {
+                case .off: Text("Lists are turned off in Kinwall.").foregroundStyle(.secondary)
+                case .loading: ProgressView()
+                case .failed: Text("Can't reach Kinwall right now").foregroundStyle(.secondary)
+                case .loaded:
+                    if state.isEmpty { Text("No lists yet").foregroundStyle(.secondary) }
+                }
+                ForEach(state.lists) { l in
                     NavigationLink {
                         ListItemsView(client: client, list: l)
                     } label: {
@@ -284,9 +286,9 @@ struct ListsView: View {
     }
 
     private func load() async {
-        off = await !client.features().lists
-        if off { lists = []; return }
-        do { lists = try await client.lists().filter { !$0.archived }; failed = false } catch { failed = lists.isEmpty }
+        if await !client.features().lists { state = .off; return }
+        do { state = .loaded(try await client.lists()) }
+        catch { if state.lists.isEmpty { state = .failed } }
     }
 }
 
