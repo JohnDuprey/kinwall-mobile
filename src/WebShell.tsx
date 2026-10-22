@@ -26,6 +26,7 @@ import { backAction, bridgeMessage, sameDocument, sameOrigin } from './bridge'
 import { importContactsScript, meetCall } from './links'
 import { barcodeScript, scanFacing } from './barcode'
 import { Scanner } from './Scanner'
+import { createLoadRecovery, createPageProbe } from './loadRecovery'
 import { readStatusBarHidden, saveStatusBarHidden, statusBarMessage, statusBarScript, statusBarSurface } from './statusBar'
 
 // Web pages open in an in-app browser: handing them to the system lets another app claim the link
@@ -124,27 +125,52 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   const here = useRef<string | null>(null)
   // The web view's current URL, to tell a real page load from a #/ route change (sameDocument).
   const pageUrl = useRef<string | null>(null)
-  const answered = useRef(true)
   const blankRestarts = useRef(0)
   const loadCheck = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   // Where the page is now, from every navigation (a tab tap only changes its #/ route) as well as its
   // messages: a restart used to reopen the last page that had posted a message, often Home, so
   // coming back from the share sheet or the scanner (a probe that timed out) lost the open list.
   const track = (u: string) => { pageUrl.current = u; if (isKinwall(u)) here.current = u }
-  const restart = (at?: string) => { pageUrl.current = null; setMount((m) => ({ n: m.n + 1, at: at && isKinwall(at) ? at : here.current })) }
-  const probe = () => {
-    if (!web.current) return
-    answered.current = false
-    web.current.injectJavaScript(`try { var r = document.getElementById('root'); window.webkit.messageHandlers.kinwall.postMessage({ type: 'alive', blank: !!r && !r.firstElementChild }) } catch (e) {} true;`)
-    // A wall tablet waking from sleep can take a few seconds to answer; a restart drops what's open on the page.
-    setTimeout(() => { if (!answered.current) restart() }, 8000)
+  const restart = (at?: string) => {
+    clearTimeout(loadCheck.current)
+    pageProbe.cancel()
+    loadRecovery.cancel()
+    pageUrl.current = null
+    setFailed(null)
+    setLoading(true)
+    setMount((m) => ({ n: m.n + 1, at: at && isKinwall(at) ? at : here.current }))
   }
+  // The controllers keep their timers across renders, with current callbacks.
+  const restartRef = useRef(restart)
+  restartRef.current = restart
+  const [pageProbe] = useState(() => createPageProbe({
+    active: () => AppState.currentState === 'active',
+    restart: () => restartRef.current(),
+    schedule: (run, delay) => setTimeout(run, delay), cancel: clearTimeout,
+    send: (id) => web.current?.injectJavaScript(`try { var r = document.getElementById('root'); window.webkit.messageHandlers.kinwall.postMessage({ type: 'alive', probe: ${id}, blank: !!r && !r.firstElementChild }) } catch (e) {} true;`),
+  }))
+  const [loadRecovery] = useState(() => createLoadRecovery({
+    platform: Platform.OS,
+    active: () => AppState.currentState === 'active',
+    restart: () => restartRef.current(), fail: setFailed,
+    schedule: (run, delay) => setTimeout(run, delay), cancel: clearTimeout,
+  }))
+  const probe = () => { if (web.current) pageProbe.start() }
   useEffect(() => {
-    if (loading || failed) return
-    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') probe() })
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s !== 'active') { clearTimeout(loadCheck.current); pageProbe.cancel(); return }
+      loadRecovery.resume()
+      if (!loading && !failed) probe()
+    })
     return () => sub.remove()
-  }, [loading, failed])
-  useEffect(() => () => clearTimeout(loadCheck.current), [])
+  }, [loading, failed, pageProbe, loadRecovery])
+  useEffect(() => () => { clearTimeout(loadCheck.current); pageProbe.cancel(); loadRecovery.dispose() }, [pageProbe, loadRecovery])
+  useEffect(() => {
+    if (!failed) return
+    clearTimeout(loadCheck.current)
+    pageProbe.cancel()
+    loadRecovery.cancel()
+  }, [failed, pageProbe, loadRecovery])
   // A refreshed key reaches the page through the bridge script, so reload only once it has the new one.
   const reloadOnToken = useRef(false)
   const lastRejected = useRef(0)
@@ -264,13 +290,12 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   const syncKey = () => web.current?.injectJavaScript(`try { window.webkit.messageHandlers.kinwall.postMessage({ type: 'key', key: localStorage.getItem('kinwall.apiKey') }) } catch (e) {} true;`)
 
   const onMessage = async (e: WebViewMessageEvent) => {
-    const m = bridgeMessage(e.nativeEvent.data, NONCE, e.nativeEvent.url, url) as { type?: string; reason?: string; color?: string; key?: string | null; on?: boolean; kind?: unknown; payload?: unknown; channel?: unknown; tile?: unknown; facing?: unknown; blank?: boolean; handled?: unknown; id?: unknown; text?: unknown; rate?: unknown; lang?: unknown } | null
-    if (!m) return
+    const m = bridgeMessage(e.nativeEvent.data, NONCE, e.nativeEvent.url, url) as { type?: string; reason?: string; color?: string; key?: string | null; on?: boolean; kind?: unknown; payload?: unknown; channel?: unknown; tile?: unknown; facing?: unknown; blank?: boolean; probe?: unknown; handled?: unknown; id?: unknown; text?: unknown; rate?: unknown; lang?: unknown } | null
+    if (!m || (m.type === 'alive' && !pageProbe.answer(m.probe))) return
     here.current = e.nativeEvent.url
     switch (m.type) {
       case 'alive': // probe(): a page that drew nothing gets two fresh starts, then the error screen
-        answered.current = true
-        if (!m.blank) blankRestarts.current = 0
+        if (!m.blank) { blankRestarts.current = 0; loadRecovery.loaded() }
         else if (blankRestarts.current++ < 2) restart()
         else { blankRestarts.current = 0; setFailed("Kinwall didn't finish loading.") }
         break
@@ -283,7 +308,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       }
       case 'appearance': { // web/src/native.ts: the page's look changed
         const a = parseAppearance(m)
-        if (a) { setLook(a); if (session.mode !== 'demo') saveAppearance(a) }
+        if (a) { loadRecovery.loaded(); setLook(a); if (session.mode !== 'demo') saveAppearance(a) }
         hideSplash()
         break
       }
@@ -376,7 +401,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
     <View style={ui.root}><View style={ui.screen}>
       <Text style={ui.title}>Can't reach Kinwall</Text>
       <Text style={ui.muted}>{failed}</Text>
-      <Pressable style={ui.button} onPress={() => { setFailed(null); web.current?.reload() }}><Text style={ui.buttonText}>Try again</Text></Pressable>
+      <Pressable style={ui.button} onPress={() => { blankRestarts.current = 0; loadRecovery.retry() }}><Text style={ui.buttonText}>Try again</Text></Pressable>
       <Pressable onPress={onChangeServer}><Text style={ui.link}>Change server</Text></Pressable>
     </View></View>
   ) : startsPairing === null ? null : (
@@ -390,10 +415,20 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       injectedJavaScriptBeforeContentLoadedForMainFrameOnly // the default, and required: the nonce is in here
       onMessage={onMessage}
       // Android sends a load start for a #/ route change, often with no end: only a real load counts.
-      onLoadStart={(e) => { const was = pageUrl.current; track(e.nativeEvent.url); if (sameDocument(was, e.nativeEvent.url)) return; setLoading(true); clearTimeout(loadCheck.current) }}
-      onLoadEnd={(e) => { pageUrl.current = e.nativeEvent.url; hideSplash(); setLoading(false); syncKey(); if (pending.current) { go(pending.current); pending.current = null }; clearTimeout(loadCheck.current); loadCheck.current = setTimeout(probe, 15_000) }}
+      onLoadStart={(e) => { const was = pageUrl.current; track(e.nativeEvent.url); if (sameDocument(was, e.nativeEvent.url)) return; setLoading(true); clearTimeout(loadCheck.current); pageProbe.cancel() }}
+      // Android can emit onLoad just before onError. Only a healthy page's
+      // appearance/alive message resets retries, not native load events.
+      onLoad={(e) => { pageUrl.current = e.nativeEvent.url; hideSplash(); setLoading(false); syncKey(); if (pending.current) { go(pending.current); pending.current = null }; clearTimeout(loadCheck.current); loadCheck.current = setTimeout(probe, 15_000) }}
       onNavigationStateChange={(s) => { canGoBack.current = s.canGoBack; track(s.url) }}
-      onError={(e) => { pageUrl.current = null; hideSplash(); setFailed(e.nativeEvent.description) }}
+      onError={(e) => {
+        pageUrl.current = null
+        hideSplash()
+        clearTimeout(loadCheck.current)
+        pageProbe.cancel()
+        setLoading(true)
+        loadRecovery.failed(e.nativeEvent)
+      }}
+      renderError={() => <View style={ui.root}><View style={ui.screen}><Text style={ui.muted}>Connecting to Kinwall…</Text></View></View>}
       onContentProcessDidTerminate={(e) => restart(e.nativeEvent.url)} // iOS
       onRenderProcessGone={(e) => restart((e.nativeEvent as { url?: string }).url)} // Android: this web view can't be used again
       // Other schemes (tel:, mailto:) go straight to Linking without reaching the handler below;

@@ -156,3 +156,12 @@ npx eas-cli build -p ios --profile production
 [AGPL-3.0](LICENSE), like Kinwall itself. Kinwall is built by John Duprey with Claude Code, with UI/UX design decisions by Ashley Duprey.
 
 Built on open source: [Expo](https://github.com/expo/expo) and [React Native](https://github.com/facebook/react-native), [react-native-webview](https://github.com/react-native-webview/react-native-webview), [react-native-android-widget](https://github.com/sAleksovski/react-native-android-widget) by Stefan Aleksovski and [`@bacons/apple-targets`](https://github.com/EvanBacon/expo-apple-targets) by Evan Bacon (all MIT). Thank you. The web app inside has its own [credits](https://github.com/JohnDuprey/kinwall/blob/main/docs/contributing/credits.md).
+
+### Recovering a connection
+
+A temporary page-load connection failure retries automatically twice (after one and three
+seconds) before showing **Can't reach Kinwall**. If the app is in the background, the retry
+waits until it opens again. **Try again** starts a fresh page at the last Kinwall address.
+Certificate errors still appear immediately. Only a page that renders successfully resets the retry
+count. Checks for a blank or unresponsive page stop when the app goes into the background
+or starts another load; old checks cannot restart a replacement page.
