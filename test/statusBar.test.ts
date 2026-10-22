@@ -20,15 +20,13 @@ test('status bar: validated accent surfaces survive storage and choose contrasti
   assert.equal(parseAppearance({ ...input, statusBarColors: { light: '#ffffff' } }), null)
 })
 
-test('status bar: preserve platform defaults, including missing or damaged storage', () => {
+test('status bar: visible by default on both platforms, including missing or damaged storage', () => {
   for (const value of [null, '', 'yes', 'null', '{}']) {
     const storage = { getItem: () => value }
-    assert.equal(readStatusBarHidden(storage, 'ios'), true)
-    assert.equal(readStatusBarHidden(storage, 'android'), false)
+    assert.equal(readStatusBarHidden(storage), false)
   }
   const blocked = { getItem: () => { throw Error('blocked') } }
-  assert.equal(readStatusBarHidden(blocked, 'ios'), true)
-  assert.equal(readStatusBarHidden(blocked, 'android'), false)
+  assert.equal(readStatusBarHidden(blocked), false)
 })
 
 test('status bar: save and restore both choices across launches on either platform', () => {
@@ -36,8 +34,7 @@ test('status bar: save and restore both choices across launches on either platfo
   const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value) } }
   for (const hidden of [false, true, false]) {
     assert.equal(saveStatusBarHidden(storage, hidden), true)
-    assert.equal(readStatusBarHidden(storage, 'ios'), hidden)
-    assert.equal(readStatusBarHidden(storage, 'android'), hidden)
+    assert.equal(readStatusBarHidden(storage), hidden)
   }
   assert.equal(saveStatusBarHidden({ setItem: () => { throw Error('blocked') } }, true), false)
 })

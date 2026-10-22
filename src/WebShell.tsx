@@ -99,7 +99,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   const ui = useUi()
   const insets = useSafeAreaInsets()
   const systemDark = useColorScheme() === 'dark'
-  const [statusBarHidden, setStatusBarHidden] = useState(() => readStatusBarHidden(SecureStore, Platform.OS))
+  const [statusBarHidden, setStatusBarHidden] = useState(() => readStatusBarHidden(SecureStore))
   // The family's colors from last time (never the demo's), so the frame starts in them; updated
   // live from the page. `theme` is the older servers' meta theme-color, used until then.
   const [look, setLook] = useState(() => (session.mode === 'demo' ? null : savedAppearance()))

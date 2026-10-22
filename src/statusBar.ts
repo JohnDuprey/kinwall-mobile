@@ -5,12 +5,12 @@ const SAVED = 'statusBarHidden'
 type Reader = { getItem: (key: string) => string | null }
 type Writer = { setItem: (key: string, value: string) => void }
 
-export function readStatusBarHidden(storage: Reader, platform: string): boolean {
+export function readStatusBarHidden(storage: Reader): boolean {
   try {
     const saved = storage.getItem(SAVED)
     if (saved === 'true' || saved === 'false') return saved === 'true'
-  } catch { /* keep the platform's previous default */ }
-  return platform === 'ios'
+  } catch { /* show the status bar when storage is unavailable */ }
+  return false
 }
 
 /** Save before acknowledging: the switch should reflect a choice that survives a relaunch. */
