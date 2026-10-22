@@ -15,6 +15,10 @@ type KinwallNative = {
   activitiesEnabled(): boolean
   /** This signed build carries the APNs entitlement. */
   pushEnabled?(): boolean
+  appAttestSupported?(): boolean
+  appAttestGenerateKey?(): Promise<string>
+  appAttestKey?(key: string, challenge: string): Promise<string>
+  appAttestAssertion?(key: string, clientData: string): Promise<string>
   /** iOS: Spotlight's items (src/spotlight.ts), replacing the last set; cleared on sign-out. */
   spotlightSet?(items: { id: string; title: string; description: string; kind: string }[]): Promise<void>
   spotlightClear?(): Promise<void>

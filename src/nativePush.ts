@@ -3,7 +3,9 @@ import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
 import KinwallNative from '../modules/kinwall-native'
 import { api, ApiError, type Connection } from './api'
-import { NativePushSession, type PushRegistration } from './nativePushSession'
+import { NativePushSession, pushRegistrationActive, type PushRegistration } from './nativePushSession'
+import { registerGatewayPush, revokeGatewayServer, flushGatewayRevocations } from './pushGateway'
+import type { PushStatus } from './pushGatewayRegistration'
 
 const SAVED = 'nativePushRegistration', DISABLED = 'nativePushDisabledFor'
 // Background reminder refreshes run while locked. Keep this registration metadata readable then
@@ -21,7 +23,7 @@ export function savedNativePush(): PushRegistration | null {
 }
 export const remoteMedicineReminders = (baseURL: string) => {
   const r = savedNativePush()
-  return nativePushAvailable() && r?.baseURL === baseURL && r.push
+  return nativePushAvailable() && pushRegistrationActive(r, baseURL)
 }
 export const onNativePushChange = (f: () => void) => { listeners.add(f); return () => { listeners.delete(f) } }
 async function request<T>(c: Connection, method: string, path: string, body?: unknown): Promise<T> {
@@ -31,10 +33,12 @@ async function request<T>(c: Connection, method: string, path: string, body?: un
   finally { clearTimeout(timer) }
 }
 const session = new NativePushSession({
-  register: (c, token) => request(c, 'PUT', 'api/push/native', { token, deviceName: Platform.OS === 'ios' && Platform.isPad ? 'Kinwall iPad' : 'Kinwall iPhone' }),
+  register: (c, token) => registerGatewayPush<PushStatus & { subscription: { id: string } }>(c, 'api/push/native',
+    { token, deviceName: Platform.OS === 'ios' && Platform.isPad ? 'Kinwall iPad' : 'Kinwall iPhone' }, 'alert', () => wanted?.baseURL === c.baseURL && wanted.key === c.key),
   remove: async (c, id) => {
     try { await request(c, 'DELETE', `api/push/subscriptions/${encodeURIComponent(id)}`) }
     catch (e) { if (!(e instanceof ApiError && e.status === 404)) throw e }
+    finally { await revokeGatewayServer(c.baseURL).catch(() => {}) }
   },
   changed: r => {
     try { if (r) SecureStore.setItem(SAVED, JSON.stringify(r), STORAGE); else SecureStore.setItem(SAVED, 'null', STORAGE) } catch {}
@@ -42,10 +46,11 @@ const session = new NativePushSession({
   },
 })
 
-/** Called after the permission prompt and on resume, using the page's current sign-in. No Expo
- * push service is involved: the native APNs token goes only to this family's server. */
+/** Called after permission and on resume. Direct servers finish after token registration;
+ * self-hosted servers can use a device-scoped credential from the official gateway. */
 export async function syncNativePush(c?: Connection): Promise<void> {
   if (!nativePushAvailable()) return
+  flushGatewayRevocations().catch(() => {})
   if (c && (!wanted || wanted.baseURL !== c.baseURL || wanted.key !== c.key)) {
     if (wanted && wanted.baseURL !== c.baseURL) await clearNativePush()
     wanted = c; session.setDevice(c)
@@ -58,6 +63,7 @@ export async function syncNativePush(c?: Connection): Promise<void> {
   if (!permission.granted || SecureStore.getItem(DISABLED) === current.baseURL) {
     canRegister = false
     await session.clear(); session.setDevice(current)
+    await revokeGatewayServer(current.baseURL).catch(() => {})
     return
   }
   canRegister = true
@@ -77,9 +83,11 @@ export async function setNativePushEnabled(on: boolean): Promise<void> {
   await syncNativePush()
 }
 export async function clearNativePush(): Promise<void> {
+  const previous = wanted?.baseURL
   canRegister = false
   wanted = null
   await session.clear().catch(() => {})
+  if (previous) await revokeGatewayServer(previous).catch(() => {})
   await Notifications.dismissAllNotificationsAsync().catch(() => {})
   await SecureStore.deleteItemAsync(SAVED)
   await SecureStore.deleteItemAsync(DISABLED)

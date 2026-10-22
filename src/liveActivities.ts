@@ -3,6 +3,8 @@ import { Platform } from 'react-native'
 import KinwallNative, { type ActivityToken } from '../modules/kinwall-native'
 import { api, type Connection } from './api'
 import { type LeaveByEvent, type LeaveByPerson, leaveByAlarms } from './leaveBy'
+import { registerGatewayPush, revokeGatewayToken } from './pushGateway'
+import type { PushStatus } from './pushGatewayRegistration'
 
 // The Live Activities on iPhone (modules/kinwall-native/ios/LiveActivities.swift draws nothing
 // itself; targets/widgets/LiveActivities.swift does): the web app says what to show
@@ -39,15 +41,35 @@ let device: Connection | null = null
 let wanted = false
 let start: ActivityToken | null = null
 const updates: ActivityToken[] = []
-const put = (t: ActivityToken) => device && api(device.baseURL, device.key, 'PUT', 'api/live-activities/tokens', t).catch(() => {})
+let pushQueue: Promise<unknown> = Promise.resolve()
+const put = (t: ActivityToken) => {
+  const c = device
+  const current = () => device === c && (t.kind !== 'start' || wanted)
+  pushQueue = pushQueue.catch(() => {}).then(async () => {
+    if (!c || !current()) return
+    await registerGatewayPush<PushStatus>(c, 'api/live-activities/tokens', t, t.kind === 'start' ? 'liveactivity-start' : 'liveactivity-update', current)
+  }).catch(() => {})
+  return pushQueue
+}
 const flush = () => {
   if (!device) return
   if (start && wanted) put(start)
   while (updates.length) put(updates.shift()!)
 }
-export function setActivityDevice(c: Connection | null) { device = c; flush() }
+export function setActivityDevice(c: Connection | null) {
+  if (!c || (device && device.baseURL !== c.baseURL)) updates.length = 0
+  if (!c) wanted = false
+  device = c; flush()
+}
 export function setLeaveByPush(on: boolean) {
-  if (wanted && !on && device) api(device.baseURL, device.key, 'DELETE', 'api/live-activities/tokens', {}).catch(() => {})
+  if (wanted && !on && device) {
+    const previous = device, token = start?.token
+    // Cleanup follows any in-flight registration, so a late response cannot restore push-to-start.
+    pushQueue = pushQueue.catch(() => {}).then(async () => {
+      await api(previous.baseURL, previous.key, 'DELETE', 'api/live-activities/tokens', {}).catch(() => {})
+      if (token) await revokeGatewayToken(previous.baseURL, token, 'liveactivity-start').catch(() => {})
+    })
+  }
   wanted = on
   flush()
 }

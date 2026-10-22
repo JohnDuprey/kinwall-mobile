@@ -1,7 +1,9 @@
 type Connection = { baseURL: string; key: string }
-export type PushRegistration = { baseURL: string; id: string; push: boolean }
+export type PushRegistration = { baseURL: string; id: string; push: boolean; expiresAt?: number }
+export const pushRegistrationActive = (r: PushRegistration | null, server: string, now = Date.now()) =>
+  r?.baseURL === server && r.push && (r.expiresAt === undefined || r.expiresAt > now)
 type Dependencies = {
-  register(c: Connection, token: string): Promise<{ push: boolean; subscription: { id: string } }>
+  register(c: Connection, token: string): Promise<{ push: boolean; subscription: { id: string }; gatewayExpiresAt?: number }>
   remove(c: Connection, id: string): Promise<void>
   changed(r: PushRegistration | null): void
 }
@@ -27,7 +29,8 @@ export class NativePushSession {
       if (!c || epoch !== this.epoch) return
       const result = await this.deps.register(c, token)
       if (epoch !== this.epoch) { await this.deps.remove(c, result.subscription.id); return }
-      this.registration = { baseURL: c.baseURL, id: result.subscription.id, push: result.push }
+      this.registration = { baseURL: c.baseURL, id: result.subscription.id, push: result.push,
+        ...(result.gatewayExpiresAt !== undefined ? { expiresAt: result.gatewayExpiresAt } : {}) }
       this.deps.changed(this.registration)
     })
   }

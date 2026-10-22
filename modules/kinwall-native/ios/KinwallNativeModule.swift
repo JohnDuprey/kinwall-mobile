@@ -3,6 +3,7 @@ import WidgetKit
 import WatchConnectivity
 import Security
 import ActivityKit
+import DeviceCheck
 
 /// What the shell can't do from JavaScript: reload the widgets' timelines, hand the Watch its key
 /// over WatchConnectivity (src/sharedKey.ts mints it; targets/watch keeps it), and keep keys in
@@ -38,6 +39,22 @@ public class KinwallNativeModule: Module {
         /// Off in iPhone Settings → Kinwall → Live Activities (the web app says so in its Notifications section).
         Function("activitiesEnabled") { ActivityAuthorizationInfo().areActivitiesEnabled }
         Function("pushEnabled") { LiveActivities.pushEnabled }
+        Function("appAttestSupported") { AppAttest.supported }
+        AsyncFunction("appAttestGenerateKey") { try await AppAttest.generateKey() }
+        AsyncFunction("appAttestKey") { (key: String, challenge: String) in
+            do { return try await AppAttest.proof(key: key, data: challenge, initial: true) }
+            catch {
+                let invalid = (error as NSError).domain == DCError.errorDomain && (error as NSError).code == DCError.invalidKey.rawValue
+                throw Exception(name: "AppAttestError", description: "App verification failed", code: invalid ? "ERR_APP_ATTEST_INVALID_KEY" : "ERR_APP_ATTEST")
+            }
+        }
+        AsyncFunction("appAttestAssertion") { (key: String, data: String) in
+            do { return try await AppAttest.proof(key: key, data: data, initial: false) }
+            catch {
+                let invalid = (error as NSError).domain == DCError.errorDomain && (error as NSError).code == DCError.invalidKey.rawValue
+                throw Exception(name: "AppAttestError", description: "App verification failed", code: invalid ? "ERR_APP_ATTEST_INVALID_KEY" : "ERR_APP_ATTEST")
+            }
+        }
         /// `shared`: the group the widgets, Watch and Siri read (SharedKeychain.group).
         AsyncFunction("keychainGet") { (service: String, shared: Bool) -> String? in
             var q = Keychain.query(service, shared)

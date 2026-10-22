@@ -1,6 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { NativePushSession } from '../src/nativePushSession.ts'
+import { NativePushSession, pushRegistrationActive } from '../src/nativePushSession.ts'
+
+test('native push: expired gateway credentials restore local reminders; direct push does not expire', () => {
+  const r = { baseURL: 'https://family.example', id: 'phone', push: true }
+  assert.equal(pushRegistrationActive({ ...r, expiresAt: 200 }, r.baseURL, 100), true)
+  assert.equal(pushRegistrationActive({ ...r, expiresAt: 200 }, r.baseURL, 201), false)
+  assert.equal(pushRegistrationActive(r, r.baseURL, 201), true)
+});
 
 test('native push: signing out during registration removes the late token before another family signs in', async () => {
   const events: string[] = []

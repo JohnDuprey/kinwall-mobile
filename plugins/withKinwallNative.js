@@ -79,16 +79,18 @@ const withKinwallKit = (config) =>
 
 // Paid capabilities are opt-in; official TestFlight entry points enable them. KinwallPush and
 // KinwallTimeSensitive describe the entitlements this native build actually carries.
-const { push: PUSH, timeSensitive: TIME_SENSITIVE, apnsEnvironment, domains } = require('./membership').membership(process.env)
+const { push: PUSH, timeSensitive: TIME_SENSITIVE, apnsEnvironment, appAttest, domains } = require('./membership').membership(process.env)
 // Time Sensitive reminders (leave-by and medicine break through a Focus) need their entitlement,
 // which the Personal Team's profile doesn't carry: a paid team (KINWALL_PUSH=1), or
 // KINWALL_TIME_SENSITIVE=1 to try it on another, adds it and sets KinwallTimeSensitive, which
 // modules/kinwall-native/ios/Reminders.swift reads. Without it they're ordinary notifications.
 const withLocalOnly = (config) => {
-  config = withInfoPlist(config, (c) => { c.modResults.CFBundleVersion = '$(CURRENT_PROJECT_VERSION)'; c.modResults.KinwallPush = PUSH; c.modResults.KinwallTimeSensitive = TIME_SENSITIVE; return c })
+  config = withInfoPlist(config, (c) => { c.modResults.CFBundleVersion = '$(CURRENT_PROJECT_VERSION)'; c.modResults.KinwallPush = PUSH; c.modResults.KinwallTimeSensitive = TIME_SENSITIVE; c.modResults.KinwallAppAttest = appAttest; return c })
   return withEntitlementsPlist(config, (c) => {
     if (!PUSH) delete c.modResults['aps-environment']
     else c.modResults['aps-environment'] = apnsEnvironment
+    if (appAttest) c.modResults['com.apple.developer.devicecheck.appattest-environment'] = 'production'
+    else delete c.modResults['com.apple.developer.devicecheck.appattest-environment']
     if (TIME_SENSITIVE) c.modResults['com.apple.developer.usernotifications.time-sensitive'] = true
     else delete c.modResults['com.apple.developer.usernotifications.time-sensitive']
     if (domains.length) c.modResults['com.apple.developer.associated-domains'] = [...new Set([...(c.modResults['com.apple.developer.associated-domains'] ?? []), ...domains])]
