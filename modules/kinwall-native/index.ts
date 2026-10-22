@@ -13,6 +13,8 @@ type KinwallNative = {
   activityEndStale(): Promise<void>
   /** Live Activities allowed in iPhone Settings; on Android, notifications and the countdowns' channel on. */
   activitiesEnabled(): boolean
+  /** This signed build carries the APNs entitlement. */
+  pushEnabled?(): boolean
   /** iOS: Spotlight's items (src/spotlight.ts), replacing the last set; cleared on sign-out. */
   spotlightSet?(items: { id: string; title: string; description: string; kind: string }[]): Promise<void>
   spotlightClear?(): Promise<void>

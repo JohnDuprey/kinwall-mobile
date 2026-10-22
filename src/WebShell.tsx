@@ -7,7 +7,8 @@ import { AppState, BackHandler, Dimensions, Linking, Platform, Pressable, StyleS
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 import type { Tokens } from './oauth'
-import { refreshReminders, requestPermission } from './reminders'
+import { doseChanged, refreshReminders, requestPermission } from './reminders'
+import { nativePushAvailable, onNativePushChange, savedNativePush, setNativePushEnabled, syncNativePush } from './nativePush'
 import { type Surface, activityColors, frameColors, parseAppearance } from './appearance'
 import { activitiesEnabled, endActivity, endAllActivities, setActivityDevice, setLeaveByPush, showActivity } from './liveActivities'
 import * as Notifications from 'expo-notifications'
@@ -51,8 +52,8 @@ const NONCE = Array.from(Crypto.getRandomValues(new Uint8Array(16)), (b) => b.to
  * `frame`: the family's last colors (src/appearance.ts), put on <html> before anything paints so
  * the page's first frame ("Loading…") is already in them; the page's own theme takes over once
  * its settings load (web/src/useTheme.ts). */
-const bridge = (origin: string, token: string | null, frame: (Surface & { dark: boolean }) | null) => `
-window.kinwallNative = { platform: ${JSON.stringify(Platform.OS)}, version: ${JSON.stringify(VERSION)}, providerReturn: true, liveActivities: ${JSON.stringify(activitiesEnabled())}, notificationSettings: ${JSON.stringify(Platform.OS === 'android')}, quickSettingsTiles: ${JSON.stringify(Platform.OS === 'android' && Number(Platform.Version) >= 33)}, videoCall: ${JSON.stringify(Platform.OS === 'android')}, barcodeScanner: true, speech: true };
+const bridge = (origin: string, token: string | null, frame: (Surface & { dark: boolean }) | null, push: boolean) => `
+window.kinwallNative = { platform: ${JSON.stringify(Platform.OS)}, version: ${JSON.stringify(VERSION)}, providerReturn: true, nativePush: ${JSON.stringify(push)}, liveActivities: ${JSON.stringify(activitiesEnabled())}, notificationSettings: ${JSON.stringify(Platform.OS === 'android')}, quickSettingsTiles: ${JSON.stringify(Platform.OS === 'android' && Number(Platform.Version) >= 33)}, videoCall: ${JSON.stringify(Platform.OS === 'android')}, barcodeScanner: true, speech: true };
 ${token ? `if (location.origin === ${JSON.stringify(origin)}) try { localStorage.setItem('kinwall.apiKey', ${JSON.stringify(token)}) } catch (e) {}` : ''}
 ${frame ? `try { var r = document.documentElement; r.setAttribute('data-theme', ${JSON.stringify(frame.dark ? 'dark' : 'light')}); r.style.setProperty('--bg', ${JSON.stringify(frame.bg)}); r.style.setProperty('--card', ${JSON.stringify(frame.card)}) } catch (e) {}` : ''}
 (function () {
@@ -141,6 +142,13 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   const lastRejected = useRef(0)
   useEffect(() => { if (reloadOnToken.current) { reloadOnToken.current = false; web.current?.reload() } }, [token])
 
+  useEffect(() => {
+    if (!token) return
+    const c = { baseURL: url, key: token }
+    setActivityDevice(c)
+    syncNativePush(c).catch(() => {})
+  }, [url, token])
+
   // The launch screen waits for the page (onLoadEnd, its look, or a failed load), but not forever.
   useEffect(() => { const t = setTimeout(hideSplash, 3000); return () => clearTimeout(t) }, [])
 
@@ -170,6 +178,17 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
     return () => { clearInterval(timer); sub.remove() }
   }, [session, onTokens, onSignedOut])
 
+  // The push subscription id and availability are metadata only; the APNs token stays native.
+  useEffect(() => {
+    const update = () => {
+      const r = savedNativePush()
+      const mine = r?.baseURL === url ? r : null
+      web.current?.injectJavaScript(`if (location.origin === ${JSON.stringify(origin)} && window.kinwallNative) { window.kinwallNative.pushReady = ${JSON.stringify(mine?.push ?? false)}; ${mine ? `localStorage.setItem('kinwall.pushSubId', ${JSON.stringify(mine.id)});` : `localStorage.removeItem('kinwall.pushSubId');`} window.dispatchEvent(new Event('kinwallnative')); } true;`)
+    }
+    update()
+    return onNativePushChange(update)
+  }, [url, origin])
+
   // Live Activities may have been turned on or off in iPhone Settings meanwhile: tell the page. A
   // leave-by held back for want of notifications shows once they're allowed (the page sends it once).
   const heldLeaveBy = useRef<unknown>(null)
@@ -179,6 +198,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
     const sub = AppState.addEventListener('change', async (s) => {
       if (s !== 'active') return
       web.current?.injectJavaScript(`try { window.kinwallNative.liveActivities = ${JSON.stringify(activitiesEnabled())}; window.dispatchEvent(new Event('kinwallnative')) } catch (e) {} true;`)
+      syncNativePush().catch(() => {}).finally(() => refreshReminders().catch(() => {}))
       if (heldLeaveBy.current && (await Notifications.getPermissionsAsync()).granted) showActivity('leaveBy', heldLeaveBy.current, activityColors(frameNow.current))
     })
     return () => sub.remove()
@@ -255,6 +275,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
         break
       }
       case 'signedIn': syncKey(); break
+      case 'doseChanged': if (session.mode !== 'demo') await doseChanged(m.payload).catch(() => {}); break
       // Shopping mode (web/src/native.ts) keeps the screen on while you shop.
       case 'leaveDemo': if (session.mode === 'demo') onChangeServer(); break // web/src/native.ts: the demo bar's Leave demo
       case 'keepAwake': (m.on ? activateKeepAwakeAsync('shop') : deactivateKeepAwake('shop')).catch(() => {}); break
@@ -306,9 +327,18 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
         }
         endAllActivities(); setActivityDevice(null); synced.current = null
         onSignedOut(); break
+      case 'nativePush':
+        if (session.mode === 'demo') return
+        if (m.on) {
+          const permission = await Notifications.requestPermissionsAsync()
+          if (!permission.granted) { await Linking.openSettings(); return }
+        }
+        await setNativePushEnabled(m.on === true)
+        await refreshReminders()
+        break
       case 'key':
         if (!m.key || session.mode === 'demo') return // the demo's sample key never reaches the widgets, Watch or reminders
-        if (synced.current === `${url} ${m.key}`) return
+        if (synced.current === `${url} ${m.key}`) { await syncNativePush().catch(() => {}); return }
         synced.current = `${url} ${m.key}`
         try {
           setActivityDevice({ baseURL: url, key: m.key })
@@ -316,6 +346,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
           await ensureWidgetKey(url, m.key)
           reloadWidgets()
           await requestPermission() // first time signed in: ask, then schedule
+          await syncNativePush({ baseURL: url, key: m.key }).catch(() => {})
           await refreshReminders()
           await syncWatch({ baseURL: url, key: m.key })
           syncSpotlight(true)
@@ -341,7 +372,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       key={mount.n}
       source={{ uri: mount.at ?? (startsPairing ? `${url}?start=pair` : url) }}
       applicationNameForUserAgent={`KinwallApp/${VERSION}`}
-      injectedJavaScriptBeforeContentLoaded={bridge(origin, token, frame)}
+      injectedJavaScriptBeforeContentLoaded={bridge(origin, token, frame, session.mode !== 'demo' && nativePushAvailable())}
       injectedJavaScriptBeforeContentLoadedForMainFrameOnly // the default, and required: the nonce is in here
       onMessage={onMessage}
       // Android sends a load start for a #/ route change, often with no end: only a real load counts.

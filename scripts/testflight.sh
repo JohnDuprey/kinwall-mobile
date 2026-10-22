@@ -17,6 +17,7 @@ BUILD="${BUILD:-$(node -p "const [a,b,c]=require('./package.json').version.split
 rm -rf "$OUT" && mkdir -p "$OUT"
 # Generate ios/ from app.json, plugins/ and targets/ (CocoaPods needs a UTF-8 locale).
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+export KINWALL_PUSH=1 KINWALL_APNS_ENV=production KINWALL_TIME_SENSITIVE=1 KINWALL_ASSOCIATED_DOMAINS=1
 npm ci --silent
 CI=1 npx expo prebuild -p ios --clean >/dev/null
 xcodebuild archive -workspace ios/Kinwall.xcworkspace -scheme Kinwall -configuration Release \

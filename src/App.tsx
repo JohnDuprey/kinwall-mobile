@@ -13,7 +13,7 @@ import { clearServer, loadServer, saveServer } from './server'
 import { ServerEntry } from './ServerEntry'
 import { type Session, freshTokens, loadSession, signOut } from './session'
 import { syncWatch, widgetConnection } from './sharedKey'
-import { groceriesRoute, routeFor } from './links'
+import { groceriesRoute, routeFor, notificationRoute } from './links'
 import { isProviderReturn, providerReturnUrl } from './providerReturn'
 import { type Features, features, lists } from './api'
 import { pickGroceries } from './widgetData'
@@ -70,12 +70,13 @@ export default function App() {
   // Every link, not useURL's latest: tapping the same widget twice is the same URL, which useURL
   // doesn't pass on again, so the second tap left the app wherever it was.
   useEffect(() => {
-    const open = (u: string | null) => { if (!u) return; if (__DEV__ && u.includes('debug=medication')) showSampleMedication(); if (__DEV__ && u.includes('debug=cooking')) showSampleCooking(); const r = routeFor(u); if (r) resolve(r).then(setRoute) }
+    const open = (u: string | null) => { if (!u) return; if (__DEV__ && u.includes('debug=medication')) showSampleMedication(); if (__DEV__ && u.includes('debug=cooking')) showSampleCooking(); const r = routeFor(u, server); if (r) resolve(r).then(setRoute) }
+    if (server === undefined) return
     linkTo = open
     early.splice(0).forEach(open)
     Linking.getInitialURL().then(open).catch(() => {})
     return () => { linkTo = null }
-  }, [])
+  }, [server])
   // A Google/Microsoft sign-in handed back from the in-app browser (src/providerReturn.ts): close
   // that browser (iOS; Android brings the app forward over its Custom Tab) and finish it in the web
   // view, on this app's own server. Each link once (the session changes on every token refresh).
@@ -103,7 +104,13 @@ export default function App() {
     if (tapped && tapped.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER && tapped.actionIdentifier !== 'open') return
     const r = tapped?.notification.request.content.data?.route
     if (typeof r === 'string') setRoute(r)
-  }, [tapped])
+    else {
+      const link = tapped?.notification.request.content.data?.url
+      const source = tapped?.notification.request.content.data?.server
+      const next = typeof link === 'string' && server ? notificationRoute(link, server, typeof source === 'string' ? source : undefined) : null
+      if (next) setRoute(next)
+    }
+  }, [tapped, server])
 
   // Reminders are rescheduled each time the app opens or goes to the background (an event just
   // added in the app gets its reminder then; the page doesn't say when its events change, and the

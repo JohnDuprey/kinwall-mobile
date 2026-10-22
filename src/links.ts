@@ -6,7 +6,15 @@
  * ?to=meals&recipe=<id> and ?to=contacts&contact=<id>; a shared contact, ?to=contacts/import; what
  * the share sheet or Add to Kinwall added, ?to=shared&link=<Kinwall's link> (its #/ route, in
  * Calendar, Meals or the library: an event or a book to check, or what was added); anything else → null. */
-export function routeFor(link: string): string | null {
+export function routeFor(link: string, server?: string | null): string | null {
+  if (server && /^https:\/\//.test(link)) {
+    try {
+      const u = new URL(link), own = new URL(server)
+      if (u.origin !== own.origin || u.username || u.password || !u.hostname.endsWith('.kinwall.family')) return null
+      if (u.pathname === '/open') return routeFor(`family.kinwall.app:/open?${u.searchParams}`)
+      return u.pathname === '/' ? notificationRoute(link, server) : null
+    } catch { return null }
+  }
   const m = /^family\.kinwall\.app:\/*open\?(.*)$/.exec(link)
   if (!m) return null
   const q = new URLSearchParams(m[1])
@@ -44,6 +52,19 @@ export function routeFor(link: string): string | null {
   if (to !== 'chores') return null
   const done = id(q.get('done'))
   return done ? `chores?done=${done}` : to
+}
+
+/** Server notification links can only open an app page on the current family's origin. */
+export function notificationRoute(link: string, server: string, source?: string): string | null {
+  if (link.length > 4000 || /[\\\u0000-\u001f]/.test(link) || link.startsWith('//')) return null
+  try {
+    const u = new URL(link, server), own = new URL(server)
+    if (source && new URL(source).origin !== own.origin) return null
+    if (u.origin !== own.origin || u.username || u.password) return null
+    const route = u.hash.startsWith('#/') ? u.hash.slice(2) : u.pathname.slice(1) + u.search
+    if (!route) return 'home'
+    return /^(?:home|calendar|chores|lists|meals|medications|contacts|trackers|settings|outings|rewards|polls|insights|newscast)(?:[/?]|$)/.test(route) ? route : null
+  } catch { return null }
 }
 
 /** 'groceries' (add to it) or 'groceries/shop' (shopping mode) with the family's Groceries list

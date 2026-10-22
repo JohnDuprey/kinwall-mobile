@@ -25,11 +25,11 @@ export type Board = {
   chores: { memberId: string | null; name: string | null; avatar: string | null; remaining: number; total: number }[]
 }
 
-export async function api<T>(baseURL: string, key: string | null, method: string, path: string, body?: unknown): Promise<T> {
+export async function api<T>(baseURL: string, key: string | null, method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (key) headers.Authorization = `Bearer ${key}`
   if (body !== undefined) headers['Content-Type'] = 'application/json'
-  const res = await fetch(new URL(path, baseURL).toString(), { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+  const res = await fetch(new URL(path, baseURL).toString(), { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal })
   if (!res.ok) {
     const e = (await res.json().catch(() => null)) as { error?: string } | null
     throw new ApiError(res.status, e?.error ?? `${res.status} ${res.statusText}`)

@@ -53,8 +53,11 @@ jobs:
       TEAM: ${{ secrets.APPLE_TEAM_ID }}
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
-      # Push stays off until the APNs setup in docs/PLAN.md ("Turning on Live Activity push").
-      KINWALL_PUSH: '0'
+      # Official paid-team build: APNs production is used by TestFlight as well as the App Store.
+      KINWALL_PUSH: '1'
+      KINWALL_APNS_ENV: production
+      KINWALL_TIME_SENSITIVE: '1'
+      KINWALL_ASSOCIATED_DOMAINS: '1'
     # The App Store Connect key (Admin) is written and put in the environment only for the archive
     # and upload steps, after npm and CocoaPods have installed, so their install code never sees it.
     # The archive step still runs build code from node_modules and Pods (the React Native bundling

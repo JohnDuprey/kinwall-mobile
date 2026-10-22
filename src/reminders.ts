@@ -9,6 +9,21 @@ import { choreNudge, doseReminders, focusTag, localAt, shouldAskNotifications } 
 import { widgetConnection } from './sharedKey'
 import { endStaleActivities, scheduleLeaveBy } from './liveActivities'
 import type { LeaveByEvent } from './leaveBy'
+import { DoseReminderState, parseDoseChange } from './doseReminders'
+import { remoteMedicineReminders } from './nativePush'
+
+const doseState = new DoseReminderState()
+/** Called while the page is still active, immediately after the server confirms Taken/Skipped. */
+export async function doseChanged(payload: unknown): Promise<void> {
+  const change = parseDoseChange(payload)
+  if (!change) return
+  doseState.change(change) // before the first await: blocks any already-running refresh
+  const pending = doseState.stale(await Notifications.getAllScheduledNotificationsAsync())
+  await Promise.all(pending.map(r => Notifications.cancelScheduledNotificationAsync(r.identifier)))
+  const delivered = doseState.stale((await Notifications.getPresentedNotificationsAsync()).map(n => n.request))
+  await Promise.all(delivered.map(r => Notifications.dismissNotificationAsync(r.identifier)))
+  if (change.action === 'unmark' || change.action === 'snooze') await refreshReminders()
+}
 
 // Event reminders as local notifications (docs/WIDGETS-AND-WATCH.md): the app can't receive the
 // server's web push, so it schedules the same reminders itself from the event list, using each
@@ -76,6 +91,7 @@ const categories = Promise.all([
 type Planned = { fire: number; request: Notifications.NotificationRequestInput }
 
 export async function refreshReminders(): Promise<void> {
+  const doseRevision = doseState.revision
   const { granted } = await Notifications.getPermissionsAsync()
   const connection = await widgetConnection()
   if (!granted || !connection) return
@@ -88,15 +104,26 @@ export async function refreshReminders(): Promise<void> {
   const person = await me(connection).then((m) => (m.owner && m.owner !== 'shared' ? m.owner : null)).catch(() => null)
   const planned = [...list.flatMap((e) => requestsFor(e, now, person)), ...(person ? await personal(connection, person, now) : [])]
     .sort((a, b) => a.fire - b.fire).slice(0, CAP)
+  doseState.reconcile(doseRevision, planned.map(p => p.request))
   await categories
-  const old = (await Notifications.getAllScheduledNotificationsAsync()).filter((r) => r.identifier.startsWith(PREFIX))
+  const old = (await Notifications.getAllScheduledNotificationsAsync()).filter((r) => r.identifier.startsWith(PREFIX) || (remoteMedicineReminders(connection.baseURL) && r.identifier.startsWith('snz:rem:med:')))
   await Promise.all(old.map((r) => Notifications.cancelScheduledNotificationAsync(r.identifier)))
-  for (const p of planned) await Notifications.scheduleNotificationAsync(p.request).catch(() => {})
+  if (remoteMedicineReminders(connection.baseURL)) {
+    const presented = (await Notifications.getPresentedNotificationsAsync()).filter(n => n.request.identifier.startsWith('rem:med:') || n.request.identifier.startsWith('snz:rem:med:'))
+    await Promise.all(presented.map(n => Notifications.dismissNotificationAsync(n.request.identifier)))
+  }
+  for (const p of planned) {
+    if (doseState.blocks(p.request)) continue
+    await Notifications.scheduleNotificationAsync(p.request).catch(() => {})
+    // Taken may arrive while scheduleNotificationAsync is in flight.
+    if (doseState.blocks(p.request)) await Notifications.cancelScheduledNotificationAsync(p.request.identifier!).catch(() => {})
+  }
   await KinwallNative?.tagReminders?.().catch(() => {}) // iOS: the Focus filter's tag, and Time Sensitive where signed
 }
 
 /** Sign-out: nothing should fire for a household this device no longer belongs to. */
 export async function clearReminders(): Promise<void> {
+  doseState.clear()
   const old = (await Notifications.getAllScheduledNotificationsAsync()).filter((r) => r.identifier.startsWith(PREFIX) || r.identifier.startsWith(SNOOZED))
   await Promise.all(old.map((r) => Notifications.cancelScheduledNotificationAsync(r.identifier)))
 }
@@ -107,7 +134,7 @@ export async function clearReminders(): Promise<void> {
  * "medicine names" choice lives with the web's push settings, which the app can't read). */
 async function personal(c: Connection, person: string, now: number): Promise<Planned[]> {
   const out: Planned[] = []
-  const meds = await medicationDay(c, person).catch(() => null) // 404: the family has medicines off
+  const meds = remoteMedicineReminders(c.baseURL) ? null : await medicationDay(c, person).catch(() => null) // APNs takes over only once registered
   for (const d of meds ? doseReminders(meds, now) : []) {
     if (d.at <= now || d.at > now + HORIZON) continue
     out.push(at(d.at, `${PREFIX}med:${d.medicationId}:${d.date}:${d.time}`, 'medicine', MEDICINE, 'Time for your medicine', `${time(new Date(d.at))} dose`,
@@ -115,7 +142,7 @@ async function personal(c: Connection, person: string, now: number): Promise<Pla
   }
   // The chore nudge: off unless turned on, in iPhone Settings → Kinwall (native/ios/Settings.bundle),
   // or on Android by turning on its channel, Chores, which starts off (Channels.kt); 8:00 AM there.
-  if (await choreNudgeOn()) {
+  if (!remoteMedicineReminders(c.baseURL) && await choreNudgeOn()) {
     const hhmm = IOS ? String(Settings.get('choreNudgeTime') ?? '08:00') : '08:00'
     for (const offset of [0, 1]) {
       const date = localDay(now, offset)

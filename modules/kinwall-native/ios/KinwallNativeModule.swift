@@ -37,6 +37,7 @@ public class KinwallNativeModule: Module {
         AsyncFunction("tagReminders") { await Reminders.tag() }
         /// Off in iPhone Settings → Kinwall → Live Activities (the web app says so in its Notifications section).
         Function("activitiesEnabled") { ActivityAuthorizationInfo().areActivitiesEnabled }
+        Function("pushEnabled") { LiveActivities.pushEnabled }
         /// `shared`: the group the widgets, Watch and Siri read (SharedKeychain.group).
         AsyncFunction("keychainGet") { (service: String, shared: Bool) -> String? in
             var q = Keychain.query(service, shared)

@@ -37,6 +37,22 @@ error ITMS-90626). Describe the behavior in plain words instead. Apple may repor
 validation error by email after a successful upload; confirm the build finishes processing
 in App Store Connect before inviting testers.
 
+Official TestFlight builds now enable `KINWALL_PUSH=1`, `KINWALL_APNS_ENV=production`,
+`KINWALL_TIME_SENSITIVE=1`, and `KINWALL_ASSOCIATED_DOMAINS=1`. The local TestFlight script uses the
+same flags. The plugin sets the matching entitlements and the native capability indicators.
+
+Before uploading, enable Push Notifications, Time Sensitive Notifications, and Associated Domains
+for the app's identifier on team `PPVX64R65G`. Automatic signing must regenerate a profile carrying
+those capabilities. Hosted must run the matching server and controller changes with all four
+`APNS_*` credentials configured. No private APNs key belongs in the app, build artifacts or Git.
+The ordinary push registration is `PUT /api/push/native`; Live Activity tokens use their existing
+endpoint. Verify both independently on a real phone after Apple finishes processing the build.
+
+Associated domains cover hosted `kinwall.family` and its subdomains. Each known family, the apex
+and `app.` serve `/.well-known/apple-app-site-association` directly as JSON. Apple may cache this
+association; installing a build before the hosted response is live can delay links/passkeys.
+Self-hosted sign-in continues through the system authentication sheet.
+
 **Each release**
 
 1. Build and upload: each release runs `.github/workflows/testflight.yml` (from release-please; or

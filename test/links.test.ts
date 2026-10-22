@@ -1,7 +1,19 @@
 // node --test test/ (npm test). The app's family.kinwall.app:/open links: widgets, Live Activities, shares.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { groceriesRoute, routeFor, importContactsScript, meetCall } from '../src/links.ts'
+import { groceriesRoute, routeFor, importContactsScript, meetCall, notificationRoute } from '../src/links.ts'
+
+test('hosted links: only routes on this signed-in family open; other families and sign-in callbacks stay outside', () => {
+  const server = 'https://our-family.kinwall.family'
+  assert.equal(routeFor(`${server}/#/lists?list=l1`, server), 'lists?list=l1')
+  assert.equal(routeFor(`${server}/open?to=chores&done=c1`, server), 'chores?done=c1')
+  for (const u of ['https://other.kinwall.family/#/lists', `${server}/oauth/callback?code=x`, `${server}/#/api/keys`, `http://our-family.kinwall.family/#/home`, 'https://evil.invalid/#/home']) assert.equal(routeFor(u, server), null, u)
+  assert.equal(notificationRoute('/#/medications/sam', server), 'medications/sam')
+  assert.equal(notificationRoute('/chores', server), 'chores')
+  assert.equal(notificationRoute('//evil.invalid/#/home', server), null)
+  assert.equal(notificationRoute('/api/keys', server), null)
+  assert.equal(notificationRoute('/#/lists', server, 'https://other.kinwall.family'), null, 'an old family notification cannot route into a new family')
+})
 
 test('routeFor: tabs and a chore to tick', () => {
   assert.equal(routeFor('family.kinwall.app:/open?to=home'), 'home')

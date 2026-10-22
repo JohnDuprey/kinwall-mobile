@@ -1,5 +1,12 @@
 # Widgets, Apple Watch and Siri: feature ideas
 
+Medication updates from the phone page: after a successful dose save, `doseChanged` carries only
+the dose identifiers and action through the trusted bridge. Taken/Skipped cancel matching pending
+and delivered local alerts, including snoozed copies, before another refresh can requeue the dose.
+The web app updates or ends its medication Live Activity immediately, independently of its short
+confirmation animation. A failed save leaves reminders intact. This needs the updated web app;
+local-alert cancellation also needs an updated mobile build. It does not enable remote APNs push.
+
 A menu for M3 (widgets), M4 (Watch) and M5 (Siri), built on things Kinwall already does. Each idea is tagged:
 
 - **First:** worth doing in the first pass.
@@ -294,3 +301,15 @@ Checked on the Pixel emulator (Android 16): the channels are created (Chores off
 On the iPhone, sign in to your family and choose yourself under **Settings → This device → Whose device is this?**. Return to the iPhone app, then open Kinwall on the Watch. The app replaces an older shared Watch key automatically; the Watch reloads when its new key arrives. The server update must be deployed before installing this app update. Both changes are required for an existing parent’s Watch.
 
 Personal Watch keys stay everyday-access: they can answer their owner’s check-in, not another person’s. Shared widgets keep showing the family. The server invalidates personal derived keys when the parent sign-in changes owners, and revoking the phone sign-in revokes its Watch too. No database migration or reassignment of existing keys is needed.
+
+### Paid-team notification delivery
+
+Official TestFlight/App Store builds now register ordinary APNs alerts as well as Live Activity
+push tokens. Hosted needs the matching server/controller deployment and APNs secrets. Family
+messages, summaries, list updates and other enabled notifications share the browser notification
+preferences in Settings. Event reminders stay local; native registrations disable remote event
+copies. Once APNs registration is confirmed, medicine and chore reminders use the server and their
+old local copies are removed on refresh. Without configured APNs, local scheduling continues.
+Signing out unregisters the token before revoking the sign-in; revoking an OAuth grant also removes
+its subscriptions. Background leave-by/prep activities and ordinary notifications need separate
+real-device checks. Simulator/prebuild success does not prove APNs delivery or passkey support.

@@ -1,8 +1,8 @@
 # Kinwall mobile (iPhone, iPad, Apple Watch and Android): project plan
 
-Open source, not released yet. Nothing here ships to the App Store until there's a paid Apple Developer Program membership; until then the apps run in the Simulator and, signed with a free Apple ID, on our own devices.
+Open source. TestFlight builds are signed with John’s paid team `PPVX64R65G`. Store submission and Apple processing are separate from a successful upload.
 
-**Not enrolled yet.** Builds use a free Apple ID and expire after 7 days. TestFlight (`scripts/testflight.sh`) comes with the paid membership.
+**Paid membership active.** Official TestFlight builds opt into production APNs, Time Sensitive reminders, and hosted Associated Domains. End-to-end delivery and passkeys still require real-device verification after the matching hosted deployment and app install.
 
 **Update 2026-09-27: React Native (Expo), and Android.** The phone and tablet app is now one Expo app for iOS and Android (`src/`), replacing the SwiftUI frame. It does what the Swift frame did: the address screen, OAuth in the system's auth sheet (`expo-web-browser`) or pairing, the web view with the same in-app flags, widget links (`family.kinwall.app:/open?to=…`), local reminders and background refresh, the theme-colored status bar. The iOS widgets, the Watch app, complications and Siri stay Swift on `KinwallKit`, added to the generated Xcode project by `@bacons/apple-targets` and `plugins/withKinwallNative.js`, and still read the widgets' key from the shared Keychain group `family.kinwall.shared`. XcodeGen and `project.yml` are gone. Android gets the same shell, a notification channel for reminders, the back button stepping back through the web app, and a home-screen widget (now and next, chores left). **Wear OS comes later** (M8).
 
@@ -29,19 +29,19 @@ Native apps for the family who already use Kinwall. On iPhone and iPad the app s
 
 **Design consequences:**
 
-- **Signing in:** the app uses Kinwall's existing TV-style pairing. It shows a 6-digit code, and an admin approves it under **Settings → Access → Displays**. The app gets its own display key, stored in the Keychain. No passkeys yet, since they need Associated Domains.
+- **Signing in:** the app uses Kinwall's existing TV-style pairing. It shows a 6-digit code, and an admin approves it under **Settings → Access → Displays**. The app gets its own display key, stored in the Keychain. Hosted passkeys are enabled by release Associated Domains; system-browser OAuth sign-in works for self-hosted domains too.
 - **Widgets:** each widget fetches its own data with the same key. Sharing the key between the app and its widget needs a shared Keychain access group. Whether a Personal Team allows that is **to be verified in M3**. If it doesn't, the widget pairs separately.
 - **Freshness:** without push, the apps poll `GET /api/rev` (as the web app does, every 30 s while open) and use background app refresh and WidgetKit timelines. Real-time push waits for the paid membership (M6).
 
-## Signing in, and why not passkeys
+## Signing in and passkeys
 
 Passkeys are tied to a website's domain. Inside an app's web view they only work for domains the app declares ahead of time through Associated Domains. That needs the paid membership, and even then it can only cover domains we know in advance, like `*.kinwall.family`. A self-hosted server on its own domain can never be listed. So:
 
 - **Sign in (built):** the app opens the server's OAuth consent screen in a Safari sheet (`ASWebAuthenticationSession`). That's Safari's own context, so a passkey works on any domain, self-hosted included. The admin picks full or everyday access, and the app receives a code on its `family.kinwall.app:/oauth` link and swaps it for keys. Access keys last an hour and the app refreshes them ahead of time; refresh tokens last 90 days and rotate. The app shows under Settings → Access → Connected apps, and **Sign out** revokes it. No paid membership needed.
 - **Connecting Google or Microsoft (built 2026-10-02, needs the matching kinwall server):** **Connect Google** / **Connect Outlook** (and Google Photos) start in the web view, which gets the sign-in's cookie, and the provider's page opens in the in-app browser, which has its own cookies. The server's callback there offers **Open in the Kinwall app**, a `family.kinwall.app:/provider-return?kind=…&state=…&code=…` link (a path apart from `/oauth`, since Android's auth session matches by prefix). The app checks it (`src/providerReturn.ts`: kind `google` or `microsoft`, a plain state and code of bounded length), closes the in-app browser on iOS, and loads `<its own server>/api/oauth/<kind>/callback?code&state` in the web view, where the cookie is. The host never comes from the link. Signed out or in the demo the link is dropped. The page sees `window.kinwallNative.providerReturn` and asks older apps to update first. Checked with unit tests; not yet on a device.
 - **Pair with a code (built, the fallback):** for a child's phone or a wall iPad. The app shows a code and an admin approves it.
-- **Admin steps that ask for the passkey again** (calendar accounts, API keys, webhooks) still happen in Safari: the web view itself can't use passkeys.
-- **Hosted, with the paid membership:** Associated Domains for `*.kinwall.family` could also make passkeys work directly in the app's web view.
+- **Admin steps that ask for the passkey again** can use hosted passkeys in an associated web view. Self-hosted servers retain the system-browser sign-in flow; arbitrary self-hosted domains cannot be bundled into the official app’s entitlements.
+- **Hosted:** official release builds declare Associated Domains for `kinwall.family` and its subdomains; hosted serves the matching association JSON. This permits passkeys in the web view, including parent reauthentication. Verify the association and the passkey ceremony on a real signed device.
 
 ## No passkey yet (built)
 
@@ -77,7 +77,7 @@ Passkeys are tied to a website's domain. Inside an app's web view they only work
 - **Only the server's own pages are trusted** (`src/bridge.ts`, since 2026-09-30). A page stays in the app, and gets the sign-in key, only when its origin (scheme, host and port) is exactly the server's: an `http://` page on the same host opens outside and never gets the key. Messages from the page reach the native side only with a random nonce made at each launch, which lives in the bridge script injected into the main frame alone; messages from other frames (an activity plugin's, on Android) or from a `/plugins/` page are dropped. The nonce is added by the app's own shim of `webkit.messageHandlers.kinwall`, so the web app needs no change and older servers keep working.
 - Links to other sites open in Safari. Photo uploads and the file picker work, and so do downloads (the photo zip).
 - **Web app changes** (in the `kinwall` repo): detect the frame (a user-agent suffix, or a flag the frame sets), then hide the Add to Home Screen card, the web push settings and **Clear cache and reload**.
-- **Notifications:** the frame can't receive web push, since Apple only allows it for Home Screen web apps. Until M6, the Notifications card says so and points to the bell feed.
+- **Notifications:** the frame can't receive web push, since Apple only allows it for Home Screen web apps. The app registers native APNs alerts separately and exposes their preferences here; Android and older builds retain local reminders and the bell feed.
 
 ### M2: iPad wall mode
 - Keep the screen awake while the app is open, plus a Guided Access how-to for a kiosk-style wall. Everything else already lives in the web app: the Board, the idle reset, quiet hours and the screensaver.
@@ -97,11 +97,11 @@ The feature menu for M3 to M5 is in [WIDGETS-AND-WATCH.md](WIDGETS-AND-WATCH.md)
 - "Add milk to Groceries", "What's next?", "Mark Take out trash done", "How many points does Maya have?"
 - Spotlight for lists and chores
 
-### M6: When there's a paid membership (not enrolled yet)
-- **Live Activities while the app is closed** (built behind configuration, off until then): see [Turning on Live Activity push](#turning-on-live-activity-push)
-- **APNs push:** the server gains an APNs sender beside web push, using the same notification preferences
+### M6: Paid membership capabilities
+- **Live Activities while the app is closed** (enabled by release configuration; verify on device): see [Turning on Live Activity push](#turning-on-live-activity-push)
+- **APNs push:** native alerts share the server’s notification sender, targeting and preferences
 - **Time Sensitive reminders:** prebuild with `KINWALL_PUSH=1` (or `KINWALL_TIME_SENSITIVE=1`), which adds the entitlement; leave-by and medicine reminders then break through a Focus (docs/WIDGETS-AND-WATCH.md, Reminders with buttons)
-- **App Groups** for the app and widgets (retire any workaround from M3)
+- **Shared extensions:** retain the existing shared Keychain access group; no App Groups migration is needed
 - **Passkeys and universal links** (Associated Domains on `kinwall.family`)
 - TestFlight for the family, then an App Store listing: privacy manifest, screenshots, review notes (demo server)
 
@@ -152,16 +152,16 @@ purpose-limited use; confirm the free team can use HealthKit before building.
 
 Three Live Activities: a cooking timer, a shopping trip (with **Got it** and **Open**) and the next leave-by or start-prep time. See [WIDGETS-AND-WATCH.md](WIDGETS-AND-WATCH.md#live-activities). Everything the app starts itself works on a free Personal Team: ActivityKit and interactive App Intents need no capability, and **Got it** ticks the item with the widgets' key from the shared Keychain group, so it needs no App Group. The deployment target is iOS 17, so the < 16.1 and < 17 cases can't occur; push-to-start is checked for iOS 17.2.
 
-What waits for the paid membership is Apple push: starting the leave-by activity while the app is closed, and ending it on time. The code is in place and off:
+Release builds now enable Apple push for starting a leave-by activity while the app is closed and ending it on time. Matching server credentials, notification permission and transition settings are required:
 
 - **App:** `KINWALL_PUSH=1` at prebuild keeps the `aps-environment` entitlement (otherwise removed, since a Personal Team can't sign it) and sets `KinwallPush` in Info.plist. Only then does the app ask for its push-to-start token and each leave-by activity's update token, and send them to the server (`PUT /api/live-activities/tokens` with the page's key; never in the demo, and the push-to-start token only while the phone's person has transition reminders on and notifications are allowed).
 - **Server:** does nothing until `APNS_*` is set (kinwall `docs/self-hosting/configuration.md`).
 
 ### Turning on Live Activity push
 
-1. Enroll, and in **Certificates, Identifiers & Profiles** give the App ID `family.kinwall.app` the **Push Notifications** capability.
+1. With the paid membership active, in **Certificates, Identifiers & Profiles** give the App ID `family.kinwall.app` the **Push Notifications** capability.
 2. Under **Keys**, create a key with **Apple Push Notifications service (APNs)**. Download the `.p8` (once), and note its Key ID and the Team ID.
-3. Build with `KINWALL_PUSH=1 CI=1 npx expo prebuild --clean`, signed with the paid team. For TestFlight and the App Store, `aps-environment` must be `production` (expo-notifications writes `development`; set it in `withLocalOnly` for release builds).
+3. Build with `KINWALL_PUSH=1 KINWALL_APNS_ENV=production KINWALL_ASSOCIATED_DOMAINS=1 CI=1 npx expo prebuild --clean`, signed with the paid team. Both TestFlight entry points already supply these flags; the plugin sets `aps-environment` to `production`. Xcode-installed development builds use the default `development` value and server sandbox configuration.
 4. On the Kinwall server: `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_KEY` (the `.p8` contents, a secret), `APNS_BUNDLE_ID=family.kinwall.app`, and `APNS_SANDBOX=1` while testing builds installed from Xcode.
 5. Hosted (Cloudflare Workers): nothing extra. A deployed Worker reaches APNs with a plain `fetch` (Cloudflare's edge speaks HTTP/2 to Apple); local `wrangler dev` on macOS can't, so test on a deployed Worker. Docker and Node use Node's HTTP/2 client. `APNS_SEND` (a relay) is only an optional override.
 7. Self-hosted servers: only the publisher's key can sign pushes for the official Kinwall app, so a self-hosted server can't push to it with its own key. Plan (not built): a push gateway at push.kinwall.family, itself a Worker, that relays Live Activity pushes for self-hosted servers. Until then, on self-hosted, the app starts leave-by activities only while it's open.
@@ -232,7 +232,7 @@ None is needed for M0 to M5; everything above uses existing endpoints. Nice-to-h
 - [ ] **Sign in with Apple (4.8)** only if a third-party account login (for example "Sign in with Google") is ever added. Calendar sync with Google doesn't count.
 - [ ] **Only documented APIs.** The share extension imports inside the sheet (no opening the app through the responder chain).
 - [ ] **Screenshots.** Generated from the demo in the Simulator (2026-09-29): 6.9" iPhone (1320 × 2868), 6.5" iPhone (1284 × 2778), 13" iPad (2064 × 2752) and Apple Watch (416 × 496), kept outside the repo. Retake them before submitting if the web app's look changes.
-- [ ] **Apple Developer Program** membership (M6). A Personal Team can't submit.
+- [x] **Apple Developer Program** membership (M6), team `PPVX64R65G`.
 - [ ] **Live Activities and push.** Push-based Live Activities aren't needed for review: the cooking timer, shopping trip and open-app leave-by work without them. Only builds that use Apple push get the entitlement (`KINWALL_PUSH=1` at prebuild), and the listing, screenshots and review notes don't promise closed-app countdowns until push is live.
 
 ## Risks
@@ -243,3 +243,22 @@ None is needed for M0 to M5; everything above uses existing endpoints. Nice-to-h
 - **Widget and app key sharing** may not work on a Personal Team (see M3).
 - **Polling costs battery** if overdone. Poll `rev` only while the app is in the foreground, and rely on timelines otherwise.
 - **API drift:** KinwallKit decodes only the fields it uses. The live test catches renamed or reshaped fields, which is how M0 caught `GET /api/lists/{id}` wrapping the list in `list`.
+
+## Paid capabilities enabled in release builds
+
+- Native alerts register a device APNs token with the current family after notification permission.
+  OAuth registrations belong to the stable grant, so hourly access-key rotation preserves them;
+  revocation removes them. Tokens stay encrypted on the server and never enter the page bridge.
+- Native alerts use the same family targeting, preferences, feature switches and quiet-hours rules
+  as browser notifications. Medicine names remain off unless explicitly enabled for notifications.
+  APNs alerts expire immediately if undeliverable, avoiding a delayed offline reminder backlog.
+- Local event reminders remain enabled and remote event copies are disabled for native registrations.
+  After confirmed APNs registration, local medicine/chore scheduling stops to avoid duplicate alerts;
+  it remains the fallback on hosts without APNs. Native alerts open their family’s own page on tap.
+- Background leave-by/prep Live Activities use the existing push-to-start/update token path.
+  The Time Sensitive entitlement applies to urgent local reminders and medicine pushes. A user’s
+  notification permissions and Focus settings still govern presentation.
+- Hosted universal links open explicit `/open` and `/#/…` app links only for the currently selected
+  family. OAuth callback and other families’ URLs cannot replace the app’s server or sign-in.
+- App Groups, iCloud and Sign in with Apple are not new integrations in this change. Shared
+  extensions continue using the existing shared Keychain access group.
