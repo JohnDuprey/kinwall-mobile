@@ -6,7 +6,10 @@ import { Platform, Settings } from 'react-native'
 import KinwallNative from '../modules/kinwall-native'
 import { type Connection, type EventInstance, choresOn, events, me, medicationDay } from './api'
 import { choreNudge, doseReminders, focusTag, localAt, shouldAskNotifications } from './reminderPlans'
-import { widgetConnection } from './sharedKey'
+import { pairedConnection, widgetConnection } from './sharedKey'
+import { reminderConnection } from './reminderConnection'
+import { loadServer } from './server'
+import { loadTokens } from './oauth'
 import { endStaleActivities, scheduleLeaveBy } from './liveActivities'
 import type { LeaveByEvent } from './leaveBy'
 import { DoseReminderState, parseDoseChange } from './doseReminders'
@@ -93,8 +96,14 @@ type Planned = { fire: number; request: Notifications.NotificationRequestInput }
 export async function refreshReminders(): Promise<void> {
   const doseRevision = doseState.revision
   const { granted } = await Notifications.getPermissionsAsync()
-  const connection = await widgetConnection()
-  if (!granted || !connection) return
+  if (!granted) return
+  const connection = await reminderConnection(await loadServer(), {
+    loadTokens,
+    freshTokens: async tokens => (await import('./session')).freshTokens(tokens),
+    paired: pairedConnection,
+    widgets: widgetConnection,
+  })
+  if (!connection) return
   const now = Date.now()
   // ponytail: fetch failure keeps the reminders already scheduled; they may be stale until the next refresh.
   const list = await events(connection, new Date(now - 3600_000), new Date(now + HORIZON)).catch(() => null)

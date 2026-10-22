@@ -25,6 +25,7 @@ const save = (s: Store, c: Connection | null) =>
     : c ? SecureStore.setItemAsync('household', JSON.stringify(c), secure(s)) : SecureStore.deleteItemAsync('household', secure(s))
 
 export const widgetConnection = () => load(WIDGETS)
+export const pairedConnection = () => load({ service: 'family.kinwall.share', shared: true })
 
 /** iOS: a paired device's own sign-in, for the share extension to import a recipe with (an OAuth
  * sign-in shares its tokens instead, src/oauth.ts). Null clears it. */

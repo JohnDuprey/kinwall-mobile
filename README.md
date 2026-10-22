@@ -55,8 +55,10 @@ a credential scoped to that phone token, server origin and push type. Credential
 device storage, renew during refresh, and are revoked on sign-out. Hosted instances keep direct
 APNs delivery. Configure `PUBLIC_URL` on a self-hosted server to match the address used in the app.
 Builds without App Attest keep local medicine reminders; gateway expiry permits local scheduling
-again at the next refresh. The gateway and Apple can read push text; medicine names stay off unless
-enabled for that device. Opening a notification still requires access to the family's server.
+again at the next refresh. Local reminders use the phone's signed-in person, including a parent's
+personal medicine schedule; the widgets keep their shared family access. The gateway and Apple
+can read push text; medicine names stay off unless enabled for that device. Opening a notification
+still requires access to the family's server.
 
 On iPhone, reminders have buttons that work without opening the app: **Snooze** and **Open** on event reminders, **Taken** and **Snooze** on medicine reminders (a person's own iPhone), and **Done** on the chore nudge (off until turned on in iPhone Settings → Kinwall). A **Kinwall Focus filter** (Settings → Focus) can quiet other people's reminders and hide the health widgets. Leave-by and medicine reminders break through a Focus only in a build prebuilt with `KINWALL_TIME_SENSITIVE=1` (or `KINWALL_PUSH=1`), since a free Apple ID can't sign that entitlement. See [docs/WIDGETS-AND-WATCH.md](docs/WIDGETS-AND-WATCH.md#status).
 
