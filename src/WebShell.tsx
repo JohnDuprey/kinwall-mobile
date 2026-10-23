@@ -27,6 +27,8 @@ import { importContactsScript, meetCall } from './links'
 import { barcodeScript, scanFacing } from './barcode'
 import { Scanner } from './Scanner'
 import { createLoadRecovery, createPageProbe } from './loadRecovery'
+import { refreshRoutine, setRoutineConnection, setupRoutine, syncRoutine } from './routineController'
+import { routineRequest } from './routineMode'
 import { readStatusBarHidden, saveStatusBarHidden, statusBarMessage, statusBarScript, statusBarSurface } from './statusBar'
 
 // Web pages open in an in-app browser: handing them to the system lets another app claim the link
@@ -112,6 +114,12 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   const pending = useRef<string | null>(null)
   const canGoBack = useRef(false)
   const origin = new URL(url).origin
+  useEffect(() => {
+    setRoutineConnection(null, session.mode === 'demo')
+    const timer = setInterval(() => { if (AppState.currentState === 'active') refreshRoutine() }, 15000)
+    const sub = AppState.addEventListener('change', s => { if (s === 'active') refreshRoutine() })
+    return () => { clearInterval(timer); sub.remove(); setRoutineConnection(null) }
+  }, [url, session.mode])
   const token = session.mode === 'oauth' ? session.tokens.accessToken : null
   useEffect(() => {
     web.current?.injectJavaScript(`if (location.origin === ${JSON.stringify(origin)}) { ${statusBarScript(statusBarHidden)} } true;`)
@@ -294,6 +302,15 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
     if (!m || (m.type === 'alive' && !pageProbe.answer(m.probe))) return
     here.current = e.nativeEvent.url
     switch (m.type) {
+      case 'routineMode': {
+        const request = routineRequest(m)
+        if (!request) break
+        let status: unknown
+        try { status = request.action === 'setup' ? await setupRoutine(request.memberId) : await syncRoutine(request.memberId, m.payload) }
+        catch (e) { status = { error: e instanceof Error ? e.message : String(e) } }
+        web.current?.injectJavaScript(`window.dispatchEvent(new CustomEvent('kinwall:routine', { detail: ${JSON.stringify(status)} })); true;`)
+        break
+      }
       case 'alive': // probe(): a page that drew nothing gets two fresh starts, then the error screen
         if (!m.blank) { blankRestarts.current = 0; loadRecovery.loaded() }
         else if (blankRestarts.current++ < 2) restart()
@@ -375,6 +392,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
         await refreshReminders()
         break
       case 'key':
+        if (session.mode !== 'demo' && m.key) { setRoutineConnection({ baseURL: url, key: m.key }); refreshRoutine() }
         if (!m.key || session.mode === 'demo') return // the demo's sample key never reaches the widgets, Watch or reminders
         if (synced.current === `${url} ${m.key}`) { await syncNativePush().catch(() => {}); return }
         synced.current = `${url} ${m.key}`

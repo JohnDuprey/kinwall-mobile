@@ -134,3 +134,8 @@ it), account deletion info (in iPhone Settings → Kinwall), no purchases or pri
 
 - Unsigned iOS and debug-signed Android builds on GitHub Releases, for testers and self-hosters.
   The debug-signed APK can't update a Play Store install, and the reverse.
+
+Pairing QR links (`https://<family>.kinwall.family/#/pair?code=<six digits>`) must open the
+connected family’s approval page in the app. Test both a cold launch and an already-running app.
+Links for other families and malformed or duplicate codes are ignored. Opening the page never
+approves a pairing; parent authentication and confirmation remain required.

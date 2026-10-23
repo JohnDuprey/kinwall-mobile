@@ -14,6 +14,9 @@ public class KinwallNativeModule: Module {
 
     public func definition() -> ModuleDefinition {
         Name("KinwallNative")
+        AsyncFunction("routineStatus") { await RoutineMode.status() }
+        AsyncFunction("routineSetup") { (memberId: String, appMode: String, websiteList: Bool) in try await RoutineMode.setup(memberId: memberId, appMode: appMode, websiteList: websiteList) }
+        AsyncFunction("routineApply") { (json: String) in try await RoutineMode.apply(json: json) }
         Events("watchStateChanged", "activityToken", "link")
         OnCreate {
             NotificationCenter.default.addObserver(forName: PendingLink.posted, object: nil, queue: .main) { [weak self] _ in self?.sendEvent("link") }

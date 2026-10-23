@@ -53,6 +53,9 @@ export default function App() {
   // iOS can start the app in the background then (its reminder refresh), and the first read failing
   // left a blank screen until the app was closed. So a failed read tries again when it's opened.
   useEffect(() => {
+    if (__DEV__ && process.env.EXPO_PUBLIC_ROUTINE_PREVIEW === '1') {
+      setSession({ mode: 'demo' }); setServer(DEMO_URL); setRoute('routine'); hideSplash(); return
+    }
     leaveDemo()
     let done = false
     const load = () => { if (!done) loadServer().then(async (s) => { const ses = s ? await launchSession(s) : null; done = true; setSession(ses); setServer(s) }).catch(() => {}) }

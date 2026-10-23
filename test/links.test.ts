@@ -95,3 +95,23 @@ test('routeFor: what the share sheet or Add to Kinwall added opens at its route'
   assert.equal(routeFor(`family.kinwall.app:/open?to=shared&link=${encodeURIComponent('javascript:alert(1)//#/calendar')}`), null)
   assert.equal(routeFor('family.kinwall.app:/open?to=shared'), null)
 })
+
+test('routine mode: opens only its own route', () => {
+  assert.equal(routeFor('family.kinwall.app:/open?to=routine'), 'routine')
+  assert.equal(routeFor('family.kinwall.app:/open?to=routine%2F..%2Fsettings'), null)
+})
+
+test('pairing approval: opens the current family’s six-digit QR code without approving it', () => {
+  const server = 'https://our-family.kinwall.family'
+  assert.equal(routeFor(`${server}/#/pair?code=123456`, server), 'pair?code=123456')
+  assert.equal(routeFor('family.kinwall.app:/open?to=pair&code=123456', server), 'pair?code=123456')
+  for (const code of ['12345', '1234567', 'ABCDEF', '123456&owner=maya', '123456#x']) {
+    assert.equal(routeFor(`${server}/#/pair?code=${encodeURIComponent(code)}`, server), null, code)
+  }
+  assert.equal(routeFor('https://other.kinwall.family/#/pair?code=123456', server), null)
+  assert.equal(routeFor(`${server}/#/pair?code=123456&owner=maya`, server), 'pair?code=123456')
+  assert.equal(routeFor(`${server}/#/pair?code=123456&code=654321`, server), null)
+  assert.equal(routeFor(`${server}/#/pair?code=123456?extra`, server), null)
+  assert.equal(routeFor(`${server}/open?to=pair&code=123456`, server), 'pair?code=123456')
+  assert.equal(routeFor('family.kinwall.app:/open?to=pair&code=123456'), null)
+})

@@ -9,7 +9,7 @@ Pod::Spec.new do |s|
   s.source         = { git: '' }
   s.static_framework = true
   s.dependency 'ExpoModulesCore'
-  s.frameworks = 'WidgetKit', 'WatchConnectivity', 'ActivityKit', 'CoreSpotlight', 'DeviceCheck', 'CryptoKit'
+  s.frameworks = 'WidgetKit', 'WatchConnectivity', 'ActivityKit', 'CoreSpotlight', 'DeviceCheck', 'CryptoKit', 'FamilyControls', 'ManagedSettings', 'DeviceActivity'
   s.weak_frameworks = 'AlarmKit' # iOS 26 and later; the deployment target is 17
   s.source_files = '**/*.swift'
 end

@@ -11,7 +11,7 @@ export function routeFor(link: string, server?: string | null): string | null {
     try {
       const u = new URL(link), own = new URL(server)
       if (u.origin !== own.origin || u.username || u.password || !u.hostname.endsWith('.kinwall.family')) return null
-      if (u.pathname === '/open') return routeFor(`family.kinwall.app:/open?${u.searchParams}`)
+      if (u.pathname === '/open') return routeFor(`family.kinwall.app:/open?${u.searchParams}`, server)
       return u.pathname === '/' ? notificationRoute(link, server) : null
     } catch { return null }
   }
@@ -38,6 +38,8 @@ export function routeFor(link: string, server?: string | null): string | null {
   }
   // The check-in widget's "Goal for today?": their check-in on Home (the web app opens it once it reads #/home?checkin=).
   if (to === 'checkin') { const m = id(q.get('member')); return m ? `home?checkin=${m}` : 'home' }
+  if (to === 'pair') return server ? pairingRoute(q) : null
+  if (to === 'routine') return 'routine'
   if (to === 'night') return 'night' // the night screen (WebShell sends the 🌙 button's event)
   // Android's shortcuts and Quick Settings tiles, which can't know the list's id: App.tsx looks up
   // Groceries (groceriesRoute) before the page opens it.
@@ -63,6 +65,7 @@ export function notificationRoute(link: string, server: string, source?: string)
     if (u.origin !== own.origin || u.username || u.password) return null
     const route = u.hash.startsWith('#/') ? u.hash.slice(2) : u.pathname.slice(1) + u.search
     if (!route) return 'home'
+    if (route.startsWith('pair?')) return pairingRoute(new URLSearchParams(route.slice(5)))
     return /^(?:home|calendar|chores|lists|meals|medications|contacts|trackers|settings|outings|rewards|polls|insights|newscast)(?:[/?]|$)/.test(route) ? route : null
   } catch { return null }
 }
@@ -92,4 +95,10 @@ export function importContactsScript(vcard: string | null | undefined): string {
 export function meetCall(url: string): string | null {
   const m = /^intent:tel:(\+?[0-9]{7,15})#Intent;action=com\.google\.android\.apps\.tachyon\.action\.CALL;package=com\.google\.android\.apps\.tachyon;end$/.exec(url)
   return m?.[1] ?? null
+}
+
+/** Opens approval only. The web screen still requires parent access and an explicit confirmation. */
+function pairingRoute(query: URLSearchParams): string | null {
+  const codes = query.getAll('code')
+  return codes.length === 1 && /^\d{6}$/.test(codes[0]) ? `pair?code=${codes[0]}` : null
 }

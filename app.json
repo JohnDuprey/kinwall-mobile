@@ -41,6 +41,10 @@
       "entitlements": {
         "keychain-access-groups": [
           "$(AppIdentifierPrefix)family.kinwall.shared"
+        ],
+        "com.apple.developer.family-controls": true,
+        "com.apple.security.application-groups": [
+          "group.family.kinwall.routine"
         ]
       },
       "privacyManifests": {
