@@ -27,7 +27,7 @@ import { importContactsScript, meetCall } from './links'
 import { barcodeScript, scanFacing } from './barcode'
 import { Scanner } from './Scanner'
 import { createLoadRecovery, createPageProbe } from './loadRecovery'
-import { refreshRoutine, setRoutineConnection, setupRoutine, syncRoutine } from './routineController'
+import { authorizeRoutine, refreshRoutine, setRoutineConnection, setupRoutine, syncRoutine } from './routineController'
 import { routineRequest } from './routineMode'
 import { readStatusBarHidden, saveStatusBarHidden, statusBarMessage, statusBarScript, statusBarSurface } from './statusBar'
 
@@ -58,7 +58,7 @@ const NONCE = Array.from(Crypto.getRandomValues(new Uint8Array(16)), (b) => b.to
  * the page's first frame ("Loading…") is already in them; the page's own theme takes over once
  * its settings load (web/src/useTheme.ts). */
 const bridge = (origin: string, token: string | null, frame: (Surface & { dark: boolean }) | null, push: boolean, statusBarHidden: boolean) => `
-window.kinwallNative = { platform: ${JSON.stringify(Platform.OS)}, version: ${JSON.stringify(VERSION)}, providerReturn: true, nativePush: ${JSON.stringify(push)}, liveActivities: ${JSON.stringify(activitiesEnabled())}, notificationSettings: ${JSON.stringify(Platform.OS === 'android')}, quickSettingsTiles: ${JSON.stringify(Platform.OS === 'android' && Number(Platform.Version) >= 33)}, videoCall: ${JSON.stringify(Platform.OS === 'android')}, barcodeScanner: true, speech: true, statusBar: true, statusBarHidden: ${JSON.stringify(statusBarHidden)} };
+window.kinwallNative = { routineModeVersion: ${KinwallNative?.routineChoose ? 2 : 1}, platform: ${JSON.stringify(Platform.OS)}, version: ${JSON.stringify(VERSION)}, providerReturn: true, nativePush: ${JSON.stringify(push)}, liveActivities: ${JSON.stringify(activitiesEnabled())}, notificationSettings: ${JSON.stringify(Platform.OS === 'android')}, quickSettingsTiles: ${JSON.stringify(Platform.OS === 'android' && Number(Platform.Version) >= 33)}, videoCall: ${JSON.stringify(Platform.OS === 'android')}, barcodeScanner: true, speech: true, statusBar: true, statusBarHidden: ${JSON.stringify(statusBarHidden)} };
 ${token ? `if (location.origin === ${JSON.stringify(origin)}) try { localStorage.setItem('kinwall.apiKey', ${JSON.stringify(token)}) } catch (e) {}` : ''}
 ${frame ? `try { var r = document.documentElement; r.setAttribute('data-theme', ${JSON.stringify(frame.dark ? 'dark' : 'light')}); r.style.setProperty('--bg', ${JSON.stringify(frame.bg)}); r.style.setProperty('--card', ${JSON.stringify(frame.card)}) } catch (e) {}` : ''}
 (function () {
@@ -306,9 +306,9 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
         const request = routineRequest(m)
         if (!request) break
         let status: unknown
-        try { status = request.action === 'setup' ? await setupRoutine(request.memberId) : await syncRoutine(request.memberId, m.payload) }
+        try { status = request.action === 'setup' || request.action === 'chooseApps' ? await setupRoutine(request.memberId, m.payload) : request.action === 'authorize' ? await authorizeRoutine(request.memberId) : await syncRoutine(request.memberId, m.payload) }
         catch (e) { status = { error: e instanceof Error ? e.message : String(e) } }
-        web.current?.injectJavaScript(`window.dispatchEvent(new CustomEvent('kinwall:routine', { detail: ${JSON.stringify(status)} })); true;`)
+        web.current?.injectJavaScript(`window.dispatchEvent(new CustomEvent('kinwall:routine', { detail: ${JSON.stringify({ ...(status as object), memberId: request.memberId, action: request.action })} })); true;`)
         break
       }
       case 'alive': // probe(): a page that drew nothing gets two fresh starts, then the error screen

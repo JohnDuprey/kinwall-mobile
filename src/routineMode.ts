@@ -11,9 +11,9 @@ export function routineDecision(value: unknown, now = Date.now()): RoutineDecisi
   if (typeof allowedWebsitesOnly !== 'boolean' || !Array.isArray(domains) || domains.length > 40 || !domains.every(d => typeof d === 'string' && d.length <= 253 && /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]+$/.test(d)) || (allowedWebsitesOnly && !domains.length)) return null
   return { appMode, allowedWebsitesOnly, allowedWebDomains: domains as string[], enabled: s.enabled, locked: s.enabled && (s.locked || until <= now), validUntil: s.validUntil, checkedAt: s.checkedAt }
 }
-export function routineRequest(value: unknown): { action: 'setup' | 'sync'; memberId: string } | null {
+export function routineRequest(value: unknown): { action: 'setup' | 'sync' | 'chooseApps' | 'authorize'; memberId: string } | null {
   if (!value || typeof value !== 'object') return null
   const m = value as Record<string, unknown>
-  if ((m.action !== 'setup' && m.action !== 'sync') || typeof m.memberId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(m.memberId)) return null
+  if ((m.action !== 'setup' && m.action !== 'sync' && m.action !== 'chooseApps' && m.action !== 'authorize') || typeof m.memberId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(m.memberId)) return null
   return { action: m.action, memberId: m.memberId }
 }

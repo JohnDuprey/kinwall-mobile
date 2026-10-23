@@ -38,16 +38,30 @@ screen directly. Release builds ignore both preview environment variables.
 
 In **Settings → Family → Routine mode**, Choose apps opens a native sheet with sample Games/Videos switches in the simulator. Completing
 Maya's sample chores changes the preview from paused to available. Set a past cutoff and save to
-try bedtime; turn the agreement off to try the parent release. The simulator never claims to
+try bedtime; turn routine mode off to try the parent release. The simulator never claims to
 shield actual installed apps. Demo state resets on reload.
 
 ## Physical devices
 
-The existing app minimum remains iOS/iPadOS 17. The app requests `.child` authorization, not
-revocable individual self-control authorization. Parent Kinwall access is verified against the
-server before the native picker can open. Temporarily sign into Kinwall with parent access on the
-child's device, open Settings → Family → Routine mode and select their apps, then sign out and pair to that child. A previously configured
-selection is bound to its child; another child's pairing cannot reuse it.
+The existing app minimum remains iOS/iPadOS 17. Pair the child's device first, then open
+**Chores → Free time → Approve Screen Time with a grown-up**. This requests `.child`
+authorization on that child's device, using the child or teen Apple Account in Family Sharing.
+It does not use individual self-control authorization.
+
+On the parent's phone in the same Apple Family Sharing group, choose that child in
+**Settings → Family → Routine mode** and tap **Choose apps for [child]**. The guardian picker
+opens without requesting `.child` authorization on the parent's device and never applies
+restrictions there. Apple may show apps from multiple authorized children; Kinwall sends the
+saved opaque choices only to the selected child.
+
+Native code fetches and saves opaque Codable selections directly through `/api/routine-mode/:id/apps`.
+The server encrypts them at rest and enforces parent-only writes and own-child reads. No opaque
+selection reaches WebView or MCP. Optimistic revisions prevent one parent's old picker from
+overwriting newer choices. Child devices import the choices, apply the server decision, and
+report the applied revision through `/device`; Settings reads metadata only from `/devices`.
+Parents cannot forge child acknowledgments. Reauthorization to a different child or server clears
+the old local selection before binding the device again. Open Kinwall on the child device to
+receive changes; background delivery is not implemented yet.
 
 The app and `family.kinwall.app.routine-monitor` need the Family Controls entitlement, and both
 use App Group `group.family.kinwall.routine`. Request Apple's distribution permission for the
@@ -96,5 +110,6 @@ The per-child `appMode` is `selected` (apps and/or categories) or `all`. All mod
 allowances also override selected categories and individual apps. Apple exempts Kinwall from
 all mode. Safari must be selected explicitly in **Keep available** on hardware; its token cannot
 be generated from the bundle identifier. With the website allowlist on, the simulator preview
-keeps its sample Safari available and explains this setup requirement. App-token syncing between
-parent and child devices remains unimplemented.
+keeps its sample Safari available and explains this setup requirement. Simulator selection packets
+are marked as previews and rejected by physical devices. Simulator choices are stored per child
+in the preview session and never uploaded to a real family.

@@ -15,6 +15,9 @@ public class KinwallNativeModule: Module {
     public func definition() -> ModuleDefinition {
         Name("KinwallNative")
         AsyncFunction("routineStatus") { await RoutineMode.status() }
+        AsyncFunction("routineAuthorize") { (memberId: String, server: String) in try await RoutineMode.authorize(memberId: memberId, server: server) }
+        AsyncFunction("routineChoose") { (memberId: String, appMode: String, websiteList: Bool, encoded: String?) in try await RoutineMode.choose(memberId: memberId, appMode: appMode, websiteList: websiteList, encoded: encoded) }
+        AsyncFunction("routineImportSelection") { (memberId: String, server: String, encoded: String, revision: Int) in try await RoutineMode.importSelection(memberId: memberId, server: server, encoded: encoded, revision: revision) }
         AsyncFunction("routineSetup") { (memberId: String, appMode: String, websiteList: Bool) in try await RoutineMode.setup(memberId: memberId, appMode: appMode, websiteList: websiteList) }
         AsyncFunction("routineApply") { (json: String) in try await RoutineMode.apply(json: json) }
         Events("watchStateChanged", "activityToken", "link")

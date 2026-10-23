@@ -18,7 +18,85 @@ import UIKit
                 "appMode": RoutineEnforcement.defaults.string(forKey: "appMode") ?? "selected",
                 "selected": simulator ? RoutineEnforcement.defaults.integer(forKey: "previewCount") : selection.applicationTokens.count + selection.categoryTokens.count + selection.webDomainTokens.count,
                 "allowedApps": simulator ? RoutineEnforcement.defaults.integer(forKey: "previewAllowedCount") : RoutineEnforcement.allowedSelection.applicationTokens.count, "allowedWebsitesOnly": RoutineEnforcement.defaults.bool(forKey: "allowedWebsitesOnly"),
-                "locked": RoutineEnforcement.defaults.bool(forKey: "locked"), "memberId": RoutineEnforcement.defaults.string(forKey: "memberId") ?? ""]
+                "locked": RoutineEnforcement.defaults.bool(forKey: "locked"), "memberId": RoutineEnforcement.defaults.string(forKey: "memberId") ?? "",
+                "server": RoutineEnforcement.defaults.string(forKey: "server") ?? "",
+                "appliedRevision": RoutineEnforcement.defaults.integer(forKey: "selectionRevision"),
+                "hasAppChoices": RoutineEnforcement.defaults.object(forKey: "previewCount") != nil || RoutineEnforcement.defaults.integer(forKey: "selectionRevision") > 0,
+                "remoteSelection": true]
+    }
+    // Child authorization and guardian app selection are separate Apple flows. A guardian's
+    // picker lists authorized child devices in their Family Sharing group without requesting
+    // .child authorization on the guardian's own phone.
+    static func authorize(memberId: String, server: String) async throws -> [String: Any] {
+        if !simulator { try await AuthorizationCenter.shared.requestAuthorization(for: .child) }
+        if RoutineEnforcement.defaults.string(forKey: "memberId") != memberId || RoutineEnforcement.defaults.string(forKey: "server") != server {
+            for key in ["selectionRevision", "selection", "allowedSelection", "previewCount", "previewAllowedCount"] { RoutineEnforcement.defaults.removeObject(forKey: key) }
+            if !simulator { try RoutineEnforcement.apply(enabled: false, locked: false, until: Date()) }
+        }
+        RoutineEnforcement.defaults.set(memberId, forKey: "memberId")
+        RoutineEnforcement.defaults.set(server, forKey: "server")
+        return status()
+    }
+    private static func transfer(_ encoded: String) throws -> RoutineSelectionTransfer {
+        guard encoded.utf8.count <= 174764, let data = Data(base64Encoded: encoded), data.count <= 131072,
+              let value = try? JSONDecoder().decode(RoutineSelectionTransfer.self, from: data), value.version == 1 else {
+            throw Exception(name: "RoutineMode", description: "The saved app choices could not be read. Choose apps again.")
+        }
+        guard simulator || value.preview == nil else {
+            throw Exception(name: "RoutineMode", description: "Simulator choices cannot be used on a child’s device.")
+        }
+        guard value.allowed.categoryTokens.isEmpty, value.allowed.webDomainTokens.isEmpty, value.selected.webDomainTokens.isEmpty else {
+            throw Exception(name: "RoutineMode", description: "Choose apps and categories to pause, and individual apps to keep available.")
+        }
+        return value
+    }
+    static func importSelection(memberId: String, server: String, encoded: String, revision: Int) throws -> [String: Any] {
+        guard revision > 0, RoutineEnforcement.defaults.string(forKey: "memberId") == memberId,
+              RoutineEnforcement.defaults.string(forKey: "server") == server,
+              simulator || AuthorizationCenter.shared.authorizationStatus == .approved else {
+            throw Exception(name: "RoutineMode", description: "Approve Screen Time on this child’s device before receiving app choices.")
+        }
+        let value = try transfer(encoded)
+        RoutineEnforcement.selection = value.selected
+        RoutineEnforcement.allowedSelection = value.allowed
+        RoutineEnforcement.defaults.set(revision, forKey: "selectionRevision")
+        if let preview = value.preview {
+            RoutineEnforcement.defaults.set(preview.selectedApps + preview.selectedCategories, forKey: "previewCount")
+            RoutineEnforcement.defaults.set(preview.allowedApps, forKey: "previewAllowedCount")
+        }
+        if RoutineEnforcement.defaults.bool(forKey: "enabled") && RoutineEnforcement.defaults.bool(forKey: "locked") && !simulator { RoutineEnforcement.shield() }
+        return status()
+    }
+    static func choose(memberId: String, appMode: String, websiteList: Bool, encoded: String?) async throws -> [String: Any] {
+        guard appMode == "selected" || appMode == "all" else {
+            throw Exception(name: "RoutineMode", description: "Choose a valid app mode.")
+        }
+        let previous = try encoded.map { try transfer($0) }
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive }),
+              var presenter = scene.windows.first(where: \.isKeyWindow)?.rootViewController else {
+            throw Exception(name: "RoutineMode", description: "Open Kinwall to choose apps.")
+        }
+        while let next = presenter.presentedViewController { presenter = next }
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[String: Any], Error>) in
+            let picker = RoutinePicker(simulator: simulator, appMode: appMode, websiteList: websiteList,
+                initialSelected: previous?.selected ?? FamilyActivitySelection(includeEntireCategory: true),
+                initialAllowed: previous?.allowed ?? FamilyActivitySelection(), initialPreview: previous?.preview ?? RoutinePreview(),
+                save: { selected, allowed, preview in
+                    do {
+                        let value = RoutineSelectionTransfer(version: 1, selected: selected, allowed: allowed, preview: simulator ? preview : nil)
+                        let data = try JSONEncoder().encode(value).base64EncodedString()
+                        // No local enforcement state is changed on a guardian's device.
+                        let result: [String: Any] = ["data": data,
+                            "selectedApps": simulator ? preview.selectedApps : selected.applicationTokens.count,
+                            "selectedCategories": simulator ? preview.selectedCategories : selected.categoryTokens.count,
+                            "allowedApps": simulator ? preview.allowedApps : allowed.applicationTokens.count]
+                        presenter.dismiss(animated: true) { continuation.resume(returning: result) }
+                    } catch { presenter.dismiss(animated: true) { continuation.resume(throwing: error) } }
+                }, cancel: { presenter.dismiss(animated: true) { continuation.resume(returning: ["cancelled": true]) } })
+            let controller = UIHostingController(rootView: picker)
+            controller.isModalInPresentation = true
+            presenter.present(controller, animated: true)
+        }
     }
     static func apply(json: String) throws -> [String: Any] {
         guard let data = json.data(using: .utf8), let raw = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -57,13 +135,13 @@ import UIKit
         }
         while let next = presenter.presentedViewController { presenter = next }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let controller = UIHostingController(rootView: RoutinePicker(simulator: simulator, appMode: appMode, websiteList: websiteList, save: { selected, allowed, count, allowedCount in
+            let controller = UIHostingController(rootView: RoutinePicker(simulator: simulator, appMode: appMode, websiteList: websiteList, save: { selected, allowed, preview in
                 RoutineEnforcement.defaults.set(appMode, forKey: "appMode")
                 RoutineEnforcement.selection = selected
                 RoutineEnforcement.allowedSelection = allowed
                 RoutineEnforcement.defaults.set(memberId, forKey: "memberId")
-                RoutineEnforcement.defaults.set(count, forKey: "previewCount")
-                RoutineEnforcement.defaults.set(allowedCount, forKey: "previewAllowedCount")
+                RoutineEnforcement.defaults.set(preview.selectedApps + preview.selectedCategories, forKey: "previewCount")
+                RoutineEnforcement.defaults.set(preview.allowedApps, forKey: "previewAllowedCount")
                 if !simulator && RoutineEnforcement.defaults.bool(forKey: "locked") { RoutineEnforcement.shield() }
                 presenter.dismiss(animated: true) { continuation.resume() }
             }, cancel: { presenter.dismiss(animated: true) { continuation.resume() } }))
@@ -73,20 +151,48 @@ import UIKit
         return status()
     }
 }
+private struct RoutineSelectionTransfer: Codable {
+    let version: Int
+    let selected: FamilyActivitySelection
+    let allowed: FamilyActivitySelection
+    let preview: RoutinePreview?
+}
+private struct RoutinePreview: Codable {
+    var games = true
+    var videos = true
+    var reading = true
+    var calculator = false
+    var browser = true
+    var selectedApps: Int { videos ? 1 : 0 }
+    var selectedCategories: Int { games ? 1 : 0 }
+    var allowedApps: Int { (reading ? 1 : 0) + (calculator ? 1 : 0) + (browser ? 1 : 0) }
+}
 private struct RoutinePicker: View {
     let simulator: Bool
     let appMode: String
     let websiteList: Bool
-    let save: (FamilyActivitySelection, FamilyActivitySelection, Int, Int) -> Void
+    let save: (FamilyActivitySelection, FamilyActivitySelection, RoutinePreview) -> Void
     let cancel: () -> Void
-    @State private var selected = RoutineEnforcement.selection
-    @State private var allowed = RoutineEnforcement.allowedSelection
+    @State private var selected: FamilyActivitySelection
+    @State private var allowed: FamilyActivitySelection
     @State private var keepingAvailable = false
     @State private var browserAllowed = true
     @State private var games = true
     @State private var videos = true
     @State private var readingAllowed = true
     @State private var calculatorAllowed = false
+    init(simulator: Bool, appMode: String, websiteList: Bool,
+         initialSelected: FamilyActivitySelection = RoutineEnforcement.selection,
+         initialAllowed: FamilyActivitySelection = RoutineEnforcement.allowedSelection,
+         initialPreview: RoutinePreview = RoutinePreview(),
+         save: @escaping (FamilyActivitySelection, FamilyActivitySelection, RoutinePreview) -> Void, cancel: @escaping () -> Void) {
+        self.simulator = simulator; self.appMode = appMode; self.websiteList = websiteList
+        self.save = save; self.cancel = cancel
+        _selected = State(initialValue: initialSelected); _allowed = State(initialValue: initialAllowed)
+        _games = State(initialValue: initialPreview.games); _videos = State(initialValue: initialPreview.videos)
+        _readingAllowed = State(initialValue: initialPreview.reading); _calculatorAllowed = State(initialValue: initialPreview.calculator)
+        _browserAllowed = State(initialValue: initialPreview.browser)
+    }
     var body: some View {
         NavigationStack {
             Group {
@@ -131,7 +237,7 @@ private struct RoutinePicker: View {
             .navigationTitle("Routine apps")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel", action: cancel) }
-                ToolbarItem(placement: .confirmationAction) { Button("Save") { save(selected, allowed, (games ? 1 : 0) + (videos ? 1 : 0), (websiteList || browserAllowed ? 1 : 0) + (readingAllowed ? 1 : 0) + (calculatorAllowed ? 1 : 0)) }
+                ToolbarItem(placement: .confirmationAction) { Button("Save") { save(selected, allowed, RoutinePreview(games: games, videos: videos, reading: readingAllowed, calculator: calculatorAllowed, browser: websiteList || browserAllowed)) }
                         .disabled(!simulator && ((appMode == "selected" && !selected.webDomainTokens.isEmpty) || !allowed.categoryTokens.isEmpty || !allowed.webDomainTokens.isEmpty)) }
             }
         }

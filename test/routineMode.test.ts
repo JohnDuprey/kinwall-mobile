@@ -12,6 +12,8 @@ test('routine grants must be fresh and end before the server cutoff', () => {
 })
 test('routine bridge accepts only known actions and member identifiers', () => {
   assert.deepEqual(routineRequest({ action: 'setup', memberId: 'maya' }), { action: 'setup', memberId: 'maya' })
+  assert.deepEqual(routineRequest({ action: 'chooseApps', memberId: 'maya' }), { action: 'chooseApps', memberId: 'maya' })
+  assert.deepEqual(routineRequest({ action: 'authorize', memberId: 'maya' }), { action: 'authorize', memberId: 'maya' })
   assert.equal(routineRequest({ action: 'unlock', memberId: 'maya' }), null)
   assert.equal(routineRequest({ action: 'setup', memberId: '../leo' }), null)
 })

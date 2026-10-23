@@ -1,9 +1,13 @@
 import { type EventSubscription, requireOptionalNativeModule } from 'expo-modules-core'
+import type { RoutineStatus } from '../../src/routineFlow'
 
 type KinwallNative = {
-  routineStatus?(): Promise<{ simulator: boolean; authorized: boolean; selected: number; appMode?: 'selected' | 'all'; allowedWebsitesOnly?: boolean; locked: boolean; memberId: string }>
+  routineStatus?(): Promise<RoutineStatus>
+  routineAuthorize?(memberId: string, server: string): Promise<RoutineStatus>
+  routineChoose?(memberId: string, appMode: 'selected' | 'all', websiteList: boolean, data: string | null): Promise<{ data: string; selectedApps: number; selectedCategories: number; allowedApps: number } | { cancelled: true }>
+  routineImportSelection?(memberId: string, server: string, data: string, revision: number): Promise<RoutineStatus>
   routineSetup?(memberId: string, appMode: 'selected' | 'all', websiteList: boolean): Promise<Record<string, unknown>>
-  routineApply?(json: string): Promise<Record<string, unknown>>
+  routineApply?(json: string): Promise<RoutineStatus>
   keychainGet(service: string, shared: boolean): Promise<string | null>
   keychainSet(service: string, shared: boolean, value: string | null): Promise<void>
   reloadWidgets(): void
