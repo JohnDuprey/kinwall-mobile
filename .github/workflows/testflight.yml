@@ -110,10 +110,11 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
+          test -n "$APPLE_SIGNING_IDENTITY" # validated identity is present in the isolated keychain
           xcodebuild archive -quiet -workspace ios/Kinwall.xcworkspace -scheme Kinwall -configuration Release \
             -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Kinwall.xcarchive" -derivedDataPath "$RUNNER_TEMP/dd" \
             -allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-            DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="$APPLE_SIGNING_IDENTITY" MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD"
+            DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development" MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD"
       - name: Upload to App Store Connect
         env:
           ASC_KEY_PATH: ${{ runner.temp }}/asc.p8

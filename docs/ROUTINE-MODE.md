@@ -44,7 +44,7 @@ shield actual installed apps. Demo state resets on reload.
 ## Physical devices
 
 The existing app minimum remains iOS/iPadOS 17. Pair the child's device first, then open
-**Chores → Free time → Approve Screen Time with a grown-up**. This requests `.child`
+**Settings → Family → Routine mode → Approve Screen Time with a grown-up**. This requests `.child`
 authorization on that child's device, using the child or teen Apple Account in Family Sharing.
 It does not use individual self-control authorization.
 

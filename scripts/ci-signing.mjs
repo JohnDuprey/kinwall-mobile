@@ -39,7 +39,7 @@ function install() {
     const identity = chooseSigningIdentity(identities, subject.trim(), team)
     appendFileSync(output, `APPLE_SIGNING_IDENTITY=${identity}\n`)
     installed = true
-    console.log('Reusable development signing identity installed and pinned for the archive.')
+    console.log('Reusable development signing identity validated in the isolated archive keychain.')
   } finally {
     rmSync(certificatePath, { force: true })
     if (!installed) { try { execFileSync('security', ['delete-keychain', keychainPath], { stdio: 'ignore' }) } catch { /* cleanup only */ } }

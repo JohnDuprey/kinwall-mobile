@@ -79,8 +79,9 @@ and private key) for team `PPVX64R65G` as a password-protected `.p12`, encode it
 store both values as GitHub environment secrets. Do not commit the P12, password, private key,
 or base64 text. An exported certificate without its private key cannot sign an archive.
 
-Each runner imports that identity into a temporary keychain, verifies its team and validity,
-and pins its fingerprint for every archive target. Missing or invalid signing secrets stop the
+Each runner imports that identity into an isolated temporary keychain and verifies its team and
+validity. Every archive target uses Xcode's automatic **Apple Development** selector, which reuses
+the imported identity. A literal fingerprint conflicts with automatic signing. Missing or invalid signing secrets stop the
 workflow before Xcode can request another development certificate. Automatic provisioning still
 updates profiles; App Store export uses Apple's existing managed distribution signing. The
 runner removes the P12 immediately after import and deletes the keychain after upload or failure.
