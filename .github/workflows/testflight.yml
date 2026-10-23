@@ -2,9 +2,9 @@
 # Connect for TestFlight (docs/PUBLISHING.md). Called by release-please.yml for each release, or run
 # by hand: with a tag it uploads that release, without one the chosen branch.
 # Skipped until these repository secrets exist (App Store Connect -> Users and Access ->
-# Integrations -> App Store Connect API, a key with the Admin role so automatic signing can make
-# certificates and profiles):
+# Integrations -> App Store Connect API, a key with the Admin role for profiles and uploads):
 #   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 (the .p8 file's contents), APPLE_TEAM_ID
+#   APPLE_SIGNING_P12_BASE64, APPLE_SIGNING_P12_PASSWORD (one reusable development identity)
 # They can live in the "release" environment (as play.yml's do): with its deployment branches
 # limited to main and v* tags, a dispatch from any other branch can't read them.
 # Build numbers: CFBundleVersion is "<major*10000 + minor*100 + patch>.<minutes since 1970>", the
@@ -35,7 +35,13 @@ jobs:
         env:
           KEY: ${{ secrets.ASC_KEY_P8 }}
           TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          SIGNING_P12: ${{ secrets.APPLE_SIGNING_P12_BASE64 }}
+          SIGNING_PASSWORD: ${{ secrets.APPLE_SIGNING_P12_PASSWORD }}
         run: |
+          if [ -n "$KEY" ] && [ -n "$TEAM" ] && { [ -z "$SIGNING_P12" ] || [ -z "$SIGNING_PASSWORD" ]; }; then
+            echo "::error::Configure APPLE_SIGNING_P12_BASE64 and APPLE_SIGNING_P12_PASSWORD in the release environment. CI must reuse a signing identity instead of creating certificates on every run."
+            exit 1
+          fi
           if [ -n "$KEY" ] && [ -n "$TEAM" ]; then echo "ready=true" >> "$GITHUB_OUTPUT"
           else echo "::notice::TestFlight skipped: the App Store Connect secrets aren't set yet (see testflight.yml)"; fi
 
@@ -87,6 +93,11 @@ jobs:
       - run: xcodebuild -version && (xcodebuild -showsdks | grep -q watchos || xcodebuild -downloadPlatform watchOS)
       - run: pod install
         working-directory: ios
+      - name: Install reusable signing identity
+        env:
+          APPLE_SIGNING_P12_BASE64: ${{ secrets.APPLE_SIGNING_P12_BASE64 }}
+          APPLE_SIGNING_P12_PASSWORD: ${{ secrets.APPLE_SIGNING_P12_PASSWORD }}
+        run: node scripts/ci-signing.mjs
       - name: API key
         env:
           KEY: ${{ secrets.ASC_KEY_P8 }}
@@ -102,7 +113,7 @@ jobs:
           xcodebuild archive -quiet -workspace ios/Kinwall.xcworkspace -scheme Kinwall -configuration Release \
             -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Kinwall.xcarchive" -derivedDataPath "$RUNNER_TEMP/dd" \
             -allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-            DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD"
+            DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="$APPLE_SIGNING_IDENTITY" MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD"
       - name: Upload to App Store Connect
         env:
           ASC_KEY_PATH: ${{ runner.temp }}/asc.p8
@@ -125,4 +136,6 @@ jobs:
             -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
           echo "::notice::Kinwall $VERSION ($BUILD) uploaded; it shows in TestFlight once Apple has processed it (about 10-30 minutes)"
       - if: always()
-        run: rm -f "$RUNNER_TEMP/asc.p8"
+        run: |
+          rm -f "$RUNNER_TEMP/asc.p8" "$RUNNER_TEMP/kinwall-signing.p12"
+          if [ -f "$RUNNER_TEMP/kinwall-signing.keychain-db" ]; then security delete-keychain "$RUNNER_TEMP/kinwall-signing.keychain-db"; fi

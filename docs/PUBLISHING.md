@@ -65,7 +65,7 @@ Self-hosted sign-in continues through the system authentication sheet.
    signing through an App Store Connect API key and uploads. It's skipped until the repository has
    the secrets `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_P8` (the `.p8` contents) and `APPLE_TEAM_ID`;
    make the key under App Store Connect → Users and Access → Integrations with the **Admin** role,
-   so signing can create certificates and profiles. The workflow writes the key only after the
+   so signing can manage profiles and upload through App Store Connect. The workflow writes the key only after the
    npm and CocoaPods installs (npm runs no install scripts) and hands it only to the archive and
    upload steps; its actions are pinned to commit SHAs. From a Mac instead: `TEAM=<team ID>
    scripts/testflight.sh`. The local script stops if either the archive or export fails, including
@@ -73,6 +73,20 @@ Self-hosted sign-in continues through the system authentication sheet.
    `<major*10000 + minor*100 + patch>.<minutes since 1970>` in both, so they always go up within a
    version; the unsigned GitHub builds use the first
    part only and are never uploaded.
+The release environment also requires `APPLE_SIGNING_P12_BASE64` and
+`APPLE_SIGNING_P12_PASSWORD`. Export one existing **Apple Development** identity (certificate
+and private key) for team `PPVX64R65G` as a password-protected `.p12`, encode it as base64, and
+store both values as GitHub environment secrets. Do not commit the P12, password, private key,
+or base64 text. An exported certificate without its private key cannot sign an archive.
+
+Each runner imports that identity into a temporary keychain, verifies its team and validity,
+and pins its fingerprint for every archive target. Missing or invalid signing secrets stop the
+workflow before Xcode can request another development certificate. Automatic provisioning still
+updates profiles; App Store export uses Apple's existing managed distribution signing. The
+runner removes the P12 immediately after import and deletes the keychain after upload or failure.
+Rotate the saved identity deliberately before it expires. Repeatedly revoking CI-created
+certificates only clears the immediate limit and does not fix fresh-runner certificate churn.
+
 2. (EAS instead: `eas build --platform ios --profile production`, then `eas submit --platform ios`.)
 3. TestFlight: the build appears after processing; test internally, then add external testers
    (external testing needs a short beta review).
