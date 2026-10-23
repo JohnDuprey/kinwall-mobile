@@ -100,5 +100,6 @@ export function meetCall(url: string): string | null {
 /** Opens approval only. The web screen still requires parent access and an explicit confirmation. */
 function pairingRoute(query: URLSearchParams): string | null {
   const codes = query.getAll('code')
-  return codes.length === 1 && /^\d{6}$/.test(codes[0]) ? `pair?code=${codes[0]}` : null
+  const code = codes[0]
+  return codes.length === 1 && code !== undefined && /^\d{6}$/.test(code) ? `pair?code=${code}` : null
 }
