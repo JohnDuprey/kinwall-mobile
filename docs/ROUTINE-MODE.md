@@ -61,7 +61,23 @@ overwriting newer choices. Child devices import the choices, apply the server de
 report the applied revision through `/device`; Settings reads metadata only from `/devices`.
 Parents cannot forge child acknowledgments. Reauthorization to a different child or server clears
 the old local selection before binding the device again. Open Kinwall on the child device to
-receive changes; background delivery is not implemented yet.
+receive changes immediately; matching server and app builds also attempt background delivery.
+
+Background refresh uses a cold-launch receiver and includes routine refresh in
+the existing periodic background task. It recovers only the paired-device credential, never an
+OAuth parent login or a shared widgets key. A notification carries only
+`kinwall: { type: 'routine-sync', server: '<origin>' }`; the receiver checks that origin against
+the existing connection and fetches current identity, app choices and policy through the same
+authenticated flow used in the foreground. Notification fields cannot grant access or select a
+different child. Sign-out invalidates an in-flight credential lookup, including a cold lookup
+that has not connected yet. Background work never presents authorization or the app picker.
+
+The receiver needs a matching server/gateway sender before silent notifications can wake it.
+Silent hints also require that device's native push registration; periodic refresh does not
+depend on notification permission.
+Periodic refresh already provides another opportunity to receive changes, independently of
+reminder permission or reminder-refresh failures, but iOS controls when that task runs. No
+background path guarantees instant delivery, and opening Kinwall remains the manual fallback.
 
 The app and `family.kinwall.app.routine-monitor` need the Family Controls entitlement, and both
 use App Group `group.family.kinwall.routine`. Request Apple's distribution permission for the

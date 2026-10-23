@@ -175,6 +175,7 @@
         "expo-notifications",
         {
           "defaultChannel": "reminders",
+          "enableBackgroundRemoteNotifications": true,
           "icon": "./assets/notification-icon.png",
           "color": "#123857"
         }

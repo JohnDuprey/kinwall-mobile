@@ -1,4 +1,5 @@
 import * as BackgroundTask from 'expo-background-task'
+import { refreshBackgroundRoutine } from './routineController'
 import * as Notifications from 'expo-notifications'
 import * as SecureStore from 'expo-secure-store'
 import * as TaskManager from 'expo-task-manager'
@@ -186,9 +187,9 @@ function localDay(now: number, days: number): string {
 // opened. Android runs it every 15 minutes (WorkManager's shortest, with a network), since the
 // leave-by alarms are only as fresh as the last run; signed out it stops at the missing key.
 TaskManager.defineTask(REFRESH_TASK, async () => {
-  await refreshReminders()
+  const work = await Promise.allSettled([refreshReminders(), refreshBackgroundRoutine()])
   endStaleActivities() // a leave-by whose event started while the app was closed
-  return BackgroundTask.BackgroundTaskResult.Success
+  return work.every(result => result.status === 'fulfilled') ? BackgroundTask.BackgroundTaskResult.Success : BackgroundTask.BackgroundTaskResult.Failed
 })
 export const scheduleBackgroundRefresh = () => BackgroundTask.registerTaskAsync(REFRESH_TASK, { minimumInterval: Platform.OS === 'android' ? 15 : 240 }).catch(() => {})
 

@@ -4,6 +4,53 @@ import { RoutineFlow, type RoutineNative, type RoutineStatus } from '../src/rout
 
 const state = () => ({ enabled: true, appMode: 'selected', locked: true, checkedAt: new Date().toISOString(), validUntil: new Date(Date.now() + 3600000).toISOString() })
 const packet = (n: number) => ({ data: btoa(`opaque-selection-${n}`), selectedApps: n, selectedCategories: 0, allowedApps: 1 })
+
+test('cold background refresh recovers only the paired child and uses the ordinary authenticated flow', async () => {
+  const f = fixture(), baseURL = 'https://our-family.kinwall.family'
+  f.status({ authorized: true, memberId: 'maya', server: baseURL })
+  f.saved.set('maya', { ...packet(2), revision: 1 })
+  await f.flow.backgroundRefresh(async () => ({ baseURL, key: 'maya' }), baseURL)
+  assert.equal(f.imported[0].id, 'maya')
+  assert.equal(f.applied[0].locked, true)
+  assert.equal(f.reports.at(-1).appliedRevision, 1)
+  assert.deepEqual(f.authorizations, [], 'background work must never show Apple authorization')
+})
+
+test('background hints cannot select another server or replace the active sign-in', async () => {
+  const f = fixture(), baseURL = 'https://our-family.kinwall.family'
+  f.status({ authorized: true, memberId: 'maya', server: baseURL, hasAppChoices: true })
+  await f.flow.backgroundRefresh(async () => ({ baseURL, key: 'maya' }), 'https://other.invalid')
+  assert.deepEqual(f.applied, [])
+  f.flow.setConnection({ baseURL, key: 'parent' })
+  await f.flow.backgroundRefresh(async () => { assert.fail('must use the active connection') }, baseURL)
+  assert.deepEqual(f.applied, [])
+  f.flow.setConnection(null, true)
+  await f.flow.backgroundRefresh(async () => { assert.fail('demo must never recover a real credential') })
+  assert.deepEqual(f.applied, [])
+})
+
+test('sign-in changes while loading a background credential discard that old credential', async () => {
+  const f = fixture(), baseURL = 'https://our-family.kinwall.family'
+  let finish!: (value: { baseURL: string; key: string }) => void
+  const pending = f.flow.backgroundRefresh(() => new Promise(resolve => { finish = resolve }))
+  f.flow.setConnection({ baseURL, key: 'parent' })
+  finish({ baseURL, key: 'maya' })
+  await pending
+  assert.deepEqual(f.applied, [])
+  assert.deepEqual(f.reports, [])
+})
+
+test('explicit sign-out cancels background credential recovery even before a connection exists', async () => {
+  const f = fixture(), baseURL = 'https://our-family.kinwall.family'
+  f.status({ authorized: true, memberId: 'maya', server: baseURL, hasAppChoices: true })
+  let finish!: (value: { baseURL: string; key: string }) => void
+  const pending = f.flow.backgroundRefresh(() => new Promise(resolve => { finish = resolve }))
+  f.flow.setConnection(null)
+  finish({ baseURL, key: 'maya' })
+  await pending
+  assert.deepEqual(f.applied, [])
+  assert.deepEqual(f.reports, [])
+})
 function fixture() {
   const saved = new Map<string, any>(), reports: any[] = [], applied: any[] = [], imported: any[] = [], authorizations: string[] = []
   let status: RoutineStatus = { simulator: false, authorized: false, selected: 0, locked: false, memberId: '', appliedRevision: 0 }

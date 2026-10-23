@@ -1,4 +1,5 @@
 import { registerRootComponent } from 'expo'
+import './src/routineBackground'
 import App from './src/App'
 import { registerWidgets } from './src/widgets'
 

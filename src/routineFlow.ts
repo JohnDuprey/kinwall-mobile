@@ -34,11 +34,23 @@ export class RoutineFlow {
   private readonly deps: Dependencies
   constructor(deps: Dependencies) { this.deps = deps }
   setConnection(c: Connection | null, preview = false) {
-    if (this.connection?.baseURL === c?.baseURL && this.connection?.key === c?.key && this.preview === preview) return
+    if (c && this.connection?.baseURL === c.baseURL && this.connection?.key === c.key && this.preview === preview) return
     this.connection = c; this.preview = preview; this.generation++; this.pending = null
   }
   private current(c: Connection, generation: number) {
     if (this.connection !== c || this.generation !== generation) throw new Error('Sign-in changed. Try again.')
+  }
+  /** A wake-up is only a hint. Recover the existing paired sign-in on cold launch, then
+   * use the same serialized, authenticated flow as the foreground. Never open a picker. */
+  async backgroundRefresh(loadPaired: () => Promise<Connection | null>, sourceOrigin?: string): Promise<RoutineStatus | null> {
+    if (this.preview) return null
+    const generation = this.generation
+    const c = this.connection ?? await loadPaired()
+    if (generation !== this.generation || !c) return null
+    const server = new URL(c.baseURL).origin
+    if (sourceOrigin !== undefined && sourceOrigin !== server) return null
+    if (!this.connection) this.setConnection(c)
+    return this.sync()
   }
   private async report(c: Connection, id: string, status: RoutineStatus) {
     const body = { authorized: status.authorized, appliedRevision: status.appliedRevision ?? 0, locked: status.locked }
