@@ -55,6 +55,7 @@ function fixture() {
   const saved = new Map<string, any>(), reports: any[] = [], applied: any[] = [], imported: any[] = [], authorizations: string[] = []
   let status: RoutineStatus = { simulator: false, authorized: false, selected: 0, locked: false, memberId: '', appliedRevision: 0 }
   let pick = packet(2)
+  let policy: Record<string, unknown> = {}
   const native: RoutineNative = {
     status: async () => ({ ...status }),
     authorize: async (id, server) => { authorizations.push(id); status = { ...status, authorized: true, memberId: id, server }; return { ...status } },
@@ -70,11 +71,36 @@ function fixture() {
         const row = { ...body, revision: (saved.get(id)?.revision ?? 0) + 1 }; saved.set(id, row); return row
       }
       if (path.endsWith('/device')) { reports.push({ id, ...body }); return { ok: true } }
-      return state()
+      return { ...state(), ...policy }
     },
   })
-  return { flow, native, saved, reports, applied, imported, authorizations, pick: (n: number) => { pick = packet(n) }, status: (next: Partial<RoutineStatus>) => { status = { ...status, ...next } } }
+  return { flow, native, saved, reports, applied, imported, authorizations, policy: (next: Record<string, unknown>) => { policy = next }, pick: (n: number) => { pick = packet(n) }, status: (next: Partial<RoutineStatus>) => { status = { ...status, ...next } } }
 }
+
+test('all-app mode enforces without a saved picker selection and follows the server unlock decision', async () => {
+  const f = fixture(), baseURL = 'https://our-family.kinwall.family'
+  f.status({ authorized: true, memberId: 'maya', server: baseURL })
+  f.flow.setConnection({ baseURL, key: 'maya' })
+  f.policy({ appMode: 'all' })
+  assert.equal((await f.flow.sync('maya')).awaitingSelection, false)
+  assert.equal(f.applied[0].appMode, 'all')
+  assert.equal(f.applied[0].locked, true)
+  assert.equal(f.reports.at(-1).locked, true)
+  f.policy({ appMode: 'all', locked: false })
+  await f.flow.sync('maya')
+  assert.equal(f.applied[1].locked, false)
+  assert.deepEqual(f.imported, [], 'blocking all apps needs no fabricated Apple tokens')
+})
+
+test('turning routine mode off clears restrictions even without saved app choices', async () => {
+  const f = fixture(), baseURL = 'https://our-family.kinwall.family'
+  f.status({ authorized: true, memberId: 'maya', server: baseURL, locked: true })
+  f.flow.setConnection({ baseURL, key: 'maya' })
+  f.policy({ enabled: false })
+  assert.equal((await f.flow.sync('maya')).awaitingSelection, false)
+  assert.equal(f.applied[0].enabled, false)
+  assert.equal(f.applied[0].locked, false)
+})
 
 test('parent selection does not request child authorization or restrict the parent phone; choices stay per child', async () => {
   const f = fixture(); f.flow.setConnection({ baseURL: 'https://our-family.kinwall.family', key: 'parent' })

@@ -95,7 +95,7 @@ export class RoutineFlow {
       status = await native.importSelection(id, new URL(c.baseURL).origin, choices.data, choices.revision)
       this.current(c, generation)
     }
-    if (!choices.data && !status.hasAppChoices && !status.selected) {
+    if (decision.enabled && decision.appMode === 'selected' && !choices.data && !status.hasAppChoices && !status.selected) {
       await this.report(c, id, status)
       return { ...status, role: 'child', awaitingSelection: true }
     }

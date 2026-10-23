@@ -54,6 +54,10 @@ opens without requesting `.child` authorization on the parent's device and never
 restrictions there. Apple may show apps from multiple authorized children; Kinwall sends the
 saved opaque choices only to the selected child.
 
+All-apps mode applies the server decision even before any picker choices exist: an empty
+exception list is valid. Only enabled selected-app mode waits for app choices. Disabling
+routine mode clears the native restrictions even if there is no saved selection.
+
 Native code fetches and saves opaque Codable selections directly through `/api/routine-mode/:id/apps`.
 The server encrypts them at rest and enforces parent-only writes and own-child reads. No opaque
 selection reaches WebView or MCP. Optimistic revisions prevent one parent's old picker from
