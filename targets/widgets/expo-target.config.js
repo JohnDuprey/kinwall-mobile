@@ -6,5 +6,6 @@ module.exports = {
   bundleIdentifier: '.widgets',
   deploymentTarget: '17.0',
   frameworks: ['SwiftUI', 'WidgetKit', 'AppIntents'],
-  entitlements: { 'keychain-access-groups': ['$(AppIdentifierPrefix)family.kinwall.shared'] },
+  // These extensions use the shared Keychain, not Routine Mode's App Group.
+  entitlements: { 'com.apple.security.application-groups': [], 'keychain-access-groups': ['$(AppIdentifierPrefix)family.kinwall.shared'] },
 }

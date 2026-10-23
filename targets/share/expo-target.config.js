@@ -9,5 +9,6 @@ module.exports = {
   bundleIdentifier: '.share',
   deploymentTarget: '17.0',
   frameworks: ['UIKit', 'UniformTypeIdentifiers', 'Vision'],
-  entitlements: { 'keychain-access-groups': ['$(AppIdentifierPrefix)family.kinwall.shared'] },
+  // These extensions use the shared Keychain, not Routine Mode's App Group.
+  entitlements: { 'com.apple.security.application-groups': [], 'keychain-access-groups': ['$(AppIdentifierPrefix)family.kinwall.shared'] },
 }

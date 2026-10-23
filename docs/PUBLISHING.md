@@ -139,3 +139,9 @@ Pairing QR links (`https://<family>.kinwall.family/#/pair?code=<six digits>`) mu
 connected family’s approval page in the app. Test both a cold launch and an already-running app.
 Links for other families and malformed or duplicate codes are ignored. Opening the page never
 approves a pairing; parent authentication and confirmation remain required.
+
+Routine Mode also requires the App Group `group.family.kinwall.routine`, assigned to
+`family.kinwall.app` and `family.kinwall.app.routine-monitor` on team `PPVX64R65G`. Both
+identifiers need Family Controls distribution approval. Regenerate provisioning profiles after
+assigning the group. Widgets, share and Watch widget target configs explicitly disable inherited
+App Groups; these extensions keep using the shared Keychain and do not use the routine container.
