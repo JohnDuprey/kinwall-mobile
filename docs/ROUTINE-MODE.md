@@ -37,7 +37,7 @@ Watch simulator SDK. The debug-only preview flag opens the fictional demo family
 screen directly. Release builds ignore both preview environment variables.
 
 In **Settings → Family → Routine mode**, Choose apps opens a native sheet with sample Games/Videos switches in the simulator. Completing
-Maya's sample chores changes the preview from paused to available. Set a past cutoff and save to
+Maya's sample chores changes the preview from paused to available. Set a past cutoff and wait for Saved to
 try bedtime; turn routine mode off to try the parent release. The simulator never claims to
 shield actual installed apps. Demo state resets on reload.
 
@@ -69,7 +69,8 @@ extension as well as the app. No signing team or existing bundle identifier has 
 
 Hardware decisions are fetched from the authenticated server; bridge payloads cannot grant
 access. A local monitor is installed before an unlock and restores restrictions at the cutoff.
-Its timestamps use UTC so the device's timezone does not reinterpret the household cutoff.
+The one-day grant expiry uses UTC; recurring calendar callbacks use the saved household timezone,
+so travelling with the device does not reinterpret the family's schedule.
 Failed network requests retain the last policy; a failed monitor registration keeps apps blocked.
 Only opaque Apple selection tokens and local enforcement state live in the shared App Group.
 
@@ -100,10 +101,25 @@ Website access is configured in Settings using **Allow all websites** or **Only 
 The app picker accepts apps/categories to pause and individual apps to keep available, not website
 blocks. Website links can be hidden individually without changing their permission.
 
-Schedules are per child, with a daily start/end and optional weekday overrides. Before the start,
-the server grants access only until that start boundary. The existing local monitor closes the
-grant there; opening Kinwall refreshes whether chores have earned free time. Overnight windows
-are not supported. Background schedule refresh still needs physical-device work.
+Schedules are per child, with a daily start/end and optional weekday overrides. The native
+client stores the validated weekly calendar separately from the last chore decision. The monitor
+rechecks that calendar when its recurring daily, routine-window and nighttime intervals begin
+or end, including first device use during those intervals. Apple invokes these callbacks while
+the device is in use; they are not a general background polling timer.
+
+Before the start, the local calendar allows access. At the start, a grant for yesterday cannot
+unlock today's chores. An explicit empty required-chore list is schedule-only and repeats without
+an old chore approval. Other days require a server-confirmed decision for that household date.
+At the cutoff, the absolute grant expires. Per-day overrides use Sunday-first indices, matching
+the server. Overnight routine windows remain unsupported.
+
+The callback plan has fifteen stable activities plus the existing absolute grant-expiry activity.
+Short routine/nighttime intervals expand to sixteen minutes to meet Apple's minimum, and every
+callback recomputes the current policy rather than treating the callback itself as an unlock.
+Unchanged calendars do not reinstall all activities on every foreground poll. A partial monitor
+installation remains locked and retries on a future server check. The same Foundation-only
+calendar code is compiled into the app and extension; its command-line regression test runs as
+part of `npm test` on macOS. Actual callbacks, reboot behavior and shielding still require hardware QA.
 
 The per-child `appMode` is `selected` (apps and/or categories) or `all`. All mode uses
 `applicationCategories = .all(except: allowed.applicationTokens)`. Explicit individual app

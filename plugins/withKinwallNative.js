@@ -73,6 +73,7 @@ const withKinwallKit = (config) =>
     const routine = root.props.targets.find((t) => PBXNativeTarget.is(t) && t.props.productName === 'KinwallRoutineMonitor')
     if (!routine) throw new Error('withKinwallKit: no KinwallRoutineMonitor target')
     addFile(routine, 'modules/kinwall-native/ios/RoutineEnforcement.swift')
+    addFile(routine, 'modules/kinwall-native/ios/RoutineSchedule.swift')
     // A shared photo's text (native/ios/ShareReader.swift): the share sheet reads it too.
     const share = root.props.targets.find((t) => PBXNativeTarget.is(t) && t.props.productName === 'KinwallShare')
     if (!share) throw new Error('withKinwallKit: no KinwallShare target')

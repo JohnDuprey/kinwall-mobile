@@ -31,3 +31,13 @@ test('routine app modes: accept only selected or all and preserve the server pol
   assert.equal(routineDecision({ ...state, appMode: 'all' }, now)?.appMode, 'all')
   assert.equal(routineDecision({ ...state, appMode: 'unknown' }, now), null)
 })
+
+test('routine calendar carries per-day policy without carrying yesterday’s chore approval forward', () => {
+  const days = [null, null, null, null, null, null, { start: '09:00', cutoff: '21:00' }]
+  const full = { ...state, date: '2026-10-22', timezone: 'America/New_York', start: '07:30', cutoff: '20:00', daySchedules: days, requiredChoreIds: null }
+  assert.deepEqual(routineDecision(full, now)?.calendar, { timezone: 'America/New_York', start: '07:30', cutoff: '20:00', days, scheduleOnly: false })
+  assert.equal(routineDecision(full, now)?.date, '2026-10-22')
+  assert.equal(routineDecision({ ...full, requiredChoreIds: [] }, now)?.calendar?.scheduleOnly, true)
+  assert.equal(routineDecision({ ...full, requiredChoreIds: ['read'] }, now)?.calendar?.scheduleOnly, false)
+  for (const bad of [{ timezone: 'not-a-timezone' }, { start: '21:00' }, { daySchedules: [] }, { daySchedules: [...days.slice(0, 6), { start: '22:00', cutoff: '20:00' }] }, { date: '2026-02-31' }, { requiredChoreIds: 'none' }]) assert.equal(routineDecision({ ...full, ...bad }, now), null)
+})

@@ -1,4 +1,4 @@
-/** Re-lock selected entertainment apps at the grant's cutoff, even while Kinwall is closed. */
+/** Enforce the saved household calendar and grant expiry while Kinwall is closed. */
 module.exports = {
   type: 'device-activity-monitor',
   name: 'KinwallRoutineMonitor',

@@ -106,6 +106,15 @@ import UIKit
             throw Exception(name: "RoutineMode", description: "The routine decision could not be read.")
         }
         let appMode = raw["appMode"] as? String ?? "selected"
+        let calendar: RoutineCalendar?
+        if let value = raw["calendar"] {
+            guard let data = try? JSONSerialization.data(withJSONObject: value),
+                  let decoded = try? JSONDecoder().decode(RoutineCalendar.self, from: data), decoded.isValid,
+                  let date = raw["date"] as? String, date.count == 10 else {
+                throw Exception(name: "RoutineMode", description: "The routine schedule could not be read.")
+            }
+            calendar = decoded
+        } else { calendar = nil }
         guard appMode == "selected" || appMode == "all" else {
             throw Exception(name: "RoutineMode", description: "Choose a valid app mode.")
         }
@@ -120,7 +129,7 @@ import UIKit
             RoutineEnforcement.defaults.set(enabled && (locked || until <= Date()), forKey: "locked")
         } else {
             guard AuthorizationCenter.shared.authorizationStatus == .approved else { return status() }
-            try RoutineEnforcement.apply(enabled: enabled, locked: locked, until: until)
+            try RoutineEnforcement.apply(enabled: enabled, locked: locked, until: until, calendar: calendar, decisionDate: raw["date"] as? String)
         }
         return status()
     }
