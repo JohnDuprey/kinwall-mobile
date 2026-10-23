@@ -66,7 +66,7 @@ export function notificationRoute(link: string, server: string, source?: string)
     const route = u.hash.startsWith('#/') ? u.hash.slice(2) : u.pathname.slice(1) + u.search
     if (!route) return 'home'
     if (route.startsWith('pair?')) return pairingRoute(new URLSearchParams(route.slice(5)))
-    return /^(?:home|calendar|chores|lists|meals|medications|contacts|trackers|settings|outings|rewards|polls|insights|newscast)(?:[/?]|$)/.test(route) ? route : null
+    return /^(?:home|calendar|chores|lists|meals|medications|contacts|trackers|settings|outings|upkeep|rewards|polls|journal|insights|newscast)(?:[/?]|$)/.test(route) ? route : null
   } catch { return null }
 }
 

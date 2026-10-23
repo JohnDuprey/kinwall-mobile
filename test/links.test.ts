@@ -3,6 +3,29 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { groceriesRoute, routeFor, importContactsScript, meetCall, notificationRoute } from '../src/links.ts'
 
+test('server notifications: every notification destination opens with its selection intact', () => {
+  const server = 'https://our-family.kinwall.family'
+  // Destinations emitted by notify.ts, milestones.ts and the notification-producing routes.
+  const routes = [
+    'journal/m3', 'home?checkin=m3&checkinPart=morning',
+    'upkeep?thing=thing-1', 'upkeep?job=job-1',
+    'calendar?event=e1&at=2026-10-23T18%3A00%3A00Z', 'chores',
+    'lists?list=l1', 'meals?meal=meal-1&orders=1', 'medications/m3',
+    'insights/m3', 'trackers/library', 'outings?outing=o1', 'rewards/m3',
+    'home?poll=p1', 'settings?tab=calendars&section=todo-apps',
+    'settings?tab=access&section=security-activity',
+  ]
+  for (const route of routes) {
+    assert.equal(notificationRoute(`/#/${route}`, server, server), route)
+    assert.equal(notificationRoute(`${server}/#/${route}`, server, server), route)
+    assert.equal(routeFor(`${server}/#/${route}`, server), route)
+    assert.equal(notificationRoute(`/#/${route}`, server, 'https://other.kinwall.family'), null)
+  }
+  for (const route of ['journalism/m3', 'upkeeper', 'api/keys', 'oauth/callback']) {
+    assert.equal(notificationRoute(`/#/${route}`, server), null)
+  }
+})
+
 test('hosted links: only routes on this signed-in family open; other families and sign-in callbacks stay outside', () => {
   const server = 'https://our-family.kinwall.family'
   assert.equal(routeFor(`${server}/#/lists?list=l1`, server), 'lists?list=l1')

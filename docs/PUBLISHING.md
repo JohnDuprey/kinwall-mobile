@@ -48,6 +48,11 @@ those capabilities. Hosted must run the matching server and controller changes w
 The ordinary push registration is `PUT /api/push/native`; Live Activity tokens use their existing
 endpoint. Verify both independently on a real phone after Apple finishes processing the build.
 
+Check notification taps with the app both running and closed: an evening check-in opens the
+person's Journal, a morning check-in opens their check-in on Home, and an Upkeep reminder opens
+its item or job. Notification links keep their query parameters and must belong to the current
+family; a notification from a different family must not navigate the app.
+
 Associated domains cover hosted `kinwall.family` and its subdomains. Each known family, the apex
 and `app.` serve `/.well-known/apple-app-site-association` directly as JSON. Apple may cache this
 association; installing a build before the hosted response is live can delay links/passkeys.
