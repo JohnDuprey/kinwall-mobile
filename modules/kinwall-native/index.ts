@@ -2,7 +2,9 @@ import { type EventSubscription, requireOptionalNativeModule } from 'expo-module
 import type { RoutineStatus } from '../../src/routineFlow'
 
 type KinwallNative = {
+  routineSupported?(): boolean
   routineStatus?(): Promise<RoutineStatus>
+  routineUnenroll?(memberId: string, server: string): Promise<RoutineStatus>
   routineAuthorize?(memberId: string, server: string): Promise<RoutineStatus>
   routineChoose?(memberId: string, appMode: 'selected' | 'all', websiteList: boolean, data: string | null): Promise<{ data: string; selectedApps: number; selectedCategories: number; allowedApps: number } | { cancelled: true }>
   routineImportSelection?(memberId: string, server: string, data: string, revision: number): Promise<RoutineStatus>

@@ -1,8 +1,8 @@
-# Routine mode development preview
+# Routine mode development and device QA
 
 This branch adds the iOS Screen Time bridge and a Device Activity monitor extension. The matching
 `kinwall-routine-mode` worktree supplies **Chores → Free time**, the parent policy and the server
-calculation. This is a prototype, not a shipped parental-control feature.
+calculation. The flow is available in TestFlight; hardware QA remains necessary for each Apple enforcement path.
 
 ## Simulator
 
@@ -96,8 +96,8 @@ Only opaque Apple selection tokens and local enforcement state live in the share
 
 The app refreshes every 15 seconds while active and on foreground. Background remote unlock,
 reboot/tamper behavior, authorization revocation, and real Family Sharing authorization require
-physical-device testing. No physical device installation or production deployment is part of
-this simulator prototype. Sign-out retains restrictions; a child cannot lift them by leaving Kinwall.
+physical-device testing. John verified all-app blocking and selected-chores persistence on one
+child iPad with TestFlight build 10200.29879676. Additional devices and revocation still need QA. Sign-out retains restrictions; a child cannot lift them by leaving Kinwall.
 
 ## School browser exceptions
 
@@ -149,3 +149,28 @@ be generated from the bundle identifier. With the website allowlist on, the simu
 keeps its sample Safari available and explains this setup requirement. Simulator selection packets
 are marked as previews and rejected by physical devices. Simulator choices are stored per child
 in the preview session and never uploaded to a real family.
+
+## Device unenrollment
+
+The web app owns policy editing and parent confirmations. The native shell fetches its own
+paired identity and the server decision; it never trusts a page's unlock or unenrollment claim.
+
+A parent can stop management of one device in Settings → Family. The server records a command
+revision separately from device reports. On its next foreground or background sync, that child
+device disables Kinwall's ManagedSettings store, cancels routine DeviceActivity monitors, removes
+local app selections, and revokes Family Controls authorization. It acknowledges that command
+only after the native operation succeeds. Kinwall remains paired, and sibling policies and devices
+are untouched. Offline devices remain pending until they connect.
+
+Only the authenticated child flow calls `routineUnenroll`; there is no unenrollment WebView
+message. A child cannot change the server's enrollment command or authorize again while that
+command disables enrollment. A parent must choose Set up again, then approve Screen Time on
+the child device. Revocation invalidates the old selection on this device. The server remembers its revision, and the client waits for newer app choices after re-enrollment; other devices keep their own usable choices.
+
+Older servers omit enrollment metadata and retain the original behavior. Older native clients
+receive a disabled decision from a new server when unenrolled, but need an app update to revoke
+Apple authorization and acknowledge the command completely.
+
+Checks cover parent-only commands, cross-child/device isolation, stale acknowledgments,
+foreground/background flow, and sign-in changes. A simulator can compile and preview the UI;
+physical iPad QA is still required for Apple's revocation callback and subsequent reauthorization.

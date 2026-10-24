@@ -56,6 +56,7 @@ function fixture() {
   let status: RoutineStatus = { simulator: false, authorized: false, selected: 0, locked: false, memberId: '', appliedRevision: 0 }
   let pick = packet(2)
   let policy: Record<string, unknown> = {}
+  let enrolled = true
   const native: RoutineNative = {
     status: async () => ({ ...status }),
     authorize: async (id, server) => { authorizations.push(id); status = { ...status, authorized: true, memberId: id, server }; return { ...status } },
@@ -70,11 +71,12 @@ function fixture() {
         if (method === 'GET') return saved.get(id) ?? { revision: 0, data: null }
         const row = { ...body, revision: (saved.get(id)?.revision ?? 0) + 1 }; saved.set(id, row); return row
       }
+      if (path.endsWith('/device') && method === 'GET') return { enrolled }
       if (path.endsWith('/device')) { reports.push({ id, ...body }); return { ok: true } }
-      return { ...state(), ...policy }
+      return { ...state(), enrolled, enrollmentRevision: 1, ...policy }
     },
   })
-  return { flow, native, saved, reports, applied, imported, authorizations, policy: (next: Record<string, unknown>) => { policy = next }, pick: (n: number) => { pick = packet(n) }, status: (next: Partial<RoutineStatus>) => { status = { ...status, ...next } } }
+  return { flow, native, saved, reports, applied, imported, authorizations, enrollment: (value: boolean) => { enrolled = value }, policy: (next: Record<string, unknown>) => { policy = next }, pick: (n: number) => { pick = packet(n) }, status: (next: Partial<RoutineStatus>) => { status = { ...status, ...next } } }
 }
 
 test('all-app mode enforces without a saved picker selection and follows the server unlock decision', async () => {
@@ -179,4 +181,64 @@ test('cancelling the guardian picker preserves saved choices', async () => {
   f.native.choose = async () => ({ cancelled: true })
   assert.equal((await f.flow.choose('maya')).cancelled, true)
   assert.deepEqual(f.saved.get('maya'), before)
+})
+
+test('a parent unenrollment command clears only the authenticated child device before importing or enforcing', async () => {
+  const f = fixture(), baseURL = 'https://our-family.kinwall.family'
+  f.status({ authorized: true, memberId: 'maya', server: baseURL, locked: true })
+  f.enrollment(false)
+  const removed: string[] = []
+  f.native.unenroll = async (id, server) => { removed.push(id); return { simulator: false, authorized: false, selected: 0, locked: false, memberId: id, server } }
+  f.flow.setConnection({ baseURL, key: 'maya' })
+  const status = await f.flow.sync('maya')
+  assert.deepEqual(removed, ['maya'])
+  assert.equal(status.enrolled, false)
+  assert.equal(status.authorized, false)
+  assert.equal(status.locked, false)
+  assert.deepEqual(f.applied, [])
+  assert.deepEqual(f.imported, [])
+  assert.equal(f.reports.at(-1).authorized, false)
+  assert.equal(f.reports.at(-1).enrollmentRevision, 1)
+  await assert.rejects(f.flow.authorize('maya'), /grown-up.*enroll/i)
+  assert.deepEqual(f.authorizations, [])
+  f.flow.setConnection({ baseURL, key: 'parent' })
+  await f.flow.sync('maya')
+  assert.deepEqual(removed, ['maya'], 'a parent phone is never unenrolled by the child flow')
+})
+
+test('older servers retain their report contract without enrollment metadata', async () => {
+  const f = fixture(), baseURL = 'https://our-family.kinwall.family'
+  f.policy({ enrolled: undefined, enrollmentRevision: undefined, appMode: 'all' })
+  f.status({ authorized: true, memberId: 'maya', server: baseURL })
+  f.flow.setConnection({ baseURL, key: 'maya' })
+  await f.flow.sync('maya')
+  assert.equal(f.applied.length, 1)
+  assert.equal('enrollmentRevision' in f.reports.at(-1), false)
+})
+test('malformed enrollment metadata cannot remove management or apply a policy', async () => {
+  const f = fixture(), baseURL = 'https://our-family.kinwall.family'
+  f.policy({ enrolled: false, enrollmentRevision: 'invalid' })
+  f.status({ authorized: true, memberId: 'maya', server: baseURL, locked: true })
+  let removed = false
+  f.native.unenroll = async () => { removed = true; throw new Error('must not be called') }
+  f.flow.setConnection({ baseURL, key: 'maya' })
+  await assert.rejects(f.flow.sync('maya'), /enrollment could not be read/)
+  assert.equal(removed, false)
+  assert.deepEqual(f.applied, [])
+  assert.deepEqual(f.reports, [])
+})
+
+test('re-enrollment waits for fresh app choices after Apple invalidates the old selection', async () => {
+  const f = fixture(), baseURL = 'https://our-family.kinwall.family'
+  f.policy({ appChoicesAfterRevision: 1 })
+  f.status({ authorized: true, memberId: 'maya', server: baseURL })
+  f.saved.set('maya', { ...packet(1), revision: 1 })
+  f.flow.setConnection({ baseURL, key: 'maya' })
+  assert.equal((await f.flow.sync('maya')).awaitingSelection, true)
+  assert.deepEqual(f.imported, [])
+  assert.deepEqual(f.applied, [])
+  f.saved.set('maya', { ...packet(2), revision: 2 })
+  assert.equal((await f.flow.sync('maya')).awaitingSelection, false)
+  assert.equal(f.imported[0].revision, 2)
+  assert.equal(f.applied.length, 1)
 })

@@ -9,6 +9,7 @@ const native: RoutineNative = {
     if (!KinwallNative?.routineStatus) throw new Error('Update Kinwall to use routine mode.')
     return KinwallNative.routineStatus()
   },
+  ...(KinwallNative?.routineUnenroll ? { unenroll: (id: string, server: string) => KinwallNative!.routineUnenroll!(id, server) } : {}),
   ...(KinwallNative?.routineApply ? { apply: (json: string) => KinwallNative!.routineApply!(json) } : {}),
   ...(KinwallNative?.routineAuthorize ? { authorize: (id: string, server: string) => KinwallNative!.routineAuthorize!(id, server) } : {}),
   ...(KinwallNative?.routineChoose ? { choose: (id: string, mode: 'selected' | 'all', websites: boolean, data: string | null) => KinwallNative!.routineChoose!(id, mode, websites, data) } : {}),

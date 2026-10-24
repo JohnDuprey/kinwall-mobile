@@ -4,6 +4,11 @@ import SwiftUI
 import UIKit
 
 @MainActor enum RoutineMode {
+    private static func requireSupportedHost() throws {
+        guard !ProcessInfo.processInfo.isiOSAppOnMac else {
+            throw Exception(name: "RoutineMode", description: "Choose apps and approve Screen Time in Kinwall on an iPhone or iPad.")
+        }
+    }
     static var simulator: Bool {
         #if targetEnvironment(simulator)
         true
@@ -14,7 +19,7 @@ import UIKit
     static func status() -> [String: Any] {
         if !simulator { RoutineEnforcement.expire() }
         let selection = RoutineEnforcement.selection
-        return ["simulator": simulator, "authorized": simulator || AuthorizationCenter.shared.authorizationStatus == .approved,
+        return ["simulator": simulator, "authorized": simulator ? !RoutineEnforcement.defaults.bool(forKey: "previewUnenrolled") : AuthorizationCenter.shared.authorizationStatus == .approved,
                 "appMode": RoutineEnforcement.defaults.string(forKey: "appMode") ?? "selected",
                 "selected": simulator ? RoutineEnforcement.defaults.integer(forKey: "previewCount") : selection.applicationTokens.count + selection.categoryTokens.count + selection.webDomainTokens.count,
                 "allowedApps": simulator ? RoutineEnforcement.defaults.integer(forKey: "previewAllowedCount") : RoutineEnforcement.allowedSelection.applicationTokens.count, "allowedWebsitesOnly": RoutineEnforcement.defaults.bool(forKey: "allowedWebsitesOnly"),
@@ -28,13 +33,40 @@ import UIKit
     // picker lists authorized child devices in their Family Sharing group without requesting
     // .child authorization on the guardian's own phone.
     static func authorize(memberId: String, server: String) async throws -> [String: Any] {
+        try requireSupportedHost()
         if !simulator { try await AuthorizationCenter.shared.requestAuthorization(for: .child) }
+        RoutineEnforcement.defaults.removeObject(forKey: "previewUnenrolled")
         if RoutineEnforcement.defaults.string(forKey: "memberId") != memberId || RoutineEnforcement.defaults.string(forKey: "server") != server {
             for key in ["selectionRevision", "selection", "allowedSelection", "previewCount", "previewAllowedCount"] { RoutineEnforcement.defaults.removeObject(forKey: key) }
             if !simulator { try RoutineEnforcement.apply(enabled: false, locked: false, until: Date()) }
         }
         RoutineEnforcement.defaults.set(memberId, forKey: "memberId")
         RoutineEnforcement.defaults.set(server, forKey: "server")
+        return status()
+    }
+    // Called only after the paired server supplies an explicit parent unenrollment command.
+    // The WebView cannot invoke this method directly or grant itself an unenrollment.
+    static func unenroll(memberId: String, server: String) async throws -> [String: Any] {
+        let savedMember = RoutineEnforcement.defaults.string(forKey: "memberId") ?? ""
+        let savedServer = RoutineEnforcement.defaults.string(forKey: "server") ?? ""
+        guard (savedMember.isEmpty || savedMember == memberId) && (savedServer.isEmpty || savedServer == server) else {
+            throw Exception(name: "RoutineMode", description: "This device was set up for a different child or family.")
+        }
+        try RoutineEnforcement.apply(enabled: false, locked: false, until: Date())
+        if !simulator && AuthorizationCenter.shared.authorizationStatus == .approved {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                AuthorizationCenter.shared.revokeAuthorization { result in continuation.resume(with: result) }
+            }
+            guard AuthorizationCenter.shared.authorizationStatus != .approved else {
+                throw Exception(name: "RoutineMode", description: "Apple still reports Screen Time approval. Open Kinwall again to finish removing management.")
+            }
+        }
+        for key in ["selectionRevision", "selection", "allowedSelection", "previewCount", "previewAllowedCount", "allowedWebDomains", "allowedWebsitesOnly"] {
+            RoutineEnforcement.defaults.removeObject(forKey: key)
+        }
+        RoutineEnforcement.defaults.set(memberId, forKey: "memberId")
+        RoutineEnforcement.defaults.set(server, forKey: "server")
+        RoutineEnforcement.defaults.set(true, forKey: "previewUnenrolled")
         return status()
     }
     private static func transfer(_ encoded: String) throws -> RoutineSelectionTransfer {
@@ -68,6 +100,7 @@ import UIKit
         return status()
     }
     static func choose(memberId: String, appMode: String, websiteList: Bool, encoded: String?) async throws -> [String: Any] {
+        try requireSupportedHost()
         guard appMode == "selected" || appMode == "all" else {
             throw Exception(name: "RoutineMode", description: "Choose a valid app mode.")
         }
@@ -134,6 +167,7 @@ import UIKit
         return status()
     }
     static func setup(memberId: String, appMode: String, websiteList: Bool) async throws -> [String: Any] {
+        try requireSupportedHost()
         guard appMode == "selected" || appMode == "all" else {
             throw Exception(name: "RoutineMode", description: "Choose a valid app mode.")
         }

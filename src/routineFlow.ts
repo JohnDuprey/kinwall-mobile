@@ -2,11 +2,12 @@ import { routineDecision } from './routineMode.ts'
 
 type Connection = { baseURL: string; key: string }
 type Identity = { scope: string; owner: string | null }
-export type RoutineStatus = { simulator: boolean; authorized: boolean; selected: number; locked: boolean; memberId: string; server?: string; appliedRevision?: number; hasAppChoices?: boolean; appMode?: 'selected' | 'all'; allowedWebsitesOnly?: boolean; allowedApps?: number; awaitingSelection?: boolean; remoteSelection?: boolean; role?: 'parent' | 'child' }
+export type RoutineStatus = { simulator: boolean; authorized: boolean; selected: number; locked: boolean; memberId: string; server?: string; appliedRevision?: number; hasAppChoices?: boolean; appMode?: 'selected' | 'all'; allowedWebsitesOnly?: boolean; allowedApps?: number; awaitingSelection?: boolean; remoteSelection?: boolean; role?: 'parent' | 'child'; enrolled?: boolean }
 type Choices = { data: string; selectedApps: number; selectedCategories: number; allowedApps: number }
 type SavedChoices = Omit<Choices, 'data'> & { revision: number; data: string | null }
 export type RoutineNative = {
   status(): Promise<RoutineStatus>
+  unenroll?(memberId: string, server: string): Promise<RoutineStatus>
   authorize?(memberId: string, server: string): Promise<RoutineStatus>
   choose?(memberId: string, appMode: 'selected' | 'all', websiteList: boolean, data: string | null): Promise<Choices | { cancelled: true }>
   importSelection?(memberId: string, server: string, data: string, revision: number): Promise<RoutineStatus>
@@ -52,8 +53,8 @@ export class RoutineFlow {
     if (!this.connection) this.setConnection(c)
     return this.sync()
   }
-  private async report(c: Connection, id: string, status: RoutineStatus) {
-    const body = { authorized: status.authorized, appliedRevision: status.appliedRevision ?? 0, locked: status.locked }
+  private async report(c: Connection, id: string, status: RoutineStatus, enrollmentRevision?: number) {
+    const body = { authorized: status.authorized, appliedRevision: status.appliedRevision ?? 0, locked: status.locked, ...(enrollmentRevision === undefined ? {} : { enrollmentRevision }) }
     const value = JSON.stringify(body), key = `${c.baseURL}:${id}:${c.key}`, now = this.deps.now?.() ?? Date.now(), previous = this.reports.get(key)
     if (previous?.value === value && now - previous.at < 60000) return
     await this.deps.request(c, 'PUT', `${pathFor(id)}/device`, body)
@@ -82,35 +83,53 @@ export class RoutineFlow {
     if (memberId && memberId !== id) throw new Error('This device can only check its own routine.')
     if (status.memberId && status.memberId !== id) throw new Error('This device was set up for a different child. A grown-up must set it up again.')
     if (status.server && status.server !== new URL(c.baseURL).origin) throw new Error('This device was set up for a different family. A grown-up must set it up again.')
-    if (!status.authorized) {
-      await this.report(c, id, status)
-      return { ...status, role: 'child', remoteSelection: !!native.choose }
+    const policy = await this.deps.request(c, 'GET', pathFor(id))
+    this.current(c, generation)
+    const revision = (policy as { enrollmentRevision?: unknown } | null)?.enrollmentRevision
+    if (revision !== undefined && (!Number.isSafeInteger(revision) || (revision as number) < 0)) throw new Error('The device enrollment could not be read. Try again.')
+    const enrollmentRevision = revision as number | undefined
+    if ((policy as { enrolled?: boolean } | null)?.enrolled === false) {
+      if (!native.unenroll) throw new Error('Update Kinwall to finish removing Screen Time management.')
+      status = await native.unenroll(id, new URL(c.baseURL).origin)
+      this.current(c, generation)
+      await this.report(c, id, status, enrollmentRevision)
+      return { ...status, role: 'child', enrolled: false, awaitingSelection: false }
     }
-    const [policy, rawChoices] = await Promise.all([this.deps.request(c, 'GET', pathFor(id)), this.deps.request(c, 'GET', `${pathFor(id)}/apps`)])
+    if (!status.authorized) {
+      await this.report(c, id, status, enrollmentRevision)
+      return { ...status, role: 'child', enrolled: true, remoteSelection: !!native.choose }
+    }
+    const rawChoices = await this.deps.request(c, 'GET', `${pathFor(id)}/apps`)
     this.current(c, generation)
     const choices = savedChoices(rawChoices), decision = routineDecision(policy)
     if (!decision) throw new Error('The routine decision is out of date. Try again.')
-    if (choices.data && choices.revision !== (status.appliedRevision ?? 0)) {
+    const afterRevision = (policy as { appChoicesAfterRevision?: unknown }).appChoicesAfterRevision ?? 0
+    if (!Number.isSafeInteger(afterRevision) || (afterRevision as number) < 0) throw new Error('The saved app choices could not be read. Choose apps again.')
+    const needsNewChoices = (afterRevision as number) > 0 && choices.revision <= (afterRevision as number)
+    if (!needsNewChoices && choices.data && choices.revision !== (status.appliedRevision ?? 0)) {
       if (!native.importSelection) throw new Error('Update Kinwall to receive the app choices from your grown-up.')
       status = await native.importSelection(id, new URL(c.baseURL).origin, choices.data, choices.revision)
       this.current(c, generation)
     }
-    if (decision.enabled && decision.appMode === 'selected' && !choices.data && !status.hasAppChoices && !status.selected) {
-      await this.report(c, id, status)
-      return { ...status, role: 'child', awaitingSelection: true }
+    if (decision.enabled && decision.appMode === 'selected' && (needsNewChoices || (!choices.data && !status.hasAppChoices && !status.selected))) {
+      await this.report(c, id, status, enrollmentRevision)
+      return { ...status, role: 'child', enrolled: true, awaitingSelection: true }
     }
     if (!native.apply) throw new Error('Update Kinwall to use routine mode.')
     this.current(c, generation)
     status = await native.apply(JSON.stringify({ ...decision, kinwallHost: new URL(c.baseURL).hostname }))
     this.current(c, generation)
-    await this.report(c, id, status)
-    return { ...status, role: 'child', awaitingSelection: false }
+    await this.report(c, id, status, enrollmentRevision)
+    return { ...status, role: 'child', enrolled: true, awaitingSelection: needsNewChoices }
   }
   async authorize(memberId: string): Promise<RoutineStatus> {
     const c = this.connection, generation = this.generation, native = this.deps.native
     if (!c || !native.authorize) throw new Error('Update Kinwall and pair this device to the child before approving Screen Time.')
     const identity = await this.deps.identity(c); this.current(c, generation)
     if (identity.scope !== 'display' || identity.owner !== memberId) throw new Error('This device can only approve its own child’s Screen Time access.')
+    const policy = await this.deps.request(c, 'GET', pathFor(memberId))
+    this.current(c, generation)
+    if ((policy as { enrolled?: boolean } | null)?.enrolled === false) throw new Error('A grown-up must enroll this device again before approving Screen Time.')
     await native.authorize(memberId, new URL(c.baseURL).origin)
     this.current(c, generation)
     this.pending = null
