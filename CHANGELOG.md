@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.3.0](https://github.com/JohnDuprey/kinwall-mobile/compare/v1.2.0...v1.3.0) (2026-10-24)
+
+
+### New
+
+* **ios:** add App Attest push gateway enrollment ([4811420](https://github.com/JohnDuprey/kinwall-mobile/commit/48114205fd87a11de18ea6da5e016cbb717122f7))
+* **ios:** Add routine mode: Screen Time bridge and monitor extension ([ab2ab4d](https://github.com/JohnDuprey/kinwall-mobile/commit/ab2ab4d24146fb0fd0a32fab801afefddaa9af04))
+* **ios:** Enable APNs push, domains, dose sync ([61f3e4e](https://github.com/JohnDuprey/kinwall-mobile/commit/61f3e4e74e5e036b062ed8b4f822c7287e40dd00))
+* **ios:** honor parent routine unenrollment commands ([1d078b4](https://github.com/JohnDuprey/kinwall-mobile/commit/1d078b4a723128ca699ced3a4fc6e5b65efdbce1))
+* **ios:** refresh routine mode in the background ([03d1e6a](https://github.com/JohnDuprey/kinwall-mobile/commit/03d1e6a998f84f2f7f01ac5b65ec0851e3ba6a21))
+
+
+### Fixed
+
+* **ios:** disable inherited App Groups on extensions ([0933f3b](https://github.com/JohnDuprey/kinwall-mobile/commit/0933f3b0fd2c2a8f0db0b6bf1787ca34643f7e09))
+* **ios:** enforce all-app mode without picker choices ([cb514a6](https://github.com/JohnDuprey/kinwall-mobile/commit/cb514a678292afc39da50441156b2c249dec1fc5))
+* **ios:** enforce recurring routine schedules ([a31ed39](https://github.com/JohnDuprey/kinwall-mobile/commit/a31ed39a45a45f9451b33cdb101c44789402cac5))
+* **ios:** preserve personal identity for local reminders ([9213a12](https://github.com/JohnDuprey/kinwall-mobile/commit/9213a12a8e5e23a27e6fa3659c1c6317b5b351fa))
+* **ios:** remove reserved name from intent description ([cdca5b9](https://github.com/JohnDuprey/kinwall-mobile/commit/cdca5b9fc4338362e20286a260e58d59c960f956))
+* **ios:** retain chore checks for one-time name requirements ([9453442](https://github.com/JohnDuprey/kinwall-mobile/commit/945344275b09a6a330a92301bac6f6f70cb564de))
+* **ios:** reuse a persistent signing identity in testflight ([e9ed989](https://github.com/JohnDuprey/kinwall-mobile/commit/e9ed989fdb918930d3c402077907e8649cc37462))
+* **ios:** use automatic selector with reusable signing identity ([e4fb979](https://github.com/JohnDuprey/kinwall-mobile/commit/e4fb979877acde654df3527e30eaaef0756b49f0))
+* **shell:** open journal and upkeep notification links ([829c1f9](https://github.com/JohnDuprey/kinwall-mobile/commit/829c1f935218c15e4005692b4c2870cef4bb2547))
+* **shell:** recover from transient startup connection failures ([376ecb7](https://github.com/JohnDuprey/kinwall-mobile/commit/376ecb7d9f1749dda30d33eefd54dfc84c400f51))
+* **shell:** show the status bar by default ([d4d8b02](https://github.com/JohnDuprey/kinwall-mobile/commit/d4d8b02ca131019205978d8ebaafe7faf3c43f86))
+* Split routine mode: guardian picker vs child apply ([6390e81](https://github.com/JohnDuprey/kinwall-mobile/commit/6390e81d5fce3387c28d5485ddf036cc0990ad65))
+* **watch:** finish loading chores and check-in on empty or error ([89f9d97](https://github.com/JohnDuprey/kinwall-mobile/commit/89f9d97e20665bf9c3edc371a064a876f3ec7252))
+* **watch:** include app icons in store builds ([328aaeb](https://github.com/JohnDuprey/kinwall-mobile/commit/328aaeb3e57f0f718c729d58ae27a0f6d73b9316))
+* **watch:** stop loading when there are no active lists ([2dd39bd](https://github.com/JohnDuprey/kinwall-mobile/commit/2dd39bd57949ef0807ce5051f14d4bd8d0db3ebb))
+* **watch:** sync a personal connection from the iphone ([f7809c1](https://github.com/JohnDuprey/kinwall-mobile/commit/f7809c192dfe2b5f27b068003db5c5537754c038))
+
 ## [1.2.0](https://github.com/JohnDuprey/kinwall-mobile/compare/v1.1.0...v1.2.0) (2026-10-16)
 
 
