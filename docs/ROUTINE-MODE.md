@@ -150,6 +150,12 @@ keeps its sample Safari available and explains this setup requirement. Simulator
 are marked as previews and rejected by physical devices. Simulator choices are stored per child
 in the preview session and never uploaded to a real family.
 
+## One-time chore requirements
+
+One-time chore name requirements are evaluated on the server. A nonempty
+`requiredOneTimeChoreNames` list prevents the local schedule from treating an empty ID list as
+schedule-only; future days still require a fresh server decision about the matching chores.
+
 ## Device unenrollment
 
 The web app owns policy editing and parent confirmations. The native shell fetches its own

@@ -12,7 +12,9 @@ function calendarPolicy(s: Record<string, unknown>): { calendar: RoutineCalendar
   if (!Array.isArray(days) || days.length !== 7 || !days.every(day => day === null || (typeof day === 'object' && time(day.start) && time(day.cutoff) && day.start < day.cutoff))) return null
   const ids = s.requiredChoreIds ?? null
   if (ids !== null && (!Array.isArray(ids) || ids.length > 200 || !ids.every(id => typeof id === 'string' && id.length > 0 && id.length <= 100))) return null
-  return { date: s.date, calendar: { timezone: s.timezone, start: s.start, cutoff: s.cutoff, days: days.map(day => day === null ? null : { start: day.start, cutoff: day.cutoff }), scheduleOnly: Array.isArray(ids) && ids.length === 0 } }
+  const names = s.requiredOneTimeChoreNames ?? []
+  if (!Array.isArray(names) || names.length > 200 || !names.every(name => typeof name === 'string' && name.trim().length > 0)) return null
+  return { date: s.date, calendar: { timezone: s.timezone, start: s.start, cutoff: s.cutoff, days: days.map(day => day === null ? null : { start: day.start, cutoff: day.cutoff }), scheduleOnly: Array.isArray(ids) && ids.length === 0 && names.length === 0 } }
 }
 export function routineDecision(value: unknown, now = Date.now()): RoutineDecision | null {
   if (!value || typeof value !== 'object') return null

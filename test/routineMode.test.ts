@@ -39,5 +39,8 @@ test('routine calendar carries per-day policy without carrying yesterday’s cho
   assert.equal(routineDecision(full, now)?.date, '2026-10-22')
   assert.equal(routineDecision({ ...full, requiredChoreIds: [] }, now)?.calendar?.scheduleOnly, true)
   assert.equal(routineDecision({ ...full, requiredChoreIds: ['read'] }, now)?.calendar?.scheduleOnly, false)
+  assert.equal(routineDecision({ ...full, requiredChoreIds: [], requiredOneTimeChoreNames: ['Clean your room'] }, now)?.calendar?.scheduleOnly, false, 'a name rule still needs a fresh chore decision on future days')
+  assert.equal(routineDecision({ ...full, requiredChoreIds: [], requiredOneTimeChoreNames: [] }, now)?.calendar?.scheduleOnly, true)
+  assert.equal(routineDecision({ ...full, requiredOneTimeChoreNames: 'invalid' }, now), null)
   for (const bad of [{ timezone: 'not-a-timezone' }, { start: '21:00' }, { daySchedules: [] }, { daySchedules: [...days.slice(0, 6), { start: '22:00', cutoff: '20:00' }] }, { date: '2026-02-31' }, { requiredChoreIds: 'none' }]) assert.equal(routineDecision({ ...full, ...bad }, now), null)
 })
