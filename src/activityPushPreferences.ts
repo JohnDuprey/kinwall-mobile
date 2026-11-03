@@ -7,6 +7,14 @@ export function activityPushPreferences(leaveBy: boolean, medicine: unknown, all
 }
 export const activityPushWanted = (p: ActivityPushPreferences) => p.leaveBy || p.medications
 
+/** Finish any pending registration before removing it. A failed server request must still
+ * retire the gateway capability; credentials may be discarded only after this finishes. */
+export async function retireActivityPush(pending: Promise<unknown>, unregister: () => Promise<unknown>, revokeGateway: () => Promise<unknown>): Promise<void> {
+ await pending.catch(() => {})
+ await unregister().catch(() => {})
+ await revokeGateway().catch(() => {})
+}
+
 /** Older self-hosted servers reject the new strict-schema field. Preserve their travel activities;
  * they cannot start medicine activities remotely until upgraded. Other failures remain failures. */
 export async function registerActivityPush<T>(token: { kind: 'start'|'update'; token: string; activity?: string; endsAt?: string }, preferences: ActivityPushPreferences, register: (body: { token: string; [key: string]: unknown }) => Promise<T>, oldServer: (error: unknown) => boolean): Promise<T> {

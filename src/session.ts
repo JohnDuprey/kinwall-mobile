@@ -7,6 +7,7 @@ import { revokeWidgetKey, shareKey, watchSignOut } from './sharedKey'
 import { clearAppearance } from './theme'
 import { reloadWidgets } from './widgets'
 import { clearNativePush } from './nativePush'
+import { clearActivityPush } from './liveActivities'
 
 // How this device is signed in to the household: OAuth tokens (kept fresh here), or a paired
 // key the web app holds itself. Null means "show the sign-in screen".
@@ -47,6 +48,7 @@ export function freshTokens(t: Tokens, force = false): Promise<Tokens | null> {
 
 /** Back to the sign-in screen, ending the OAuth grant on the server. */
 export async function signOut(session: Session): Promise<void> {
+  await clearActivityPush() // paired keys remain valid: explicitly remove their background starts
   await clearNativePush() // while this sign-in can still unregister its token
   if (session?.mode === 'oauth') await revoke(session.tokens)
   await clearTokens()

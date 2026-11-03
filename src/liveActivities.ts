@@ -5,7 +5,7 @@ import { api, ApiError, type Connection } from './api'
 import { type LeaveByEvent, type LeaveByPerson, leaveByAlarms } from './leaveBy'
 import { registerGatewayPush, revokeGatewayToken } from './pushGateway'
 import type { PushStatus } from './pushGatewayRegistration'
-import { activityPushPreferences, activityPushWanted, registerActivityPush } from './activityPushPreferences'
+import { activityPushPreferences, activityPushWanted, registerActivityPush, retireActivityPush } from './activityPushPreferences'
 
 // The Live Activities on iPhone (modules/kinwall-native/ios/LiveActivities.swift draws nothing
 // itself; targets/widgets/LiveActivities.swift does): the web app says what to show
@@ -34,10 +34,9 @@ export function activitiesEnabled(): boolean | null {
 }
 
 // With Apple push (a paid team, docs/PLAN.md) the app gets tokens for the server, which then starts
-// a leave-by activity while the app is closed and ends it on time. They're registered with the
+// leave-by and medicine activities while the app is closed and ends them on time. They're registered with the
 // key the page is signed in with (the server keeps them per device), never in the demo, and the
-// push-to-start token only while this device would get transition reminders (its person has them
-// on and notifications are allowed): otherwise it's taken back.
+// push-to-start token only while this device wants travel or medicine activities and has permission.
 let device: Connection | null = null
 let leaveByWanted = false
 let medicineWanted: unknown = null
@@ -64,23 +63,28 @@ const flush = () => {
 }
 export function setActivityDevice(c: Connection | null) {
   if (!c || (device && device.baseURL !== c.baseURL)) {
+    if (device) retireDevice(device)
     updates.length = 0; leaveByWanted = false; medicineWanted = null
     preferences = activityPushPreferences(false,null); revision++
   }
   device = c; flush()
 }
+function retireDevice(previous: Connection) {
+  const token = start?.token
+  pushQueue = retireActivityPush(pushQueue,
+    () => api(previous.baseURL,previous.key,'DELETE','api/live-activities/tokens',{}),
+    () => token ? revokeGatewayToken(previous.baseURL,token,'liveactivity-start') : Promise.resolve())
+}
+/** Sign-out waits for queued cleanup while the old sign-in still authorizes it. */
+export async function clearActivityPush() { setActivityDevice(null); await pushQueue }
 function syncActivityPreferences() {
   const next = activityPushPreferences(leaveByWanted,medicineWanted,allowed)
   if (JSON.stringify(next) === JSON.stringify(preferences)) return
   const wasWanted = activityPushWanted(preferences)
   preferences = next; revision++
   if (wasWanted && !activityPushWanted(next) && device) {
-    const previous = device, token = start?.token
     // Revoke after in-flight registration, before any later re-enable is queued.
-    pushQueue = pushQueue.catch(() => {}).then(async () => {
-      await api(previous.baseURL,previous.key,'DELETE','api/live-activities/tokens',{}).catch(() => {})
-      if (token) await revokeGatewayToken(previous.baseURL,token,'liveactivity-start').catch(() => {})
-    })
+    retireDevice(device)
   }
   flush()
 }

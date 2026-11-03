@@ -1,6 +1,19 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { activityPushPreferences, activityPushWanted } from '../src/activityPushPreferences.ts'
+import { retireActivityPush } from '../src/activityPushPreferences.ts'
+test('sign-out waits for an in-flight registration before removing server and gateway starts',async()=>{
+ let finish!:()=>void
+ const events:string[]=[]
+ const pending=new Promise<void>(resolve=>{finish=()=>{events.push('registered');resolve()}})
+ const retired=retireActivityPush(pending,async()=>{events.push('unregistered')},async()=>{events.push('gateway revoked')})
+ await Promise.resolve();assert.deepEqual(events,[])
+ finish();await retired
+ assert.deepEqual(events,['registered','unregistered','gateway revoked'])
+ const failed:string[]=[]
+ await retireActivityPush(Promise.reject(new Error('registration failed')),async()=>{failed.push('server');throw new Error('offline')},async()=>{failed.push('gateway')})
+ assert.deepEqual(failed,['server','gateway'],'a failed server cleanup still revokes the gateway capability')
+})
 test('medicine push-to-start remains registered when travel reminders are off',()=>{
  const p=activityPushPreferences(false,{on:true,names:false,kids:false})
  assert.equal(p.medications,true);assert.equal(p.leaveBy,false);assert.equal(activityPushWanted(p),true)

@@ -320,6 +320,8 @@ real-device checks. Simulator/prebuild success does not prove APNs delivery or p
 ### Medicine activities while the iPhone app is closed
 
 Medicine push-to-start uses the existing ActivityKit token channel, independently of `leaveByPush`.
+Signing out or changing servers retires the old server's start registration after any in-flight
+registration, before discarding the old sign-in, and revokes its gateway capability as well.
 The web app sends `medicineActivityPush` with the medicine switch, medicine-name choice and explicit
 kids-on-this-phone choice. Native permission checks disable registration when notifications or Live
 Activities are off. A start token stays registered while either travel or medicine starts are wanted;
