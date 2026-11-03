@@ -11,7 +11,7 @@ import type { Tokens } from './oauth'
 import { doseChanged, refreshReminders, requestPermission } from './reminders'
 import { nativePushAvailable, onNativePushChange, savedNativePush, setNativePushEnabled, syncNativePush } from './nativePush'
 import { type Surface, activityColors, frameColors, parseAppearance } from './appearance'
-import { activitiesEnabled, endActivity, endAllActivities, setActivityDevice, setLeaveByPush, showActivity } from './liveActivities'
+import { activitiesEnabled, endActivity, endAllActivities, setActivityDevice, setLeaveByPush, setMedicineActivityPush, setActivityPushAllowed, showActivity } from './liveActivities'
 import * as Notifications from 'expo-notifications'
 import { hideSplash, saveAppearance, savedAppearance, useUi } from './theme'
 import { type Session, freshTokens, needsRefresh } from './session'
@@ -240,6 +240,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
     const sub = AppState.addEventListener('change', async (s) => {
       if (s !== 'active') return
       web.current?.injectJavaScript(`try { window.kinwallNative.liveActivities = ${JSON.stringify(activitiesEnabled())}; window.dispatchEvent(new Event('kinwallnative')) } catch (e) {} true;`)
+      setActivityPushAllowed(activitiesEnabled() === true && (await Notifications.getPermissionsAsync()).granted)
       syncNativePush().catch(() => {}).finally(() => refreshReminders().catch(() => {}))
       if (heldLeaveBy.current && (await Notifications.getPermissionsAsync()).granted) showActivity('leaveBy', heldLeaveBy.current, activityColors(frameNow.current))
     })
@@ -298,7 +299,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   const syncKey = () => web.current?.injectJavaScript(`try { window.webkit.messageHandlers.kinwall.postMessage({ type: 'key', key: localStorage.getItem('kinwall.apiKey') }) } catch (e) {} true;`)
 
   const onMessage = async (e: WebViewMessageEvent) => {
-    const m = bridgeMessage(e.nativeEvent.data, NONCE, e.nativeEvent.url, url) as { type?: string; reason?: string; color?: string; key?: string | null; on?: boolean; kind?: unknown; payload?: unknown; channel?: unknown; tile?: unknown; facing?: unknown; blank?: boolean; probe?: unknown; handled?: unknown; id?: unknown; text?: unknown; rate?: unknown; lang?: unknown } | null
+    const m = bridgeMessage(e.nativeEvent.data, NONCE, e.nativeEvent.url, url) as { type?: string; reason?: string; color?: string; key?: string | null; on?: boolean; kind?: unknown; payload?: unknown; preferences?: unknown; channel?: unknown; tile?: unknown; facing?: unknown; blank?: boolean; probe?: unknown; handled?: unknown; id?: unknown; text?: unknown; rate?: unknown; lang?: unknown } | null
     if (!m || (m.type === 'alive' && !pageProbe.answer(m.probe))) return
     here.current = e.nativeEvent.url
     switch (m.type) {
@@ -343,6 +344,12 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       // web/src/native.ts: whether this device's person gets transition reminders (and so the leave-by push).
       case 'leaveByPush':
         if (session.mode !== 'demo') setLeaveByPush(!!m.on && (await Notifications.getPermissionsAsync()).granted)
+        break
+      case 'medicineActivityPush':
+        if (session.mode !== 'demo' && Platform.OS === 'ios') {
+          setActivityPushAllowed(activitiesEnabled() === true && (await Notifications.getPermissionsAsync()).granted)
+          setMedicineActivityPush(m.preferences)
+        }
         break
       // Android (window.kinwallNative.notificationSettings): a channel's page in Android Settings, e.g.
       // "medicine" to let it through Do Not Disturb (modules/kinwall-native/android Channels.kt).

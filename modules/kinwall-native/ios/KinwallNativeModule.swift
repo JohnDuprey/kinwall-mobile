@@ -12,6 +12,19 @@ import DeviceCheck
 public class KinwallNativeModule: Module {
     private let watch = WatchBridge()
 
+    // ActivityKit may deliver its first token before React Native has attached a listener.
+    // Keep the newest token per activity so JS can replay it immediately after subscribing.
+    private let activityTokenLock = NSLock()
+    private var activityTokens: [String: [String: Any]] = [:]
+    private func emitActivityToken(_ token: [String: Any]) {
+        let key = (token["kind"] as? String ?? "") + ":" + (token["activity"] as? String ?? "")
+        activityTokenLock.lock()
+        activityTokens[key] = token
+        if activityTokens.count > 16, let old = activityTokens.keys.first(where: { $0 != key && !$0.hasPrefix("start:") }) { activityTokens.removeValue(forKey: old) }
+        activityTokenLock.unlock()
+        sendEvent("activityToken", token)
+    }
+
     public func definition() -> ModuleDefinition {
         Name("KinwallNative")
         Function("routineSupported") { !ProcessInfo.processInfo.isiOSAppOnMac }
@@ -27,7 +40,12 @@ public class KinwallNativeModule: Module {
             NotificationCenter.default.addObserver(forName: PendingLink.posted, object: nil, queue: .main) { [weak self] _ in self?.sendEvent("link") }
             self.watch.onChange = { [weak self] in self?.sendEvent("watchStateChanged") }
             self.watch.start()
-            LiveActivities.watchPush { [weak self] token in self?.sendEvent("activityToken", token) }
+            LiveActivities.watchPush { [weak self] token in self?.emitActivityToken(token) }
+        }
+        Function("activityPushTokens") { () -> [[String: Any]] in
+            self.activityTokenLock.lock()
+            defer { self.activityTokenLock.unlock() }
+            return Array(self.activityTokens.values)
         }
         /// Live Activities (LiveActivities.swift): `payload` is the web app's JSON for that kind; a
         /// cooking one also sets its timers' alarms (CookingAlarms.swift).
@@ -35,7 +53,7 @@ public class KinwallNativeModule: Module {
         AsyncFunction("activitySet") { (kind: String, payload: String, colors: [String: String]?) in
             if kind == "cooking" { await CookingAlarms.set(json: payload, accent: colors?["accent"]) } // rings even with Live Activities off, in the family's accent
             let theme = colors.flatMap { c in c["bg"].flatMap { bg in c["fg"].flatMap { fg in c["accent"].map { KinwallActivityAttributes.Colors(bg: bg, fg: fg, accent: $0) } } } }
-            try await LiveActivities.set(kind: kind, json: payload, colors: theme) { [weak self] token in self?.sendEvent("activityToken", token) }
+            try await LiveActivities.set(kind: kind, json: payload, colors: theme) { [weak self] token in self?.emitActivityToken(token) }
         }
         AsyncFunction("activityEnd") { (kind: String?) in
             if kind == nil || kind == "cooking" { await CookingAlarms.clear() }

@@ -1,10 +1,11 @@
 import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
 import KinwallNative, { type ActivityToken } from '../modules/kinwall-native'
-import { api, type Connection } from './api'
+import { api, ApiError, type Connection } from './api'
 import { type LeaveByEvent, type LeaveByPerson, leaveByAlarms } from './leaveBy'
 import { registerGatewayPush, revokeGatewayToken } from './pushGateway'
 import type { PushStatus } from './pushGatewayRegistration'
+import { activityPushPreferences, activityPushWanted, registerActivityPush } from './activityPushPreferences'
 
 // The Live Activities on iPhone (modules/kinwall-native/ios/LiveActivities.swift draws nothing
 // itself; targets/widgets/LiveActivities.swift does): the web app says what to show
@@ -38,42 +39,57 @@ export function activitiesEnabled(): boolean | null {
 // push-to-start token only while this device would get transition reminders (its person has them
 // on and notifications are allowed): otherwise it's taken back.
 let device: Connection | null = null
-let wanted = false
+let leaveByWanted = false
+let medicineWanted: unknown = null
+let allowed = true
+let preferences = activityPushPreferences(false, null)
+let revision = 0
 let start: ActivityToken | null = null
 const updates: ActivityToken[] = []
 let pushQueue: Promise<unknown> = Promise.resolve()
 const put = (t: ActivityToken) => {
   const c = device
-  const current = () => device === c && (t.kind !== 'start' || wanted)
+  const version = revision, prefs = { ...preferences }
+  const current = () => device === c && (t.kind !== 'start' || (version === revision && activityPushWanted(preferences)))
   pushQueue = pushQueue.catch(() => {}).then(async () => {
     if (!c || !current()) return
-    await registerGatewayPush<PushStatus>(c, 'api/live-activities/tokens', t, t.kind === 'start' ? 'liveactivity-start' : 'liveactivity-update', current)
+    await registerActivityPush(t, prefs, body => registerGatewayPush<PushStatus>(c, 'api/live-activities/tokens', body, t.kind === 'start' ? 'liveactivity-start' : 'liveactivity-update', current), error => error instanceof ApiError && error.status === 400)
   }).catch(() => {})
   return pushQueue
 }
 const flush = () => {
   if (!device) return
-  if (start && wanted) put(start)
+  if (start && activityPushWanted(preferences)) put(start)
   while (updates.length) put(updates.shift()!)
 }
 export function setActivityDevice(c: Connection | null) {
-  if (!c || (device && device.baseURL !== c.baseURL)) updates.length = 0
-  if (!c) wanted = false
+  if (!c || (device && device.baseURL !== c.baseURL)) {
+    updates.length = 0; leaveByWanted = false; medicineWanted = null
+    preferences = activityPushPreferences(false,null); revision++
+  }
   device = c; flush()
 }
-export function setLeaveByPush(on: boolean) {
-  if (wanted && !on && device) {
+function syncActivityPreferences() {
+  const next = activityPushPreferences(leaveByWanted,medicineWanted,allowed)
+  if (JSON.stringify(next) === JSON.stringify(preferences)) return
+  const wasWanted = activityPushWanted(preferences)
+  preferences = next; revision++
+  if (wasWanted && !activityPushWanted(next) && device) {
     const previous = device, token = start?.token
-    // Cleanup follows any in-flight registration, so a late response cannot restore push-to-start.
+    // Revoke after in-flight registration, before any later re-enable is queued.
     pushQueue = pushQueue.catch(() => {}).then(async () => {
-      await api(previous.baseURL, previous.key, 'DELETE', 'api/live-activities/tokens', {}).catch(() => {})
-      if (token) await revokeGatewayToken(previous.baseURL, token, 'liveactivity-start').catch(() => {})
+      await api(previous.baseURL,previous.key,'DELETE','api/live-activities/tokens',{}).catch(() => {})
+      if (token) await revokeGatewayToken(previous.baseURL,token,'liveactivity-start').catch(() => {})
     })
   }
-  wanted = on
   flush()
 }
-KinwallNative?.addListener('activityToken', (t) => { if (t.kind === 'start') start = t; else updates.push(t); flush() })
+export function setLeaveByPush(on: boolean) { leaveByWanted = on; syncActivityPreferences() }
+export function setMedicineActivityPush(value: unknown) { medicineWanted = value; syncActivityPreferences() }
+export function setActivityPushAllowed(on: boolean) { allowed = on; syncActivityPreferences() }
+const activityToken = (t: ActivityToken) => { if (t.kind === 'start') start = t; else if (!updates.some(u => u.token === t.token && u.activity === t.activity)) updates.push(t); flush() }
+KinwallNative?.addListener('activityToken', activityToken)
+for (const token of KinwallNative?.activityPushTokens?.() ?? []) activityToken(token)
 
 /** Debug builds only: a sample medicine Live Activity (family.kinwall.app:/open?debug=medication),
  * in the shape the web app sends. The demo family's Sam, never real data. */

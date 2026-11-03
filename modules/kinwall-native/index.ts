@@ -56,6 +56,7 @@ type KinwallNative = {
   /** iOS: takeLink() has one. */
   addListener(event: 'link', listener: () => void): EventSubscription
   /** With push (a paid team): a token for the server, PUT /api/live-activities/tokens. */
+  activityPushTokens?(): ActivityToken[]
   addListener(event: 'activityToken', listener: (t: ActivityToken) => void): EventSubscription
 }
 export type ActivityToken = { kind: 'start' | 'update'; token: string; activity?: string; endsAt?: string }

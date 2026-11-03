@@ -1,5 +1,7 @@
 import ActivityKit
 import Foundation
+import CryptoKit
+import UIKit
 
 /// The app's Live Activities (a cooking timer, a shopping trip, the next leave-by or start-prep
 /// time, a medicine that's due), started, updated and ended from the web app's messages (src/liveActivities.ts, and
@@ -42,6 +44,7 @@ import Foundation
     /// Starts the kind's activity, or updates the one showing. What an activity is about (its
     /// attributes) can't change, so another recipe, store or event ends the old one first.
     static func set(kind: String, json: String, colors: Attributes.Colors?, onToken: @escaping ([String: Any]) -> Void) async throws {
+        if kind == "medication" && UIApplication.shared.applicationState != .active { return }
         guard ActivityAuthorizationInfo().areActivitiesEnabled, let (attributes, state, stale) = try content(kind: kind, json: json, colors: colors) else { return }
         let next = ActivityContent(state: state, staleDate: stale)
         var current: Activity<Attributes>?
@@ -85,6 +88,7 @@ import Foundation
     }
 
     static func end(kind: String) async {
+        if kind == "medication" && UIApplication.shared.applicationState != .active { return }
         for activity in onScreen(kind) { await close(activity) }
     }
 
@@ -109,6 +113,7 @@ import Foundation
         if #available(iOS 17.2, *) {
             Task { for await data in Activity<Attributes>.pushToStartTokenUpdates { onToken(["kind": "start", "token": hex(data)]) } }
         }
+        for activity in Activity<Attributes>.activities where activity.attributes.activity != nil { watchToken(activity, onToken) }
         Task { for await activity in Activity<Attributes>.activityUpdates where activity.attributes.activity != nil { watchToken(activity, onToken) } }
     }
 
@@ -141,7 +146,7 @@ import Foundation
     private struct Cooking: Decodable { let recipe: String; let timer: String; let step: String; let endsAt: Double; let done: Bool; let more: Int; let check: Check? }
     private struct Check: Decodable { let at: Double }
     private struct Shopping: Decodable { let listId: String; let store: String; let left: Int; let next: Attributes.Entry?; let upcoming: [Attributes.Entry] }
-    private struct Medication: Decodable { let medicationId: String; let date: String; let time: String; let label: String; let headline: String; let windowEndsAt: String; let stage: String }
+    private struct Medication: Decodable { let medicationId: String; let date: String; let time: String; let label: String; let headline: String; let windowEndsAt: String; let stage: String; let named: Bool? }
     private struct LeaveBy: Decodable { let activity: String; let eventId: String; let title: String; let prep: Bool; let at: String; let endsAt: String; let headline: String; let urgent: String }
 
     nonisolated private static func date(_ iso: String) -> Date? {
@@ -170,7 +175,9 @@ import Foundation
             // The label is the web app's own (generic unless the device opted into names): shown as is.
             let p = try decoder.decode(Medication.self, from: data)
             guard let until = date(p.windowEndsAt) else { return nil }
-            let attributes = Attributes(kind: "medication", name: p.label, endsAt: until, colors: colors, dose: .init(medicationId: p.medicationId, date: p.date, time: p.time))
+            let digest = SHA256.hash(data: Data("medication:\(p.medicationId):\(p.date):\(p.time):\(p.windowEndsAt)".utf8)).map { String(format: "%02x", $0) }.joined()
+            let activity = "medication:\(digest):\(p.named == true ? "names" : "private")"
+            let attributes = Attributes(kind: "medication", name: p.label, activity: activity, endsAt: until, colors: colors, dose: .init(medicationId: p.medicationId, date: p.date, time: p.time))
             return (attributes, .init(title: p.headline, detail: p.stage, date: until), until)
         default:
             return nil
