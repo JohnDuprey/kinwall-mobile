@@ -79,7 +79,7 @@ jobs:
           if [ -n "$TAG" ] && [ "$TAG" != "v$v" ]; then echo "::error::tag $TAG but package.json says $v"; exit 1; fi
           echo "VERSION=$v" >> "$GITHUB_ENV"
           echo "BUILD=$((major * 10000 + minor * 100 + patch)).$(( $(date -u +%s) / 60 ))" >> "$GITHUB_ENV"
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version: 24, cache: npm }
       - run: npm ci --ignore-scripts # no dependency has an install script; this keeps it that way
       - run: CI=1 npx expo prebuild --platform ios --clean --no-install
