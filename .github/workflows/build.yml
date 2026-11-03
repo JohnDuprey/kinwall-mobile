@@ -78,7 +78,7 @@ jobs:
           "$apksigner" sign --v4-signing-enabled false --ks "$RUNNER_TEMP/throwaway.jks" --ks-pass "pass:$pass" --out "out/$NAME.apk" "out/$NAME-unsigned.apk"
           "$apksigner" verify "out/$NAME.apk"
           rm "$RUNNER_TEMP/throwaway.jks"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: { name: '${{ env.NAME }}', path: out/, if-no-files-found: error }
 
   ios:
@@ -132,7 +132,7 @@ jobs:
             -destination 'generic/platform=iOS Simulator' -derivedDataPath "$RUNNER_TEMP/dd" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
           (cd "$RUNNER_TEMP/dd/Build/Products/Release-iphonesimulator" && ditto -c -k --keepParent Kinwall.app "$GITHUB_WORKSPACE/out/$NAME-simulator.app.zip")
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: { name: '${{ env.NAME }}', path: out/, if-no-files-found: error }
 
   release:
