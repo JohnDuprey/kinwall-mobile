@@ -72,6 +72,7 @@ class KinwallNativeModule : Module() {
     Function("openNotificationSettings") { channel: String? -> Channels.openSettings(context, channel) }
     // Android 13 and later: offer a Quick Settings tile ("groceries", "night"); Android's answer.
     AsyncFunction("addTile") { name: String, promise: expo.modules.kotlin.Promise -> Tiles.request(context, name) { promise.resolve(it) } }
+    AsyncFunction("eventSchedule") { plans: String -> Countdowns.scheduleEvents(context, plans) }
     AsyncFunction("leaveBySchedule") { alarms: String -> Countdowns.schedule(context, alarms) }
     // The contact sheet's Video call (src/links.ts meetCall): a Google Meet video call to the number,
     // with Meet's call intent (the one Google's Contacts and Phone apps start). Without Meet, its

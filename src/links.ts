@@ -50,6 +50,7 @@ export function routeFor(link: string, server?: string | null): string | null {
   if (to === 'contacts') { const c = id(q.get('contact')); return c ? `contacts?contact=${c}` : 'contacts' }
   // Home (Board/Newscast). Widgets and Live Activities from before Home and Calendar split still say
   // to=calendar and mean Home; events and drafts open in Calendar through to=shared or a reminder's route.
+  if(to === 'event') {const event=id(q.get('event')),at=q.get('at');return event ? `calendar?${new URLSearchParams({event,...(at&&Number.isFinite(Date.parse(at))?{at}:{})})}` : null}
   if (to === 'home' || to === 'calendar') return 'home'
   if (to !== 'chores') return null
   const done = id(q.get('done'))

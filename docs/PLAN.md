@@ -262,3 +262,19 @@ None is needed for M0 to M5; everything above uses existing endpoints. Nice-to-h
   family. OAuth callback and other families’ URLs cannot replace the app’s server or sign-in.
 - App Groups, iCloud and Sign in with Apple are not new integrations in this change. Shared
   extensions continue using the existing shared Keychain access group.
+
+## Followed event countdowns
+
+The updated web app can send `eventActivities` with the caller's personal schedule from
+`GET /api/event-activities`. The shell advertises `eventActivitiesSupported` so older builds keep
+their existing leave-by behavior. iPhone registers `preferences.events` as a scheduling capability;
+only explicitly followed events start activities. Event title, location, and times live in mutable
+content state so edits do not require replacing an activity. The server supplies background
+starts/updates/ends; local countdowns still need the app open on builds without Apple push.
+
+Android stores the next 48 hours of plans, schedules stage boundaries, and re-arms on reboot.
+Muted occurrences suppress duplicate leave-by activities. One ongoing event takes priority, then
+the next event starting. Stop showing hides locally even offline and attempts to save an occurrence
+override for the person's other phones. Swipe dismissal stays local. A later explicit follow has
+a new revision so it may be displayed again. Both platforms open the event and its occurrence.
+Full delivery remains subject to OS notification permissions and background restrictions.

@@ -39,6 +39,7 @@ type KinwallNative = {
    * tag (data.focus) and, in a build signed for it, Time Sensitive (data.urgent). */
   tagReminders?(): Promise<void>
   /** Android: the next day's leave-by alarms (src/leaveBy.ts), replacing the last ones. */
+  eventSchedule?(plans:string):Promise<void>
   leaveBySchedule(alarms: string): Promise<void>
   /** Android: the notification channels (Channels.kt), before scheduling on them. */
   ensureChannels?(): Promise<void>

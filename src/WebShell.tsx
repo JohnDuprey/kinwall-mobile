@@ -11,7 +11,7 @@ import type { Tokens } from './oauth'
 import { doseChanged, refreshReminders, requestPermission } from './reminders'
 import { nativePushAvailable, onNativePushChange, savedNativePush, setNativePushEnabled, syncNativePush } from './nativePush'
 import { type Surface, activityColors, frameColors, parseAppearance } from './appearance'
-import { activitiesEnabled, endActivity, endAllActivities, setActivityDevice, setLeaveByPush, setMedicineActivityPush, setActivityPushAllowed, showActivity } from './liveActivities'
+import { setEventActivities, activitiesEnabled, endActivity, endAllActivities, setActivityDevice, setLeaveByPush, setMedicineActivityPush, setActivityPushAllowed, showActivity } from './liveActivities'
 import * as Notifications from 'expo-notifications'
 import { hideSplash, saveAppearance, savedAppearance, useUi } from './theme'
 import { type Session, freshTokens, needsRefresh } from './session'
@@ -58,7 +58,7 @@ const NONCE = Array.from(Crypto.getRandomValues(new Uint8Array(16)), (b) => b.to
  * the page's first frame ("Loading…") is already in them; the page's own theme takes over once
  * its settings load (web/src/useTheme.ts). */
 const bridge = (origin: string, token: string | null, frame: (Surface & { dark: boolean }) | null, push: boolean, statusBarHidden: boolean) => `
-window.kinwallNative = { routineModeSupported: ${JSON.stringify(KinwallNative?.routineSupported?.() ?? true)}, routineModeVersion: ${KinwallNative?.routineChoose ? 2 : 1}, platform: ${JSON.stringify(Platform.OS)}, version: ${JSON.stringify(VERSION)}, providerReturn: true, nativePush: ${JSON.stringify(push)}, liveActivities: ${JSON.stringify(activitiesEnabled())}, notificationSettings: ${JSON.stringify(Platform.OS === 'android')}, quickSettingsTiles: ${JSON.stringify(Platform.OS === 'android' && Number(Platform.Version) >= 33)}, videoCall: ${JSON.stringify(Platform.OS === 'android')}, barcodeScanner: true, speech: true, statusBar: true, statusBarHidden: ${JSON.stringify(statusBarHidden)} };
+window.kinwallNative = { eventActivitiesSupported: true, routineModeSupported: ${JSON.stringify(KinwallNative?.routineSupported?.() ?? true)}, routineModeVersion: ${KinwallNative?.routineChoose ? 2 : 1}, platform: ${JSON.stringify(Platform.OS)}, version: ${JSON.stringify(VERSION)}, providerReturn: true, nativePush: ${JSON.stringify(push)}, liveActivities: ${JSON.stringify(activitiesEnabled())}, notificationSettings: ${JSON.stringify(Platform.OS === 'android')}, quickSettingsTiles: ${JSON.stringify(Platform.OS === 'android' && Number(Platform.Version) >= 33)}, videoCall: ${JSON.stringify(Platform.OS === 'android')}, barcodeScanner: true, speech: true, statusBar: true, statusBarHidden: ${JSON.stringify(statusBarHidden)} };
 ${token ? `if (location.origin === ${JSON.stringify(origin)}) try { localStorage.setItem('kinwall.apiKey', ${JSON.stringify(token)}) } catch (e) {}` : ''}
 ${frame ? `try { var r = document.documentElement; r.setAttribute('data-theme', ${JSON.stringify(frame.dark ? 'dark' : 'light')}); r.style.setProperty('--bg', ${JSON.stringify(frame.bg)}); r.style.setProperty('--card', ${JSON.stringify(frame.card)}) } catch (e) {}` : ''}
 (function () {
@@ -299,7 +299,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   const syncKey = () => web.current?.injectJavaScript(`try { window.webkit.messageHandlers.kinwall.postMessage({ type: 'key', key: localStorage.getItem('kinwall.apiKey') }) } catch (e) {} true;`)
 
   const onMessage = async (e: WebViewMessageEvent) => {
-    const m = bridgeMessage(e.nativeEvent.data, NONCE, e.nativeEvent.url, url) as { type?: string; reason?: string; color?: string; key?: string | null; on?: boolean; kind?: unknown; payload?: unknown; preferences?: unknown; channel?: unknown; tile?: unknown; facing?: unknown; blank?: boolean; probe?: unknown; handled?: unknown; id?: unknown; text?: unknown; rate?: unknown; lang?: unknown } | null
+    const m = bridgeMessage(e.nativeEvent.data, NONCE, e.nativeEvent.url, url) as { type?: string; reason?: string; color?: string; key?: string | null; on?: boolean; kind?: unknown; payload?: unknown; preferences?: unknown; schedule?: unknown; channel?: unknown; tile?: unknown; facing?: unknown; blank?: boolean; probe?: unknown; handled?: unknown; id?: unknown; text?: unknown; rate?: unknown; lang?: unknown } | null
     if (!m || (m.type === 'alive' && !pageProbe.answer(m.probe))) return
     here.current = e.nativeEvent.url
     switch (m.type) {
@@ -338,12 +338,16 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       // web/src/native.ts: a cooking timer, a shopping trip or the next leave-by, as a Live Activity.
       // A leave-by follows the reminders: none without notifications allowed.
       case 'activity':
+        if (m.kind === 'event' && !(await Notifications.getPermissionsAsync()).granted) break
         if (m.kind === 'leaveBy') { heldLeaveBy.current = m.payload; if (!(await Notifications.getPermissionsAsync()).granted) break }
         showActivity(m.kind, m.payload, activityColors(frame)); break
       case 'activityEnd': if (m.kind === 'leaveBy') heldLeaveBy.current = null; endActivity(m.kind); break
       // web/src/native.ts: whether this device's person gets transition reminders (and so the leave-by push).
       case 'leaveByPush':
         if (session.mode !== 'demo') setLeaveByPush(!!m.on && (await Notifications.getPermissionsAsync()).granted)
+        break
+      case 'eventActivities':
+        if(session.mode !== 'demo'){setActivityPushAllowed(activitiesEnabled() === true && (await Notifications.getPermissionsAsync()).granted);await setEventActivities(m.schedule)}
         break
       case 'medicineActivityPush':
         if (session.mode !== 'demo' && Platform.OS === 'ios') {

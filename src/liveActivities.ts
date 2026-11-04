@@ -1,3 +1,4 @@
+import { type EventActivity } from './eventActivities'
 import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
 import KinwallNative, { type ActivityToken } from '../modules/kinwall-native'
@@ -12,7 +13,7 @@ import { activityPushPreferences, activityPushWanted, registerActivityPush, reti
 // (web/src/native.ts tellAppActivity in the kinwall repo) and WebShell hands it over here. On
 // Android the same messages show ongoing notifications (modules/kinwall-native/android Countdowns.kt).
 
-const KINDS = ['cooking', 'shopping', 'leaveBy', 'medication']
+const KINDS = ['cooking', 'shopping', 'leaveBy', 'medication', 'event']
 type Colors = { bg: string; fg: string; accent: string } | null
 
 export function showActivity(kind: unknown, payload: unknown, colors: Colors) {
@@ -23,7 +24,7 @@ export function endActivity(kind: unknown) {
   if (typeof kind === 'string' && KINDS.includes(kind)) KinwallNative?.activityEnd(kind).catch(() => {})
 }
 /** Sign-out: nothing of this household stays on the Lock Screen (on Android, no leave-by alarm either). */
-export const endAllActivities = () => { KinwallNative?.activityEnd(null).catch(() => {}); SecureStore.deleteItemAsync(OWNER).catch(() => {}) }
+export const endAllActivities = () => { KinwallNative?.activityEnd(null).catch(() => {}); KinwallNative?.eventSchedule?.('[]').catch(()=>{}); SecureStore.deleteItemAsync(OWNER).catch(() => {}) }
 /** Ones whose time passed while the app was closed. */
 export const endStaleActivities = () => { KinwallNative?.activityEndStale().catch(() => {}) }
 
@@ -38,6 +39,8 @@ export function activitiesEnabled(): boolean | null {
 // key the page is signed in with (the server keeps them per device), never in the demo, and the
 // push-to-start token only while this device wants travel or medicine activities and has permission.
 let device: Connection | null = null
+let eventsWanted = false
+let followedPlans:EventActivity[]=[]
 let leaveByWanted = false
 let medicineWanted: unknown = null
 let allowed = true
@@ -64,7 +67,7 @@ const flush = () => {
 export function setActivityDevice(c: Connection | null) {
   if (!c || (device && device.baseURL !== c.baseURL)) {
     if (device) retireDevice(device)
-    updates.length = 0; leaveByWanted = false; medicineWanted = null
+    updates.length = 0; eventsWanted = false; followedPlans=[]; leaveByWanted = false; medicineWanted = null
     preferences = activityPushPreferences(false,null); revision++
   }
   device = c; flush()
@@ -78,7 +81,7 @@ function retireDevice(previous: Connection) {
 /** Sign-out waits for queued cleanup while the old sign-in still authorizes it. */
 export async function clearActivityPush() { setActivityDevice(null); await pushQueue }
 function syncActivityPreferences() {
-  const next = activityPushPreferences(leaveByWanted,medicineWanted,allowed)
+  const next = activityPushPreferences(leaveByWanted,medicineWanted,allowed,eventsWanted)
   if (JSON.stringify(next) === JSON.stringify(preferences)) return
   const wasWanted = activityPushWanted(preferences)
   preferences = next; revision++
@@ -131,5 +134,19 @@ export async function scheduleLeaveBy(c: Connection, events: LeaveByEvent[]) {
   const people = owner && owner !== 'shared' ? await api<LeaveByPerson[]>(c.baseURL, c.key, 'GET', 'api/members').catch(() => null) : []
   if (!people) return // offline: the alarms already set stay
   const me = people.find((p) => p.id === owner)
-  await KinwallNative.leaveBySchedule(JSON.stringify(me ? leaveByAlarms(events, me, Date.now()) : [])).catch(() => {})
+  await KinwallNative.leaveBySchedule(JSON.stringify(me ? leaveByAlarms(events.filter(e=>!followedPlans.some(p=>p.eventId===e.id&&Date.parse(p.startsAt)===Date.parse(e.start))), me, Date.now()) : [])).catch(() => {})
+}
+
+/** The server owns opt-ins; Android stores the schedule for alarms with the app closed. */
+export async function setEventActivities(value:unknown) {
+ if(!value||typeof value!=='object')return
+ const s=value as {enabled?:unknown;plans?:unknown}
+ if(typeof s.enabled!=='boolean'||!Array.isArray(s.plans)||s.plans.length>1000)return
+ followedPlans=s.plans.filter((p):p is EventActivity=>!!p&&typeof p==='object'&&['activity','eventId','title','showAt','startsAt','endsAt','eventEndsAt'].every(k=>typeof p[k]==='string')&&['showAt','startsAt','endsAt','eventEndsAt'].every(k=>Number.isFinite(Date.parse(p[k]))))
+ eventsWanted=s.enabled;syncActivityPreferences()
+ if(Platform.OS==='android')await KinwallNative?.eventSchedule?.(JSON.stringify(followedPlans)).catch(()=>{})
+}
+export async function refreshEventActivities(c:Connection) {
+ const schedule=await api<{enabled:boolean;plans:EventActivity[]}>(c.baseURL,c.key,'GET','api/event-activities').catch(error=>error instanceof ApiError && error.status===403 ? {enabled:false,plans:[]} : null)
+ if(schedule)await setEventActivities(schedule)
 }

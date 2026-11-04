@@ -28,7 +28,7 @@ struct KinwallLiveActivity: Widget {
                 // The system's own background (light or dark with the phone) and text: the accent only
                 // marks the countdown and the main button, as in the Dynamic Island.
                 .activityBackgroundTint(nil)
-                .widgetURL(context.attributes.link)
+                .widgetURL(context.s.event?.link ?? context.attributes.link)
         } dynamicIsland: { context in
             DynamicIsland {
                 // The leading region is narrow beside the camera: only the icon there, and what it's
@@ -49,6 +49,7 @@ struct KinwallLiveActivity: Widget {
                         }
                         if context.attributes.kind == "shopping" { ShoppingLineView(context: context).font(.subheadline).foregroundStyle(.secondary) }
                         else if let line = context.stepLine { Text(line).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }
+                        if context.attributes.kind == "event" { EventStopButton(context: context) }
                         if context.attributes.kind == "shopping" { ShoppingButtons(context: context) }
                         if context.attributes.kind == "medication" { Text(context.medicationLine).font(.subheadline).foregroundStyle(.secondary).lineLimit(1); DoseButtons(context: context) }
                     }
@@ -61,7 +62,7 @@ struct KinwallLiveActivity: Widget {
             } minimal: {
                 Text(context.attributes.icon)
             }
-            .widgetURL(context.attributes.link)
+            .widgetURL(context.s.event?.link ?? context.attributes.link)
             .keylineTint(ActivityTheme.accentOnDark)
         }
     }
@@ -120,6 +121,7 @@ extension ActivityViewContext<KinwallActivityAttributes> {
         switch attributes.kind {
         case "cooking": due ? "Done: \(s.title)" : cooking.headline
         case "shopping": s.count == 0 ? "All done at \(attributes.name)" : s.title.isEmpty ? "\(s.count) left" : s.title
+        case "event": s.title
         case "medication": s.title // the web app's headline ("Time for Maya's medicine")
         default: due ? (s.detail ?? "Time to go") : s.title
         }
@@ -175,6 +177,10 @@ struct LockScreenActivity: View {
             }
             Text(context.headline).font(.headline).foregroundStyle(context.due ? ActivityTheme.accent : .primary).lineLimit(2)
             if let line = context.stepLine { Text(line).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
+            if context.attributes.kind == "event" {
+                if let location = context.s.event?.location { Text(location).font(.subheadline).foregroundStyle(.secondary).lineLimit(1) }
+                EventStopButton(context: context)
+            }
             if context.attributes.kind == "shopping" {
                 ShoppingLineView(context: context).font(.subheadline).foregroundStyle(.secondary)
                 ShoppingButtons(context: context)
@@ -191,6 +197,7 @@ struct LockScreenActivity: View {
     /// cooking timer's step goes under its headline).
     private var lead: String {
         switch context.attributes.kind {
+        case "event": context.s.detail ?? "Event"
         case "leave": context.due ? context.attributes.name : "\(context.attributes.name) · leave in"
         case "prep": context.due ? context.attributes.name : "\(context.attributes.name) · start prep in"
         // Shopping: the count is on the right; where things are goes under the item (ShoppingLineView).
@@ -272,5 +279,14 @@ extension Color {
     init?(hex: String?) {
         guard let hex, hex.count == 7, hex.first == "#", let v = Int(hex.dropFirst(), radix: 16) else { return nil }
         self.init(red: Double((v >> 16) & 0xFF) / 255, green: Double((v >> 8) & 0xFF) / 255, blue: Double(v & 0xFF) / 255)
+    }
+}
+
+struct EventStopButton: View {
+    let context: ActivityViewContext<KinwallActivityAttributes>
+    var body: some View {
+        if let e = context.s.event {
+            Button(intent: StopEventActivityIntent(eventId: e.eventId, occurrenceStart: e.occurrenceStart ?? "")) { Text("Stop showing") }.buttonStyle(.bordered)
+        }
     }
 }

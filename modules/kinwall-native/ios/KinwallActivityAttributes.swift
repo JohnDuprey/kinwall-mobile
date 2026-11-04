@@ -29,10 +29,31 @@ public struct KinwallActivityAttributes: ActivityAttributes {
         /// app's page and the activity can say what's after it.
         public var itemId: String?
         public var queue: [Entry]?
+        public var event: Event?
 
-        public init(title: String, detail: String? = nil, date: Date? = nil, count: Int = 0, done: Bool = false, itemId: String? = nil, queue: [Entry]? = nil, check: Date? = nil) {
+        public init(title: String, detail: String? = nil, date: Date? = nil, count: Int = 0, done: Bool = false, itemId: String? = nil, queue: [Entry]? = nil, check: Date? = nil, event: Event? = nil) {
             self.title = title; self.detail = detail; self.date = date; self.count = count; self.done = done; self.itemId = itemId; self.queue = queue
-            self.check = check
+            self.check = check; self.event = event
+        }
+    }
+
+    /// ISO strings match the server's schedule and remain mutable when an event is edited.
+    public struct Event: Codable, Hashable {
+        public var activity: String
+        public var eventId: String
+        public var occurrenceStart: String?
+        public var title: String
+        public var location: String?
+        public var showAt: String
+        public var startsAt: String
+        public var endsAt: String
+        public var eventEndsAt: String
+        public var leadAt: String?
+        public var prep: Bool
+        public var link: URL? {
+            var u = URLComponents(string: "family.kinwall.app:/open")!
+            u.queryItems = [URLQueryItem(name: "to", value: "event"), URLQueryItem(name: "event", value: eventId), URLQueryItem(name: "at", value: startsAt)]
+            return u.url
         }
     }
 

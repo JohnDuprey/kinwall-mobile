@@ -28,4 +28,15 @@ class CountdownsTest {
     assertEquals(listOf("Rice", "+1 more · Timer", 900_000L), listOf(c.title, c.text, c.countdownTo))
     assertNull("long done: gone", Countdowns.cooking(one, 900_000 + 31 * 60_000))
   }
+
+  @Test fun eventCountdownPrefersAnOngoingEventAndDoesNotShowMutedOrFinishedEvents() {
+    fun event(id: String, start: Long, end: Long, muted: Boolean = false) = JSONObject().put("activity", id).put("showAt", 1000).put("startsAt", start).put("endsAt", end).put("muted", muted)
+    val ongoing = event("ongoing", 2000, 8000)
+    val upcoming = event("upcoming", 6000, 9000)
+    assertEquals("ongoing", Countdowns.eventCandidate(listOf(upcoming, ongoing), 5000)?.getString("activity"))
+    assertEquals("upcoming", Countdowns.eventCandidate(listOf(upcoming, ongoing), 8000)?.getString("activity"))
+    assertNull(Countdowns.eventCandidate(listOf(event("muted", 2000, 8000, true)), 5000))
+    assertNull(Countdowns.eventCandidate(listOf(ongoing), 500))
+    assertNull(Countdowns.eventCandidate(listOf(ongoing), 8000))
+  }
 }

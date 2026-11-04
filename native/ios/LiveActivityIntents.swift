@@ -95,3 +95,33 @@ struct StopCookingTimerIntent: LiveActivityIntent {
     }
 }
 #endif
+
+/// Stops this occurrence on the person's phones; never edits or cancels the calendar event.
+struct StopEventActivityIntent: LiveActivityIntent {
+    static let title: LocalizedStringResource = "Stop showing"
+    static let isDiscoverable = false
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
+    @Parameter(title: "Event") var eventId: String
+    @Parameter(title: "Occurrence") var occurrenceStart: String
+    init() {}
+    init(eventId: String, occurrenceStart: String) { self.eventId = eventId; self.occurrenceStart = occurrenceStart }
+    func perform() async throws -> some IntentResult {
+        if let connection = try? SharedKeychain.widgetStore.load() {
+            let url = URL(string: "api/events/\(eventId)/follow", relativeTo: connection.baseURL)!
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 10
+            request.httpMethod = "PUT"
+            request.setValue("Bearer \(connection.key)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            var body: [String: Any] = ["enabled": false, "scope": "occurrence"]
+            if !occurrenceStart.isEmpty { body["occurrenceStart"] = occurrenceStart }
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw GotItError.signedOut }
+        } else { throw GotItError.signedOut }
+        for activity in Activity<KinwallActivityAttributes>.activities where activity.content.state.event?.eventId == eventId && (activity.content.state.event?.occurrenceStart ?? "") == occurrenceStart {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
+        return .result()
+    }
+}

@@ -11,7 +11,7 @@ import { pairedConnection, widgetConnection } from './sharedKey'
 import { reminderConnection } from './reminderConnection'
 import { loadServer } from './server'
 import { loadTokens } from './oauth'
-import { endStaleActivities, scheduleLeaveBy } from './liveActivities'
+import { endStaleActivities, scheduleLeaveBy, refreshEventActivities } from './liveActivities'
 import type { LeaveByEvent } from './leaveBy'
 import { DoseReminderState, parseDoseChange } from './doseReminders'
 import { remoteMedicineReminders } from './nativePush'
@@ -109,6 +109,7 @@ export async function refreshReminders(): Promise<void> {
   // ponytail: fetch failure keeps the reminders already scheduled; they may be stale until the next refresh.
   const list = await events(connection, new Date(now - 3600_000), new Date(now + HORIZON)).catch(() => null)
   if (!list) return
+  await refreshEventActivities(connection)
   await scheduleLeaveBy(connection, list as LeaveByEvent[]) // Android: the leave-by countdowns
   await ensureChannels()
   const person = await me(connection).then((m) => (m.owner && m.owner !== 'shared' ? m.owner : null)).catch(() => null)

@@ -138,3 +138,9 @@ test('pairing approval: opens the current family’s six-digit QR code without a
   assert.equal(routeFor(`${server}/open?to=pair&code=123456`, server), 'pair?code=123456')
   assert.equal(routeFor('family.kinwall.app:/open?to=pair&code=123456'), null)
 })
+
+test('followed event activity opens its occurrence in Calendar', () => {
+ const at='2030-01-01T16:00:00Z'
+ assert.equal(routeFor(`family.kinwall.app:/open?to=event&event=soccer&at=${encodeURIComponent(at)}`),`calendar?${new URLSearchParams({event:'soccer',at})}`)
+ assert.equal(routeFor('family.kinwall.app:/open?to=event&event=bad/id'),null)
+})

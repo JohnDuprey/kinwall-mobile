@@ -50,8 +50,8 @@ import kotlin.concurrent.thread
  */
 object Countdowns {
   /** Each kind's channel (Channels.kt): the page's Settings line follows the cooking and shopping one. */
-  private val CHANNELS = mapOf("cooking" to Channels.COUNTDOWNS, "shopping" to Channels.COUNTDOWNS, "leaveBy" to Channels.LEAVE_BY, "medication" to Channels.MEDICINE)
-  private val IDS = mapOf("cooking" to 7101, "shopping" to 7102, "leaveBy" to 7103, "medication" to 7104)
+  private val CHANNELS = mapOf("event" to Channels.COUNTDOWNS, "cooking" to Channels.COUNTDOWNS, "shopping" to Channels.COUNTDOWNS, "leaveBy" to Channels.LEAVE_BY, "medication" to Channels.MEDICINE)
+  private val IDS = mapOf("event" to 7105, "cooking" to 7101, "shopping" to 7102, "leaveBy" to 7103, "medication" to 7104)
   private const val PREFS = "family.kinwall.countdowns"
   private const val SCHEDULE = "schedule"
   private const val MIN = 60_000L
@@ -59,6 +59,8 @@ object Countdowns {
   private const val DONE_FOR = 30 * MIN
   const val ACTION_ALARM = "family.kinwall.app.COUNTDOWN"
   const val ACTION_GOT_IT = "family.kinwall.app.GOT_IT"
+  const val ACTION_EVENT_STOP = "family.kinwall.app.EVENT_STOP"
+  const val ACTION_EVENT_DISMISS = "family.kinwall.app.EVENT_DISMISS"
   const val ACTION_DOSE = "family.kinwall.app.DOSE"
   private const val SNOOZE = 10 * MIN
   private const val LINK = "family.kinwall.app:/open?to="
@@ -81,6 +83,7 @@ object Countdowns {
   /** `colors`: the family's {bg, fg, accent} (src/appearance.ts activityColors), kept for later redraws. */
   fun set(c: Context, kind: String, json: String, colors: String?) {
     if (kind !in IDS) return
+    if (kind == "event" && prefs(c).getBoolean("dismissed:" + JSONObject(json).optString("activity"), false)) return
     var payload = json
     if (kind == "shopping") { // same trip: keep its size (the page sends what's left, not a total)
       val prev = prefs(c).getString(kind, null)?.let { runCatching { JSONObject(it) }.getOrNull() }
@@ -109,11 +112,72 @@ object Countdowns {
       prefs(c).edit().remove(k).apply()
       if (k == "cooking") stopRings(c)
     }
-    if (kind == null) schedule(c, "[]")
+    if (kind == null) { schedule(c, "[]"); scheduleEvents(c, "[]") }
+    else if(kind == "event") armEvents(c)
   }
 
   /** Redraws each saved one: those whose time passed while the app was closed go. */
   fun endStale(c: Context) { for (k in IDS.keys) if (prefs(c).contains(k)) show(c, k) }
+
+  // ---- Personally followed events ----
+  fun scheduleEvents(c: Context, json: String) {
+    prefs(c).edit().putString("events", json).apply()
+    armEvents(c)
+  }
+
+  fun armEvents(c: Context) {
+    val list = runCatching { JSONArray(prefs(c).getString("events", "[]")) }.getOrDefault(JSONArray())
+    val now = System.currentTimeMillis()
+    val plans = (0 until list.length()).map { list.getJSONObject(it) }.filter {
+      !it.optBoolean("muted") && !prefs(c).getBoolean("dismissed:" + it.optString("activity"), false) && time(it.get("endsAt")) > now
+    }
+    val next = eventCandidate(plans, now)
+    val boundary = plans.flatMap { p -> listOfNotNull(time(p.get("showAt")), time(p.get("startsAt")), time(p.get("endsAt")), p.optString("leadAt").takeIf { it.isNotEmpty() && it != "null" }?.let { time(it) }) }.filter { it > now }.minOrNull()
+    if (next == null) { NotificationManagerCompat.from(c).cancel(IDS.getValue("event")); prefs(c).edit().remove("event").apply() }
+    else {
+      prefs(c).edit().putString("event", next.toString()).apply()
+      val leave = prefs(c).getString("leaveBy", null)?.let { JSONObject(it) }
+      if (leave?.optString("eventId") == next.optString("eventId")) end(c, "leaveBy")
+      showEvent(c, next, now)
+    }
+    boundary?.let { alarm(c, kindUri("event"), it, null) } ?: cancelAlarm(c, kindUri("event"))
+  }
+
+  internal fun eventCandidate(plans: List<JSONObject>, now: Long): JSONObject? = plans.filter {
+    !it.optBoolean("muted") && time(it.get("showAt")) <= now && time(it.get("endsAt")) > now
+  }.sortedWith(compareBy<JSONObject> { if (time(it.get("startsAt")) <= now) 0 else 1 }.thenBy { time(it.get("startsAt")) }.thenBy { it.getString("activity") }).firstOrNull()
+
+  private fun showEvent(c: Context, p: JSONObject, now: Long) {
+    val start = time(p.get("startsAt"))
+    val end = time(p.get("eventEndsAt"))
+    val until = time(p.get("endsAt"))
+    val lead = p.optString("leadAt").takeIf { it.isNotEmpty() && it != "null" }?.let { time(it) }
+    val at = if (now >= start) end else if (lead != null && now < lead) lead else start
+    val label = if (now >= start) "Ends in" else if (at == start) "Starts in" else if (p.optBoolean("prep")) "Start prep in" else "Leave in"
+    Channels.ensure(c)
+    val route = "event&event=" + Uri.encode(p.getString("eventId")) + "&at=" + Uri.encode(p.getString("startsAt"))
+    val open = PendingIntent.getActivity(c, 7105, openIntent(c, route), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    fun action(name: String) = PendingIntent.getBroadcast(c, 7105, Intent(c, CountdownReceiver::class.java).setAction(name).putExtra("item", p.toString()), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    val public = NotificationCompat.Builder(c, Channels.COUNTDOWNS).setSmallIcon(R.drawable.kinwall_countdown).setContentTitle("Event countdown").build()
+    val b = NotificationCompat.Builder(c, Channels.COUNTDOWNS).setSmallIcon(R.drawable.kinwall_countdown)
+      .setContentTitle(p.getString("title")).setContentText(listOfNotNull(label, p.optString("location").takeIf { it.isNotEmpty() && it != "null" }).joinToString(" · "))
+      .setOngoing(true).setOnlyAlertOnce(true).setGroup(GROUP + "event").setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPublicVersion(public)
+      .setUsesChronometer(true).setChronometerCountDown(true).setWhen(at).setShowWhen(true).setTimeoutAfter(maxOf(1L, until - now))
+      .setContentIntent(open).setDeleteIntent(action(ACTION_EVENT_DISMISS)).addAction(0, "Stop showing", action(ACTION_EVENT_STOP)).addAction(0, "Open", open)
+    if (Build.VERSION.SDK_INT >= 36 && now >= start) b.setRequestPromotedOngoing(true)
+    try { NotificationManagerCompat.from(c).notify(7105, b.build()) } catch (_: SecurityException) {}
+  }
+
+  fun stopEvent(c: Context, p: JSONObject, save: Boolean) {
+    // Keep a local dismissal even offline, so background refresh never reposts it on this phone.
+    prefs(c).edit().putBoolean("dismissed:" + p.getString("activity"), true).apply()
+    armEvents(c)
+    if (save) {
+      val b = JSONObject().put("enabled", false).put("scope", "occurrence")
+      p.optString("occurrenceStart").takeIf { it.isNotEmpty() && it != "null" }?.let { b.put("occurrenceStart", it) }
+      send(c, "PUT", "api/events/" + Uri.encode(p.getString("eventId")) + "/follow", b)
+    }
+  }
 
   // ---- Leave-by alarms (src/leaveBy.ts) ----
 
@@ -141,6 +205,8 @@ object Countdowns {
 
   /** A scheduled warning: shows it, unless the page is already showing this one (with its own words). */
   fun warn(c: Context, item: JSONObject) {
+    val followed = JSONArray(prefs(c).getString("events", "[]"))
+    if ((0 until followed.length()).any { followed.getJSONObject(it).optString("eventId") == item.optString("eventId") }) return
     val showing = prefs(c).getString("leaveBy", null)?.let { JSONObject(it) }
     if (showing?.optString("activity") == item.optString("activity") && showing.has("headline")) show(c, "leaveBy")
     else set(c, "leaveBy", item.toString(), null)
@@ -237,6 +303,7 @@ object Countdowns {
   /** `alert`: its own alarm (a timer that's up, a leave-by time that came) sounds again; other redraws are quiet. */
   @SuppressLint("MissingPermission") // without POST_NOTIFICATIONS, notify() quietly does nothing
   fun show(c: Context, kind: String, alert: Boolean = false) {
+    if (kind == "event") { armEvents(c); return }
     val json = prefs(c).getString(kind, null) ?: return
     val loud = alert && !(kind == "cooking" && json.contains("\"alarms\"")) // a timer's own ring (ring()) sounds instead
     val now = System.currentTimeMillis()
@@ -483,6 +550,11 @@ object Countdowns {
 class CountdownReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
     when (intent.action) {
+      Countdowns.ACTION_EVENT_STOP, Countdowns.ACTION_EVENT_DISMISS -> {
+        val p = intent.getStringExtra("item")?.let { JSONObject(it) } ?: return
+        val done = goAsync()
+        thread { try { Countdowns.stopEvent(context, p, intent.action == Countdowns.ACTION_EVENT_STOP) } finally { done.finish() } }
+      }
       Countdowns.ACTION_DOSE -> {
         val action = intent.getStringExtra("action") ?: return
         val done = goAsync()
@@ -506,6 +578,7 @@ class CountdownReceiver : BroadcastReceiver() {
 /** Alarms don't survive a restart or an update: set them again, and redraw what was showing. */
 class CountdownBootReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
+    Countdowns.armEvents(context)
     Countdowns.arm(context)
     Countdowns.armRings(context)
     Countdowns.endStale(context)

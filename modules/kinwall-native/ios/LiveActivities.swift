@@ -44,8 +44,9 @@ import UIKit
     /// Starts the kind's activity, or updates the one showing. What an activity is about (its
     /// attributes) can't change, so another recipe, store or event ends the old one first.
     static func set(kind: String, json: String, colors: Attributes.Colors?, onToken: @escaping ([String: Any]) -> Void) async throws {
-        if kind == "medication" && UIApplication.shared.applicationState != .active { return }
+        if (kind == "medication" || kind == "event") && UIApplication.shared.applicationState != .active { return }
         guard ActivityAuthorizationInfo().areActivitiesEnabled, let (attributes, state, stale) = try content(kind: kind, json: json, colors: colors) else { return }
+        if kind == "event", let key = attributes.activity, UserDefaults.standard.bool(forKey: "dismissed:" + key) { return }
         let next = ActivityContent(state: state, staleDate: stale)
         var current: Activity<Attributes>?
         for activity in onScreen(kind) {
@@ -65,6 +66,14 @@ import UIKit
         let activity = try Activity.request(attributes: attributes, content: next, pushType: push ? .token : nil)
         if push { watchToken(activity, onToken) }
         if kind == "cooking" { watchSwipe(activity) }
+        if kind == "event" { watchEventDismissal(activity) }
+    }
+
+    nonisolated private static func watchEventDismissal(_ activity: Activity<Attributes>) {
+        Task { for await status in activity.activityStateUpdates where status == .dismissed {
+            if let key = activity.attributes.activity { UserDefaults.standard.set(true, forKey: "dismissed:" + key) }
+            return
+        } }
     }
 
     /// A cooking activity the person swiped away: its timers aren't shown again.
@@ -88,7 +97,7 @@ import UIKit
     }
 
     static func end(kind: String) async {
-        if kind == "medication" && UIApplication.shared.applicationState != .active { return }
+        if (kind == "medication" || kind == "event") && UIApplication.shared.applicationState != .active { return }
         for activity in onScreen(kind) { await close(activity) }
     }
 
@@ -101,7 +110,7 @@ import UIKit
     static func endStale(now: Date = .now) async {
         for activity in Activity<Attributes>.activities where activity.activityState == .active || activity.activityState == .stale {
             let a = activity.attributes, s = activity.content.state
-            let over = (a.endsAt.map { $0 <= now } ?? false) || (a.kind == "cooking" && (s.date.map { $0.addingTimeInterval(30 * 60) <= now } ?? false))
+            let over = (s.event.flatMap { date($0.endsAt) }.map { $0 <= now } ?? false) || (a.endsAt.map { $0 <= now } ?? false) || (a.kind == "cooking" && (s.date.map { $0.addingTimeInterval(30 * 60) <= now } ?? false))
             if over { await close(activity) }
         }
     }
@@ -118,6 +127,7 @@ import UIKit
     }
 
     nonisolated private static func watchToken(_ activity: Activity<Attributes>, _ onToken: @escaping ([String: Any]) -> Void) {
+        if activity.attributes.kind == "event" { watchEventDismissal(activity) }
         Task {
             for await data in activity.pushTokenUpdates {
                 var token: [String: Any] = ["kind": "update", "token": hex(data), "activity": activity.attributes.activity ?? ""]
@@ -130,7 +140,7 @@ import UIKit
     nonisolated private static func hex(_ data: Data) -> String { data.map { String(format: "%02x", $0) }.joined() }
 
     nonisolated private static func same(_ a: Attributes, _ b: Attributes) -> Bool {
-        a.kind == b.kind && a.name == b.name && a.listId == b.listId && a.eventId == b.eventId && a.activity == b.activity && a.colors == b.colors && a.dose == b.dose
+        a.kind == b.kind && a.name == b.name && a.listId == b.listId && a.eventId == b.eventId && a.activity == b.activity && (a.kind == "event" || a.colors == b.colors) && a.dose == b.dose
     }
 
     // MARK: - The web app's payloads (web/src/liveActivity.ts)
@@ -171,6 +181,13 @@ import UIKit
             guard let at = date(p.at) else { return nil }
             let attributes = Attributes(kind: p.prep ? "prep" : "leave", name: p.title, eventId: p.eventId, activity: p.activity, endsAt: date(p.endsAt), colors: colors)
             return (attributes, .init(title: p.headline, detail: p.urgent, date: at), at)
+        case "event":
+            let p = try decoder.decode(Attributes.Event.self, from: data)
+            guard let start = date(p.startsAt), let end = date(p.eventEndsAt), let until = date(p.endsAt) else { return nil }
+            let lead = p.leadAt.flatMap { date($0) }
+            let target = Date.now >= start ? end : lead.map { Date.now < $0 ? $0 : start } ?? start
+            let headline = Date.now >= start ? "Ends in" : target == start ? "Starts in" : p.prep ? "Start prep in" : "Leave in"
+            return (Attributes(kind: "event", name: "Event", eventId: p.eventId, activity: p.activity, colors: colors), .init(title: p.title, detail: headline, date: target, event: p), until)
         case "medication":
             // The label is the web app's own (generic unless the device opted into names): shown as is.
             let p = try decoder.decode(Medication.self, from: data)
