@@ -58,12 +58,26 @@ and `app.` serve `/.well-known/apple-app-site-association` directly as JSON. App
 association; installing a build before the hosted response is live can delay links/passkeys.
 Self-hosted sign-in continues through the system authentication sheet.
 
-**macOS runners:** Checks, unsigned Apple builds, and TestFlight use the standard
-`macos-26-intel` image. The `macos-26` label selects Apple Silicon; repeated runner-allocation
-failures can end a job before checkout or compilation begins. Intel runners retain Xcode 26 and
-the iOS/watchOS SDKs. CocoaPods cache keys include the runner architecture so Intel and Apple
-Silicon jobs cannot restore each other's cached dependencies. A runner change still needs a
-successful archive and upload before a TestFlight build is available.
+**TestFlight runner selection:** `testflight.yml` defaults to **auto**: a Linux controller
+starts the signed `testflight-worker.yml` build on `macos-26` (Apple Silicon). If its upload job
+has no runner after three minutes in the queue, the controller cancels that attempt and waits
+for confirmed cancellation before starting `macos-26-intel`. A runner-acquisition failure reported
+by GitHub also permits fallback. Once an ARM runner starts, it is allowed to finish. Compilation,
+signing, upload, permission, and API failures are reported without an Intel retry. Manual runs
+can select **arm** or **intel** explicitly.
+
+Both attempts check out the same resolved app commit, even if the selected branch advances while
+waiting. The controller uses an Actions token with dispatch/cancel permission and has no Apple
+secrets. The signed worker retains the release environment and existing signing identity. It
+checks that its parent controller is still running before signing and before upload, refusing to
+begin those operations after the parent has stopped. Cancelling the controller also requests cancellation
+of its workers. A controller rerun resumes its correlated worker instead of dispatching another
+upload; start a new TestFlight run to request a fresh build after an actual build failure.
+
+The controller and worker appear as separate Actions runs, with links in the controller log.
+The first deployment of this change must land on the default branch before dispatching a worker.
+Checks and unsigned Apple builds continue to use Intel. CocoaPods caches remain separated by
+runner architecture. A completed upload still needs Apple's processing before it appears in TestFlight.
 
 **Each release**
 

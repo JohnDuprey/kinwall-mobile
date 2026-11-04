@@ -36,6 +36,7 @@ jobs:
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     permissions:
       contents: read
+      actions: write # TestFlight's Linux controller dispatches and cancels its own signed workers.
     uses: ./.github/workflows/testflight.yml
     secrets: inherit
     with:

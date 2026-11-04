@@ -1,0 +1,154 @@
+# Internal signed build. Start testflight.yml for ARM-first selection and Intel fallback.
+name: TestFlight build
+run-name: TestFlight build ${{ inputs.request }}
+on:
+  workflow_dispatch:
+    inputs:
+      tag: { type: string, required: false }
+      source_sha: { type: string, required: true }
+      runner: { type: choice, options: [arm, intel], required: true }
+      parent_id: { type: string, required: true }
+      request: { type: string, required: true }
+permissions: {}
+defaults:
+  run:
+    shell: bash
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    environment: release
+    outputs:
+      ready: ${{ steps.s.outputs.ready }}
+    steps:
+      - name: Validate controller inputs
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          PARENT_ID: ${{ inputs.parent_id }}
+          RUNNER: ${{ inputs.runner }}
+          REQUEST: ${{ inputs.request }}
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[a-fA-F0-9]{40}$ ]]
+          [[ "$PARENT_ID" =~ ^[0-9]+$ ]]
+          [[ "$RUNNER" = arm || "$RUNNER" = intel ]]
+          [[ "$REQUEST" = "$PARENT_ID-$RUNNER" ]]
+      - id: s
+        env:
+          KEY: ${{ secrets.ASC_KEY_P8 }}
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          SIGNING_P12: ${{ secrets.APPLE_SIGNING_P12_BASE64 }}
+          SIGNING_PASSWORD: ${{ secrets.APPLE_SIGNING_P12_PASSWORD }}
+        run: |
+          if [ -n "$KEY" ] && [ -n "$TEAM" ] && { [ -z "$SIGNING_P12" ] || [ -z "$SIGNING_PASSWORD" ]; }; then
+            echo "::error::Configure APPLE_SIGNING_P12_BASE64 and APPLE_SIGNING_P12_PASSWORD in the release environment. CI must reuse a signing identity instead of creating certificates on every run."
+            exit 1
+          fi
+          if [ -n "$KEY" ] && [ -n "$TEAM" ]; then echo "ready=true" >> "$GITHUB_OUTPUT"
+          else echo "::notice::TestFlight skipped: the App Store Connect secrets aren't set yet (see testflight.yml)"; fi
+
+  upload:
+    needs: check
+    if: ${{ needs.check.outputs.ready == 'true' }}
+    # Xcode 26 or later: the iOS 17 deployment target, the widgets and the Watch app.
+    runs-on: ${{ inputs.runner == 'arm' && 'macos-26' || 'macos-26-intel' }}
+    timeout-minutes: 90
+    environment: release
+    permissions:
+      contents: read
+      actions: read
+    env:
+      TAG: ${{ inputs.tag }}
+      TEAM: ${{ secrets.APPLE_TEAM_ID }}
+      LANG: en_US.UTF-8
+      LC_ALL: en_US.UTF-8
+      # Official paid-team build: APNs production is used by TestFlight as well as the App Store.
+      KINWALL_PUSH: '1'
+      KINWALL_APNS_ENV: production
+      KINWALL_TIME_SENSITIVE: '1'
+      KINWALL_ASSOCIATED_DOMAINS: '1'
+    # The App Store Connect key (Admin) is written and put in the environment only for the archive
+    # and upload steps, after npm and CocoaPods have installed, so their install code never sees it.
+    # The archive step still runs build code from node_modules and Pods (the React Native bundling
+    # and CocoaPods script phases) while the key file exists: xcodebuild signs while it builds, so
+    # unlike play.yml this can't yet be split into an unsigned build and a separate signing job.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { ref: '${{ inputs.source_sha }}', persist-credentials: false }
+      - name: Version and build number
+        run: |
+          v=$(node -p "require('./package.json').version")
+          IFS=. read -r major minor patch <<< "$v"
+          if [ -n "$TAG" ] && [ "$TAG" != "v$v" ]; then echo "::error::tag $TAG but package.json says $v"; exit 1; fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+          echo "BUILD=$((major * 10000 + minor * 100 + patch)).$(( $(date -u +%s) / 60 ))" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: 24, cache: npm }
+      - run: npm ci --ignore-scripts # no dependency has an install script; this keeps it that way
+      - run: CI=1 npx expo prebuild --platform ios --clean --no-install
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ios/Pods
+            ~/Library/Caches/CocoaPods
+          key: pods-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: pods-${{ runner.os }}-${{ runner.arch }}-
+      - run: xcodebuild -version && (xcodebuild -showsdks | grep -q watchos || xcodebuild -downloadPlatform watchOS)
+      - run: pod install
+        working-directory: ios
+      - name: Install reusable signing identity
+        env:
+          APPLE_SIGNING_P12_BASE64: ${{ secrets.APPLE_SIGNING_P12_BASE64 }}
+          APPLE_SIGNING_P12_PASSWORD: ${{ secrets.APPLE_SIGNING_P12_PASSWORD }}
+        run: node scripts/ci-signing.mjs
+      - name: Check controller before signing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_ID: ${{ inputs.parent_id }}
+        run: |
+          parent_status=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARENT_ID" --jq .status)
+          if [ "$parent_status" != in_progress ]; then echo "::error::TestFlight controller is no longer running; refusing to upload"; exit 1; fi
+      - name: API key
+        env:
+          KEY: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          umask 077
+          printf '%s\n' "$KEY" > "$RUNNER_TEMP/asc.p8"
+      - name: Archive, signed with the team (automatic signing through the API key)
+        env:
+          ASC_KEY_PATH: ${{ runner.temp }}/asc.p8
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          test -n "$APPLE_SIGNING_IDENTITY" # validated identity is present in the isolated keychain
+          xcodebuild archive -quiet -workspace ios/Kinwall.xcworkspace -scheme Kinwall -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Kinwall.xcarchive" -derivedDataPath "$RUNNER_TEMP/dd" \
+            -allowProvisioningUpdates -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development" MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD"
+      - name: Upload to App Store Connect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PARENT_ID: ${{ inputs.parent_id }}
+          ASC_KEY_PATH: ${{ runner.temp }}/asc.p8
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          parent_status=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PARENT_ID" --jq .status)
+          if [ "$parent_status" != in_progress ]; then echo "::error::TestFlight controller is no longer running; refusing to upload"; exit 1; fi
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Kinwall.xcarchive" -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          echo "::notice::Kinwall $VERSION ($BUILD) uploaded; it shows in TestFlight once Apple has processed it (about 10-30 minutes)"
+      - if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/asc.p8" "$RUNNER_TEMP/kinwall-signing.p12"
+          if [ -f "$RUNNER_TEMP/kinwall-signing.keychain-db" ]; then security delete-keychain "$RUNNER_TEMP/kinwall-signing.keychain-db"; fi
