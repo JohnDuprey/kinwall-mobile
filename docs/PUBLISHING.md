@@ -58,6 +58,13 @@ and `app.` serve `/.well-known/apple-app-site-association` directly as JSON. App
 association; installing a build before the hosted response is live can delay links/passkeys.
 Self-hosted sign-in continues through the system authentication sheet.
 
+**macOS runners:** Checks, unsigned Apple builds, and TestFlight use the standard
+`macos-26-intel` image. The `macos-26` label selects Apple Silicon; repeated runner-allocation
+failures can end a job before checkout or compilation begins. Intel runners retain Xcode 26 and
+the iOS/watchOS SDKs. CocoaPods cache keys include the runner architecture so Intel and Apple
+Silicon jobs cannot restore each other's cached dependencies. A runner change still needs a
+successful archive and upload before a TestFlight build is available.
+
 **Each release**
 
 1. Build and upload: each release runs `.github/workflows/testflight.yml` (from release-please; or

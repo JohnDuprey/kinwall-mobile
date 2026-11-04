@@ -84,7 +84,7 @@ jobs:
   ios:
     needs: version
     # Xcode 26 or later: the iOS 17 deployment target, the widgets and the Watch app.
-    runs-on: macos-26
+    runs-on: macos-26-intel
     timeout-minutes: 90
     permissions:
       contents: read
@@ -107,8 +107,8 @@ jobs:
           path: |
             ios/Pods
             ~/Library/Caches/CocoaPods
-          key: pods-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: pods-${{ runner.os }}-
+          key: pods-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: pods-${{ runner.os }}-${{ runner.arch }}-
       - run: xcodebuild -version && (xcodebuild -showsdks | grep -q watchos || xcodebuild -downloadPlatform watchOS)
       - run: pod install
         working-directory: ios
