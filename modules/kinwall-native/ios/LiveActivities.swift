@@ -10,6 +10,7 @@ import UIKit
 /// there; Live Activities turned off in Settings make all of this a no-op.
 @MainActor public enum LiveActivities {
     typealias Attributes = KinwallActivityAttributes
+    private static let eventWork = EventActivityCoordinator()
 
     /// Apple push is only signed in with a paid team: the plugin sets KinwallPush when a build has
     /// the push entitlement (KINWALL_PUSH=1 at prebuild, docs/PLAN.md). Without it no tokens are asked for.
@@ -44,12 +45,20 @@ import UIKit
     /// Starts the kind's activity, or updates the one showing. What an activity is about (its
     /// attributes) can't change, so another recipe, store or event ends the old one first.
     static func set(kind: String, json: String, colors: Attributes.Colors?, onToken: @escaping ([String: Any]) -> Void) async throws {
+        if kind == "event" {
+            try await eventWork.perform { try await setActivity(kind: kind, json: json, colors: colors, onToken: onToken) }
+        } else {
+            try await setActivity(kind: kind, json: json, colors: colors, onToken: onToken)
+        }
+    }
+
+    private static func setActivity(kind: String, json: String, colors: Attributes.Colors?, onToken: @escaping ([String: Any]) -> Void) async throws {
         if (kind == "medication" || kind == "event") && UIApplication.shared.applicationState != .active { return }
         guard ActivityAuthorizationInfo().areActivitiesEnabled, let (attributes, state, stale) = try content(kind: kind, json: json, colors: colors) else { return }
         if kind == "event", let key = attributes.activity, UserDefaults.standard.bool(forKey: "dismissed:" + key) { return }
         let next = ActivityContent(state: state, staleDate: stale)
         var current: Activity<Attributes>?
-        for activity in onScreen(kind) {
+        for activity in onScreen(kind).sorted(by: { $0.id < $1.id }) {
             if current == nil, activity.activityState != .ended, same(activity.attributes, attributes) { current = activity }
             else { await close(activity) }
         }
@@ -98,16 +107,26 @@ import UIKit
 
     static func end(kind: String) async {
         if (kind == "medication" || kind == "event") && UIApplication.shared.applicationState != .active { return }
-        for activity in onScreen(kind) { await close(activity) }
+        if kind == "event" {
+            try? await eventWork.perform { for activity in onScreen(kind) { await close(activity) } }
+        } else {
+            for activity in onScreen(kind) { await close(activity) }
+        }
     }
 
     static func endAll() async {
-        for activity in Activity<Attributes>.activities { await close(activity) }
+        try? await eventWork.perform {
+            for activity in Activity<Attributes>.activities { await close(activity) }
+        }
     }
 
     /// Ones the page can't end because the app wasn't open: a leave-by past its end, a cooking
     /// timer that rang half an hour ago. Called when the app comes back and from background refresh.
     static func endStale(now: Date = .now) async {
+        try? await eventWork.perform { await removeStale(now: now) }
+    }
+
+    private static func removeStale(now: Date) async {
         for activity in Activity<Attributes>.activities where activity.activityState == .active || activity.activityState == .stale {
             let a = activity.attributes, s = activity.content.state
             let over = (s.event.flatMap { date($0.endsAt) }.map { $0 <= now } ?? false) || (a.endsAt.map { $0 <= now } ?? false) || (a.kind == "cooking" && (s.date.map { $0.addingTimeInterval(30 * 60) <= now } ?? false))
@@ -118,6 +137,7 @@ import UIKit
     /// With push (a paid team): the push-to-start token, and each leave-by activity's update token
     /// (ones the server started too), for the app to register with the server.
     nonisolated static func watchPush(_ onToken: @escaping ([String: Any]) -> Void) {
+        Task { @MainActor in try? await eventWork.perform { await coalesceEvents(preferred: nil) } }
         guard pushEnabled else { return }
         if #available(iOS 17.2, *) {
             Task { for await data in Activity<Attributes>.pushToStartTokenUpdates { onToken(["kind": "start", "token": hex(data)]) } }
@@ -126,13 +146,33 @@ import UIKit
         Task { for await activity in Activity<Attributes>.activityUpdates where activity.attributes.activity != nil { watchToken(activity, onToken) } }
     }
 
+    /// Apple may start a card while the foreground app is creating one. Reconcile on arrival,
+    /// not only when the web page next refreshes, and keep one deterministic live instance.
+    private static func coalesceEvents(preferred: String?) async {
+        let events = onScreen("event")
+        let keep = EventActivityCoordinator.keeper(events.map {
+            .init(id: $0.id, activity: $0.attributes.activity, running: ($0.activityState == .active || $0.activityState == .stale) && !UserDefaults.standard.bool(forKey: "dismissed:" + ($0.attributes.activity ?? "")))
+        }, preferred: preferred)
+        for event in events where event.id != keep { await close(event) }
+    }
+
     nonisolated private static func watchToken(_ activity: Activity<Attributes>, _ onToken: @escaping ([String: Any]) -> Void) {
-        if activity.attributes.kind == "event" { watchEventDismissal(activity) }
+        if activity.attributes.kind == "event" {
+            watchEventDismissal(activity)
+            Task { @MainActor in try? await eventWork.perform { await coalesceEvents(preferred: activity.attributes.activity) } }
+        }
         Task {
             for await data in activity.pushTokenUpdates {
                 var token: [String: Any] = ["kind": "update", "token": hex(data), "activity": activity.attributes.activity ?? ""]
                 if let ends = activity.attributes.endsAt { token["endsAt"] = ISO8601DateFormatter().string(from: ends) }
-                onToken(token)
+                if activity.attributes.kind == "event" {
+                    let registered = token
+                    try? await eventWork.perform {
+                        await coalesceEvents(preferred: activity.attributes.activity)
+                        // A duplicate's late token must never replace the survivor's server token.
+                        if activity.activityState == .active || activity.activityState == .stale { onToken(registered) }
+                    }
+                } else { onToken(token) }
             }
         }
     }

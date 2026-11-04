@@ -278,3 +278,14 @@ the next event starting. Stop showing hides locally even offline and attempts to
 override for the person's other phones. Swipe dismissal stays local. A later explicit follow has
 a new revision so it may be displayed again. Both platforms open the event and its occurrence.
 Full delivery remains subject to OS notification permissions and background restrictions.
+
+### One followed-event card per phone
+
+Event start claims on the server are independent of medicine preference changes and token
+renewals. On iPhone, event lifecycle operations run in a serial queue across ActivityKit suspension
+points. Existing event cards are reconciled on app startup and whenever ActivityKit reports an
+activity or token, keeping one deterministic running instance. Ended cards are removed immediately;
+a duplicate's late update token cannot replace the surviving card's server token. This also repairs
+duplicates created by older builds when the updated app opens. Real-device verification is still
+required for the foreground/push overlap; the portable Swift test covers the queue and survivor
+selection, and the ActivityKit integration is typechecked against the iOS SDK.
