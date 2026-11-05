@@ -1,3 +1,4 @@
+import { choreNudgeAnyoneStorage } from './choreNudgeAnyoneStorage'
 import * as WebBrowser from 'expo-web-browser'
 import Constants from 'expo-constants'
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
@@ -29,6 +30,7 @@ import { Scanner } from './Scanner'
 import { createLoadRecovery, createPageProbe } from './loadRecovery'
 import { authorizeRoutine, refreshRoutine, setRoutineConnection, setupRoutine, syncRoutine } from './routineController'
 import { routineRequest } from './routineMode'
+import { readChoreNudgeAnyone, saveChoreNudgeAnyone, choreNudgeAnyoneMessage, choreNudgeAnyoneScript } from './choreNudgeAnyone'
 import { readStatusBarHidden, saveStatusBarHidden, statusBarMessage, statusBarScript, statusBarSurface } from './statusBar'
 
 // Web pages open in an in-app browser: handing them to the system lets another app claim the link
@@ -57,8 +59,8 @@ const NONCE = Array.from(Crypto.getRandomValues(new Uint8Array(16)), (b) => b.to
  * `frame`: the family's last colors (src/appearance.ts), put on <html> before anything paints so
  * the page's first frame ("Loading…") is already in them; the page's own theme takes over once
  * its settings load (web/src/useTheme.ts). */
-const bridge = (origin: string, token: string | null, frame: (Surface & { dark: boolean }) | null, push: boolean, statusBarHidden: boolean) => `
-window.kinwallNative = { eventActivitiesSupported: true, routineModeSupported: ${JSON.stringify(KinwallNative?.routineSupported?.() ?? true)}, routineModeVersion: ${KinwallNative?.routineChoose ? 2 : 1}, platform: ${JSON.stringify(Platform.OS)}, version: ${JSON.stringify(VERSION)}, providerReturn: true, nativePush: ${JSON.stringify(push)}, liveActivities: ${JSON.stringify(activitiesEnabled())}, notificationSettings: ${JSON.stringify(Platform.OS === 'android')}, quickSettingsTiles: ${JSON.stringify(Platform.OS === 'android' && Number(Platform.Version) >= 33)}, videoCall: ${JSON.stringify(Platform.OS === 'android')}, barcodeScanner: true, speech: true, statusBar: true, statusBarHidden: ${JSON.stringify(statusBarHidden)} };
+const bridge = (origin: string, token: string | null, frame: (Surface & { dark: boolean }) | null, push: boolean, statusBarHidden: boolean, choreNudgeAnyone: boolean) => `
+window.kinwallNative = { choreNudgeAnyone: ${JSON.stringify(choreNudgeAnyone)}, eventActivitiesSupported: true, routineModeSupported: ${JSON.stringify(KinwallNative?.routineSupported?.() ?? true)}, routineModeVersion: ${KinwallNative?.routineChoose ? 2 : 1}, platform: ${JSON.stringify(Platform.OS)}, version: ${JSON.stringify(VERSION)}, providerReturn: true, nativePush: ${JSON.stringify(push)}, liveActivities: ${JSON.stringify(activitiesEnabled())}, notificationSettings: ${JSON.stringify(Platform.OS === 'android')}, quickSettingsTiles: ${JSON.stringify(Platform.OS === 'android' && Number(Platform.Version) >= 33)}, videoCall: ${JSON.stringify(Platform.OS === 'android')}, barcodeScanner: true, speech: true, statusBar: true, statusBarHidden: ${JSON.stringify(statusBarHidden)} };
 ${token ? `if (location.origin === ${JSON.stringify(origin)}) try { localStorage.setItem('kinwall.apiKey', ${JSON.stringify(token)}) } catch (e) {}` : ''}
 ${frame ? `try { var r = document.documentElement; r.setAttribute('data-theme', ${JSON.stringify(frame.dark ? 'dark' : 'light')}); r.style.setProperty('--bg', ${JSON.stringify(frame.bg)}); r.style.setProperty('--card', ${JSON.stringify(frame.card)}) } catch (e) {}` : ''}
 (function () {
@@ -101,6 +103,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   const ui = useUi()
   const insets = useSafeAreaInsets()
   const systemDark = useColorScheme() === 'dark'
+  const [choreAnyone, setChoreAnyone] = useState(() => readChoreNudgeAnyone(choreNudgeAnyoneStorage))
   const [statusBarHidden, setStatusBarHidden] = useState(() => readStatusBarHidden(SecureStore))
   // The family's colors from last time (never the demo's), so the frame starts in them; updated
   // live from the page. `theme` is the older servers' meta theme-color, used until then.
@@ -124,6 +127,9 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   useEffect(() => {
     web.current?.injectJavaScript(`if (location.origin === ${JSON.stringify(origin)}) { ${statusBarScript(statusBarHidden)} } true;`)
   }, [statusBarHidden, origin])
+  useEffect(() => {
+    web.current?.injectJavaScript(`if (location.origin === ${JSON.stringify(origin)}) { ${choreNudgeAnyoneScript(choreAnyone)} } true;`)
+  }, [choreAnyone, origin])
 
   // The page can go blank under the app: iOS ends a background web view's process to free memory
   // (it comes back white), Android's renderer can go, a script can fail to load at launch. So the
@@ -319,6 +325,14 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
         break
       case 'back': if (backTimer.current) back(m.handled === true); break // Android's Back, answered (above)
       case 'theme': if (m.color) setTheme(m.color); break
+      case 'choreNudgeAnyone': {
+        const on = choreNudgeAnyoneMessage(m)
+        if (on !== null && saveChoreNudgeAnyone(choreNudgeAnyoneStorage, on)) {
+          setChoreAnyone(on)
+          if (session.mode !== 'demo') await refreshReminders()
+        }
+        break
+      }
       case 'statusBar': {
         const hidden = statusBarMessage(m)
         if (hidden !== null && saveStatusBarHidden(SecureStore, hidden)) setStatusBarHidden(hidden)
@@ -440,7 +454,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       key={mount.n}
       source={{ uri: mount.at ?? (startsPairing ? `${url}?start=pair` : url) }}
       applicationNameForUserAgent={`KinwallApp/${VERSION}`}
-      injectedJavaScriptBeforeContentLoaded={bridge(origin, token, frame, session.mode !== 'demo' && nativePushAvailable(), statusBarHidden)}
+      injectedJavaScriptBeforeContentLoaded={bridge(origin, token, frame, session.mode !== 'demo' && nativePushAvailable(), statusBarHidden, choreAnyone)}
       injectedJavaScriptBeforeContentLoadedForMainFrameOnly // the default, and required: the nonce is in here
       onMessage={onMessage}
       // Android sends a load start for a #/ route change, often with no end: only a real load counts.

@@ -34,6 +34,17 @@ test("choreNudge: a chore waiting for a parent's OK isn't left", () => {
   assert.equal(choreNudge([{ id: 'a', title: 'Dishes', memberId: 'maya', completed: false, pending: true }], 'maya'), null)
 })
 
+test('choreNudge: Anyone chores require opt-in, keep personal chores, and open the app to choose who did it', () => {
+  const shared = { id: 'trash', title: 'Take out trash', memberId: null, completed: false }
+  const own = { id: 'bed', title: 'Make bed', memberId: 'maya', completed: false }
+  assert.equal(choreNudge([shared], 'maya'), null)
+  assert.deepEqual(choreNudge([shared], 'maya', true), { title: '1 chore left today', body: 'Take out trash', choreId: null })
+  assert.equal(choreNudge([own, shared], 'maya')?.body, 'Make bed')
+  assert.equal(choreNudge([own, shared], 'maya', true)?.body, 'Make bed, Take out trash')
+  assert.equal(choreNudge([{ ...shared, completed: true }, { ...shared, pending: true }], 'maya', true), null)
+  assert.equal(choreNudge([{ ...own, memberId: 'leo' }], 'maya', true), null)
+})
+
 test("choreNudge: the person's chores left; Done only for a single one without an open checklist", () => {
   const c = (id: string, memberId: string | null, extra = {}) => ({ id, title: id, memberId, completed: false, ...extra })
   assert.equal(choreNudge([c('dishes', 'maya'), c('trash', null)], 'sam'), null)

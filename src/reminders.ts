@@ -1,3 +1,4 @@
+import { choreNudgeAnyoneStorage } from './choreNudgeAnyoneStorage'
 import * as BackgroundTask from 'expo-background-task'
 import { refreshBackgroundRoutine } from './routineController'
 import * as Notifications from 'expo-notifications'
@@ -14,6 +15,7 @@ import { loadTokens } from './oauth'
 import { endStaleActivities, scheduleLeaveBy, refreshEventActivities } from './liveActivities'
 import type { LeaveByEvent } from './leaveBy'
 import { DoseReminderState, parseDoseChange } from './doseReminders'
+import { readChoreNudgeAnyone } from './choreNudgeAnyone'
 import { remoteMedicineReminders } from './nativePush'
 
 const doseState = new DoseReminderState()
@@ -159,7 +161,7 @@ async function personal(c: Connection, person: string, now: number): Promise<Pla
       const date = localDay(now, offset)
       const fire = localAt(date, hhmm)
       if (fire <= now) continue
-      const nudge = choreNudge(await choresOn(c, date).catch(() => []), person)
+      const nudge = choreNudge(await choresOn(c, date).catch(() => []), person, readChoreNudgeAnyone(choreNudgeAnyoneStorage))
       if (nudge) out.push(at(fire, `${PREFIX}chore:${date}`, nudge.choreId ? 'chore' : undefined, CHORES, nudge.title, nudge.body, { route: 'chores', choreId: nudge.choreId, date }))
     }
   }
