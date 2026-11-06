@@ -123,3 +123,9 @@ test('an ambiguous dispatch error is reported without sending another dispatch',
  await assert.rejects(api.start({ref:'main',sourceSha:sha,tag:'',runner:'arm',parentId:'123',request:'123-arm',createdAt:'2030-01-01T00:00:00Z'}),/response lost/)
  assert.equal(posts,1)
 })
+
+test('a just-dispatched run whose jobs 404 reads as no jobs yet',async()=>{
+ const api=createGitHub({repository:'demo/kinwall',token:'obvious-fake',fetch:async()=>new Response('',{status:404})})
+ assert.deepEqual(await api.jobs('1'),[])
+ await assert.rejects(api.run('1'),/returned 404/)
+})

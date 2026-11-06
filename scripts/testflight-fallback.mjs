@@ -42,7 +42,8 @@ export function createGitHub({ repository, token, fetch: request = globalThis.fe
   }
   return {
     run: id => api(`/actions/runs/${id}`),
-    jobs: id => list(`/actions/runs/${id}/jobs?filter=latest`, 'jobs'),
+    // A run dispatched a moment ago can 404 here before its jobs exist: none yet, keep polling.
+    jobs: id => list(`/actions/runs/${id}/jobs?filter=latest`, 'jobs').catch(e => { if (/ returned 404$/.test(e.message)) return []; throw e }),
     annotations: id => list(`/check-runs/${id}/annotations`),
     resolve: async ref => (await api(`/commits/${encodeURIComponent(ref)}`)).sha,
     cancel: async id => (await api(`/actions/runs/${id}/cancel`, 'POST')) !== false,
