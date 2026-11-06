@@ -28,5 +28,16 @@
 	<true/>
 	<key>WKCompanionAppBundleIdentifier</key>
 	<string>family.kinwall.app</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>family.kinwall.app.watch</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>family.kinwall.app</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

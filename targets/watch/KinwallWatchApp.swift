@@ -10,26 +10,32 @@ import UserNotifications
 @main
 struct KinwallWatchApp: App {
     @State private var link = PhoneLink()
+    @State private var destination = WatchDestination.today
 
     var body: some Scene {
         WindowGroup {
-            if let connection = link.connection {
-                TabView {
-                    TodayView(client: KinwallClient(connection))
-                    ChoresView(client: KinwallClient(connection))
-                    CheckInView(client: KinwallClient(connection))
-                    MedsView(client: KinwallClient(connection))
-                    ListsView(client: KinwallClient(connection))
+            Group {
+                if let connection = link.connection {
+                    TabView(selection: $destination) {
+                        TodayView(client: KinwallClient(connection)).tag(WatchDestination.today)
+                        ChoresView(client: KinwallClient(connection)).tag(WatchDestination.chores)
+                        CheckInView(client: KinwallClient(connection)).tag(WatchDestination.checkIn)
+                        MedsView(client: KinwallClient(connection)).tag(WatchDestination.medicines)
+                        ListsView(client: KinwallClient(connection)).tag(WatchDestination.lists)
+                    }
+                    .tabViewStyle(.verticalPage)
+                    .id(connection.key) // a new household (or key) starts fresh
+                    .task { await Transitions.refresh(KinwallClient(connection)); Transitions.scheduleBackgroundRefresh() }
+                } else {
+                    VStack(spacing: 8) {
+                        Image(systemName: "iphone").font(.title2).foregroundStyle(.secondary)
+                        Text("Open Kinwall on your iPhone to connect this Watch.").font(.footnote).multilineTextAlignment(.center)
+                    }
+                    .padding()
                 }
-                .tabViewStyle(.verticalPage)
-                .id(connection.key) // a new household (or key) starts fresh
-                .task { await Transitions.refresh(KinwallClient(connection)); Transitions.scheduleBackgroundRefresh() }
-            } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "iphone").font(.title2).foregroundStyle(.secondary)
-                    Text("Open Kinwall on your iPhone to connect this Watch.").font(.footnote).multilineTextAlignment(.center)
-                }
-                .padding()
+            }
+            .onOpenURL { url in
+                if let next = WatchDestination(url: url) { destination = next }
             }
         }
         // Transition warnings (Transitions.swift) are rescheduled here too, while the app is closed.

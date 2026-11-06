@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftUI
 import WidgetKit
 import KinwallKit
@@ -136,7 +137,8 @@ struct ChoresLeftComplication: Widget {
 
 /// How many doses are due now, never which medicines: a watch face is on show.
 struct MedsEntry: TimelineEntry {
-    let date: Date; let count: Int?
+    let date: Date; let doses: [DueDose]?
+    var count: Int? { doses?.count }
     /// The family has medicines off (reminders off, or the Health tracker off).
     var off = false
     /// The Smart Stack: up top while a dose is due.
@@ -144,31 +146,33 @@ struct MedsEntry: TimelineEntry {
 }
 
 struct MedsProvider: TimelineProvider {
-    func placeholder(in context: Context) -> MedsEntry { MedsEntry(date: .now, count: 1) }
-    func getSnapshot(in context: Context, completion: @escaping (MedsEntry) -> Void) { completion(placeholder(in: context)) }
+    func placeholder(in context: Context) -> MedsEntry { MedsEntry(date: .now, doses: DemoFamily.dueDoses().doses) }
+    func getSnapshot(in context: Context, completion: @escaping (MedsEntry) -> Void) {
+        if context.isPreview { completion(placeholder(in: context)); return }
+        nonisolated(unsafe) let completion = completion
+        Task { completion(await load()) }
+    }
     func getTimeline(in context: Context, completion: @escaping (Timeline<MedsEntry>) -> Void) {
         nonisolated(unsafe) let completion = completion
-        Task {
-            var count: Int?
-            var off = false
-            if let connection = try? SharedKeychain.widgetStore.load() {
-                let client = KinwallClient(connection)
-                off = await !client.medicinesOn()
-                if !off { count = (try? await client.dueDoses())?.doses.count ?? 0 }
-            }
-            completion(Timeline(entries: [MedsEntry(date: .now, count: count, off: off)], policy: .after(.now.addingTimeInterval(15 * 60))))
-        }
+        Task { completion(Timeline(entries: [await load()], policy: .after(.now.addingTimeInterval(15 * 60)))) }
+    }
+    private func load() async -> MedsEntry {
+        guard let connection = try? SharedKeychain.widgetStore.load() else { return MedsEntry(date: .now, doses: nil) }
+        let client = KinwallClient(connection)
+        let off = await !client.medicinesOn()
+        let doses = off ? [] : (try? await client.dueDoses())?.doses.map(\.withoutMedicineNames)
+        return MedsEntry(date: .now, doses: doses, off: off)
     }
 }
 
 struct MedsDueComplication: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "MedsDue", provider: MedsProvider()) { entry in
-            MedsDueView(entry: entry).containerBackground(.fill.tertiary, for: .widget)
+            MedsDueView(entry: entry).widgetURL(WatchDestination.medicinesURL).containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("Take now")
-        .description("How many medicines are due. Names stay off the watch face.")
-        .supportedFamilies([.accessoryCircular, .accessoryInline, .accessoryCorner])
+        .description("Medicines due, with Taken and Snooze in the Smart Stack. Names stay off the watch face.")
+        .supportedFamilies([.accessoryRectangular, .accessoryCircular, .accessoryInline, .accessoryCorner])
     }
 }
 
@@ -178,8 +182,28 @@ struct MedsDueView: View {
     var body: some View {
         let n = entry.count ?? 0
         switch family {
-        case .accessoryInline: Text(entry.off ? "💊 Off" : n == 0 ? "💊 Nothing due" : "💊 \(n) due")
-        case .accessoryCorner: Image(systemName: "pills.fill").widgetLabel { Text(entry.off ? "Off" : n == 0 ? "None due" : "\(n) due") }
+        case .accessoryRectangular:
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(entry.off ? "💊 Medicine is off" : entry.count == nil ? "💊 Open Take now to refresh" : n == 0 ? "💊 Nothing due" : "💊 \(n) due")
+                    Spacer(minLength: 2)
+                    if let at = entry.doses?.first?.dueDate {
+                        Text(at, style: .time)
+                    }
+                }.font(.caption.weight(.semibold)).lineLimit(1)
+                if let dose = entry.doses?.first {
+                    HStack(spacing: 6) {
+                        Button(intent: WatchMarkDoseIntent(dose: dose, action: "taken")) {
+                            Text("Taken").frame(maxWidth: .infinity, minHeight: 44)
+                        }
+                        Button(intent: WatchMarkDoseIntent(dose: dose, action: "snooze")) {
+                            Text("Snooze").frame(maxWidth: .infinity, minHeight: 44)
+                        }.accessibilityLabel("Snooze 10 minutes")
+                    }.buttonStyle(.bordered).font(.caption)
+                }
+            }
+        case .accessoryInline: Text(entry.off ? "💊 Off" : entry.count == nil ? "💊 Open Take now" : n == 0 ? "💊 Nothing due" : "💊 \(n) due")
+        case .accessoryCorner: Image(systemName: "pills.fill").widgetLabel { Text(entry.off ? "Off" : entry.count == nil ? "Open Take now" : n == 0 ? "None due" : "\(n) due") }
         default:
             ZStack {
                 AccessoryWidgetBackground()
@@ -190,6 +214,32 @@ struct MedsDueView: View {
             }
         }
     }
+}
+
+/// Runs on the Watch with its own person-scoped key; a failed save leaves the dose visible.
+struct WatchMarkDoseIntent: AppIntent {
+    static let title: LocalizedStringResource = "Mark a dose"
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
+    static let isDiscoverable = false
+    @Parameter(title: "Medicine") var medicationId: String
+    @Parameter(title: "Date") var date: String
+    @Parameter(title: "Time") var time: String
+    @Parameter(title: "Action") var action: String
+    init() {}
+    init(dose: DueDose, action: String) {
+        medicationId = dose.medicationId; date = dose.date; time = dose.time; self.action = action
+    }
+    func perform() async throws -> some IntentResult {
+        guard let connection = try SharedKeychain.widgetStore.load() else { throw WatchMedicineError.signedOut }
+        let dose = DueDose(medicationId: medicationId, memberId: "", date: date, time: time, dueAt: "", name: nil, dose: nil)
+        try await KinwallClient(connection).mark(dose, action == "snooze" ? .snooze : .taken)
+        WidgetCenter.shared.reloadTimelines(ofKind: "MedsDue")
+        return .result()
+    }
+}
+enum WatchMedicineError: Error, CustomLocalizedStringResourceConvertible {
+    case signedOut
+    var localizedStringResource: LocalizedStringResource { "Open Kinwall on your iPhone to connect this Watch." }
 }
 
 // MARK: - Energy battery

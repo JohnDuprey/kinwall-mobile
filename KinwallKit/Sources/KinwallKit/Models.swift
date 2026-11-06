@@ -158,6 +158,11 @@ public struct DueDose: Codable, Identifiable, Hashable, Sendable {
     public let date: String
     public let time: String
     public let dueAt: String
+    public var dueDate: Date? { ISO8601.parse(dueAt) }
+    /// Watch face actions need dose identity, never medicine names or dosage text.
+    public var withoutMedicineNames: Self {
+        Self(medicationId: medicationId, memberId: memberId, date: date, time: time, dueAt: dueAt, name: nil, dose: nil)
+    }
     public let name: String?
     public let dose: String?
     public var id: String { "\(medicationId):\(date):\(time)" }

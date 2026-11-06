@@ -74,7 +74,7 @@ Built (2026-09-29), in `targets/widgets/LiveActivities.swift`, started by the ap
 
 **Colors (2026-10-02):** every activity draws on the system's own Lock Screen background (light or dark with the phone, `activityBackgroundTint(nil)`) with the system's primary and secondary text, as the Dynamic Island does on black. Kinwall's blue (Peacock, the default scheme) is only an accent: the countdown or count, a headline once it's due, and the main button (**Taken**, **Got it**, tinted); **Snooze 10 min** and **Open** are gray. The deep peacock (`#123857`, 10.9:1 on the light card) in light mode, the sky blue (`#6CB4EE`, 7.6:1 on the dark card, 9.4:1 on black) in dark mode and in the Dynamic Island. The family's frame background no longer fills the card.
 
-**Apple Watch and CarPlay (built 2026-09-30):** from iOS 18 every activity also has a small layout (`supplementalActivityFamilies([.small])`, `SmallActivity`): the icon, the countdown or count, and the headline, with no buttons. iOS 18 shows it in the Apple Watch Smart Stack, and iOS 26 on the CarPlay Dashboard, which otherwise get a generic one. A medicine shows the web app's headline, never the medicine's name. On iOS 17 the activities are as before. Build-only so far: the Simulator has no paired-Watch or CarPlay view of a Live Activity.
+**Apple Watch and CarPlay:** from iOS 18 every activity also has a small layout (`supplementalActivityFamilies([.small])`, `SmallActivity`): the icon, the countdown or count, and the headline. Cooking timers include the same Pause/Start icon as the phone; medicine includes **Taken** and **Snooze** (10 minutes). These reuse the phone's Live Activity intents, so a timer action updates its timer and a medicine action ends the activity only after the dose saves. CarPlay disables interactive controls. Medicine uses the phone's headline and privacy choices. On iOS 17 the activities are as before. Real paired-Watch button delivery still needs device verification.
 
 Checked in the iOS 27 Simulator (iPhone 17 Pro) with the demo: all three start and show on the Lock Screen and in the Dynamic Island (compact, minimal, expanded), countdowns tick, and **Got it** moves the trip on. In that Simulator iOS runs Got it in the widget extension rather than the app, so both copies of the intent do the whole job. `xcrun simctl push` delivered a push-to-start payload only as a plain notification (no Live Activity), so push-to-start is checked by the server's tests, not end to end.
 
@@ -134,9 +134,13 @@ Checked: the native module builds against the iOS 27 Simulator SDK. Needs a real
 |---|---|
 | **Next event** with the leave-by countdown, surfacing in the Smart Stack as it nears | First |
 | **Chores left** as a gauge | First |
-| **Take now:** how many medicines are due (circular, inline, corner), never their names | Built |
+| **Take now:** how many medicines are due (circular, inline, corner), never their names. The rectangular Smart Stack widget adds **Taken** and **Snooze** (10 minutes) for the first due dose and its time. Tapping outside a button opens Take now on the Watch. | Built |
 | **Groceries** open count (with watchOS 26's grocery-store relevance, `RelevantContext.location(category: .foodMarket)`, so it comes up in a store with no location permission) | Later |
 | **Points** this week | Later |
+
+The Watch's Take now widget saves with the Watch's own key and reloads after a successful save.
+An unavailable server shows an unknown count instead of “Nothing due.” Small face complications
+open the Watch's Take now page so you can pick a dose there. The widget keeps medicine names hidden.
 
 **Relevance (built 2026-09-30):** Next event rises in the Smart Stack over the hour before the next leave-by time (or start), and Take now while a dose is due (`TimelineEntryRelevance`, watchOS 10 and later, so watchOS 26 too). A watchOS 26 `RelevanceConfiguration` widget isn't needed for that; the grocery-store context waits for a Groceries complication.
 
