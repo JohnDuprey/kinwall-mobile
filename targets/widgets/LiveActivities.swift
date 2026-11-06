@@ -304,7 +304,8 @@ struct CookingTimerButton: View {
             let paused = context.s.left != nil
             Button(intent: SetCookingTimerIntent(timerId: id, start: paused, endsAt: end, revision: context.s.nativeRevision ?? "")) {
                 Label(paused ? "Start" : "Pause", systemImage: paused ? "play.fill" : "pause.fill")
-                    .frame(minWidth: 44, minHeight: 44)
+                    .labelStyle(.iconOnly)
+                    .frame(width: 44, height: 44)
             }
             .buttonStyle(.bordered).tint(ActivityTheme.accent)
             .font(.subheadline.weight(.semibold))

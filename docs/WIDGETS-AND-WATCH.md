@@ -92,8 +92,9 @@ Built (2026-09-30), in `modules/kinwall-native/ios/CookingAlarms.swift`. The coo
 **Pause and Start on the Live Activity:** current iPhone shells advertise
 `window.kinwallNative.timerControls`. The web timer payload then includes `timers` with stable
 IDs, absolute finish times, frozen `left` milliseconds, range durations, and localized alarm text.
-The Lock Screen and expanded Dynamic Island show **Pause**, or **Start** with a frozen countdown
-and “Paused” after a pause. The paused timer stays first so Start remains reachable; all other
+The Lock Screen and expanded Dynamic Island show a pause icon, or a play icon with a frozen countdown
+and “Paused” after a pause. These icon-only buttons retain the accessible labels **Pause** and **Start**
+and a 44-point touch target. The paused timer stays first so Start remains reachable; all other
 running timers keep their alarms. Compact, Watch and CarPlay presentations keep their time display.
 
 `SetCookingTimerIntent` is a `LiveActivityIntent`, which Apple runs in the app process without
