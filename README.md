@@ -60,6 +60,12 @@ personal medicine schedule; the widgets keep their shared family access. The gat
 can read push text; medicine names stay off unless enabled for that device. Opening a notification
 still requires access to the family's server.
 
+If a Live Activity’s push registration fails, the app keeps it and retries after 5 seconds, then
+increases the automatic retry delay up to one minute while the app can run. Pending activity tokens are also
+retried when the connection refreshes. A newer token replaces the older one; signing out, changing
+servers, or turning off activity push cancels pending retries. Apple still controls delivery once
+the registration succeeds.
+
 On iPhone, reminders have buttons that work without opening the app: **Snooze** and **Open** on event reminders, **Taken** and **Snooze** on medicine reminders (a person's own iPhone), and **Done** on the chore nudge (off until turned on in iPhone Settings → Kinwall). A **Kinwall Focus filter** (Settings → Focus) can quiet other people's reminders and hide the health widgets. Leave-by and medicine reminders break through a Focus only in a build prebuilt with `KINWALL_TIME_SENSITIVE=1` (or `KINWALL_PUSH=1`), since a free Apple ID can't sign that entitlement. See [docs/WIDGETS-AND-WATCH.md](docs/WIDGETS-AND-WATCH.md#status).
 
 ### Android

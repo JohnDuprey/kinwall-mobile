@@ -1,4 +1,5 @@
 import { type EventActivity } from './eventActivities'
+import { ActivityPushRetries } from './activityPushRetries'
 import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
 import KinwallNative, { type ActivityToken } from '../modules/kinwall-native'
@@ -47,32 +48,44 @@ let allowed = true
 let preferences = activityPushPreferences(false, null)
 let revision = 0
 let start: ActivityToken | null = null
-const updates: ActivityToken[] = []
+const updates = new Map<string, ActivityToken>()
+const activityPushRetries = new ActivityPushRetries()
 let pushQueue: Promise<unknown> = Promise.resolve()
 const put = (t: ActivityToken) => {
   const c = device
   const version = revision, prefs = { ...preferences }
-  const current = () => device === c && (t.kind !== 'start' || (version === revision && activityPushWanted(preferences)))
-  pushQueue = pushQueue.catch(() => {}).then(async () => {
-    if (!c || !current()) return
-    await registerActivityPush(t, prefs, body => registerGatewayPush<PushStatus>(c, 'api/live-activities/tokens', body, t.kind === 'start' ? 'liveactivity-start' : 'liveactivity-update', current), error => error instanceof ApiError && error.status === 400)
-  }).catch(() => {})
-  return pushQueue
+  const current = () => device === c && (t.kind === 'start'
+    ? version === revision && activityPushWanted(preferences)
+    : !t.endsAt || Date.parse(t.endsAt) > Date.now())
+  return activityPushRetries.register(`${t.kind}:${t.activity ?? ''}`, valid => {
+    pushQueue = pushQueue.catch(() => {}).then(async () => {
+      if (!c || !valid()) return
+      const result = await registerActivityPush(t, prefs, body => registerGatewayPush<PushStatus>(c, 'api/live-activities/tokens', body, t.kind === 'start' ? 'liveactivity-start' : 'liveactivity-update', valid), error => error instanceof ApiError && error.status === 400)
+      if (!result.push) throw new Error('Activity push is not ready')
+      if (t.kind === 'update' && updates.get(t.activity ?? '') === t) updates.delete(t.activity ?? '')
+    })
+    return pushQueue.then(() => {})
+  }, current)
 }
 const flush = () => {
   if (!device) return
   if (start && activityPushWanted(preferences)) put(start)
-  while (updates.length) put(updates.shift()!)
+  for (const [activity, token] of updates) {
+    if (token.endsAt && Date.parse(token.endsAt) <= Date.now()) updates.delete(activity)
+    else void put(token)
+  }
 }
 export function setActivityDevice(c: Connection | null) {
   if (!c || (device && device.baseURL !== c.baseURL)) {
     if (device) retireDevice(device)
-    updates.length = 0; eventsWanted = false; followedPlans=[]; leaveByWanted = false; medicineWanted = null
+    updates.clear(); eventsWanted = false; followedPlans=[]; leaveByWanted = false; medicineWanted = null
     preferences = activityPushPreferences(false,null); revision++
   }
   device = c; flush()
 }
 function retireDevice(previous: Connection) {
+  activityPushRetries.clear()
+  updates.clear()
   const token = start?.token
   pushQueue = retireActivityPush(pushQueue,
     () => api(previous.baseURL,previous.key,'DELETE','api/live-activities/tokens',{}),
@@ -94,7 +107,7 @@ function syncActivityPreferences() {
 export function setLeaveByPush(on: boolean) { leaveByWanted = on; syncActivityPreferences() }
 export function setMedicineActivityPush(value: unknown) { medicineWanted = value; syncActivityPreferences() }
 export function setActivityPushAllowed(on: boolean) { allowed = on; syncActivityPreferences() }
-const activityToken = (t: ActivityToken) => { if (t.kind === 'start') start = t; else if (!updates.some(u => u.token === t.token && u.activity === t.activity)) updates.push(t); flush() }
+const activityToken = (t: ActivityToken) => { if (t.kind === 'start') start = t; else updates.set(t.activity ?? '', t); flush() }
 KinwallNative?.addListener('activityToken', activityToken)
 for (const token of KinwallNative?.activityPushTokens?.() ?? []) activityToken(token)
 
