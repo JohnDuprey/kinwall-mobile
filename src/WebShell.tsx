@@ -60,7 +60,7 @@ const NONCE = Array.from(Crypto.getRandomValues(new Uint8Array(16)), (b) => b.to
  * the page's first frame ("Loading…") is already in them; the page's own theme takes over once
  * its settings load (web/src/useTheme.ts). */
 const bridge = (origin: string, token: string | null, frame: (Surface & { dark: boolean }) | null, push: boolean, statusBarHidden: boolean, choreNudgeAnyone: boolean) => `
-window.kinwallNative = { choreNudgeAnyone: ${JSON.stringify(choreNudgeAnyone)}, eventActivitiesSupported: true, routineModeSupported: ${JSON.stringify(KinwallNative?.routineSupported?.() ?? true)}, routineModeVersion: ${KinwallNative?.routineChoose ? 2 : 1}, platform: ${JSON.stringify(Platform.OS)}, version: ${JSON.stringify(VERSION)}, providerReturn: true, nativePush: ${JSON.stringify(push)}, liveActivities: ${JSON.stringify(activitiesEnabled())}, notificationSettings: ${JSON.stringify(Platform.OS === 'android')}, quickSettingsTiles: ${JSON.stringify(Platform.OS === 'android' && Number(Platform.Version) >= 33)}, videoCall: ${JSON.stringify(Platform.OS === 'android')}, barcodeScanner: true, speech: true, statusBar: true, statusBarHidden: ${JSON.stringify(statusBarHidden)} };
+window.kinwallNative = { timerControls: ${JSON.stringify(!!KinwallNative?.cookingTimerChanges)}, choreNudgeAnyone: ${JSON.stringify(choreNudgeAnyone)}, eventActivitiesSupported: true, routineModeSupported: ${JSON.stringify(KinwallNative?.routineSupported?.() ?? true)}, routineModeVersion: ${KinwallNative?.routineChoose ? 2 : 1}, platform: ${JSON.stringify(Platform.OS)}, version: ${JSON.stringify(VERSION)}, providerReturn: true, nativePush: ${JSON.stringify(push)}, liveActivities: ${JSON.stringify(activitiesEnabled())}, notificationSettings: ${JSON.stringify(Platform.OS === 'android')}, quickSettingsTiles: ${JSON.stringify(Platform.OS === 'android' && Number(Platform.Version) >= 33)}, videoCall: ${JSON.stringify(Platform.OS === 'android')}, barcodeScanner: true, speech: true, statusBar: true, statusBarHidden: ${JSON.stringify(statusBarHidden)} };
 ${token ? `if (location.origin === ${JSON.stringify(origin)}) try { localStorage.setItem('kinwall.apiKey', ${JSON.stringify(token)}) } catch (e) {}` : ''}
 ${frame ? `try { var r = document.documentElement; r.setAttribute('data-theme', ${JSON.stringify(frame.dark ? 'dark' : 'light')}); r.style.setProperty('--bg', ${JSON.stringify(frame.bg)}); r.style.setProperty('--card', ${JSON.stringify(frame.card)}) } catch (e) {}` : ''}
 (function () {
@@ -226,6 +226,19 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
     return () => { clearInterval(timer); sub.remove() }
   }, [session, onTokens, onSignedOut])
 
+  const syncCookingTimers = () => {
+    const changes = KinwallNative?.cookingTimerChanges?.()
+    if (!changes) return
+    let parsed: unknown
+    try { parsed = JSON.parse(changes) } catch { return }
+    web.current?.injectJavaScript(`if (location.origin === ${JSON.stringify(origin)}) window.dispatchEvent(new CustomEvent('kinwall:timer-sync', { detail: ${JSON.stringify(parsed)} })); true;`)
+  }
+  useEffect(() => {
+    if (!KinwallNative?.cookingTimerChanges) return
+    const sub = KinwallNative.addListener('cookingTimerChanged', syncCookingTimers)
+    return () => sub.remove()
+  }, [origin])
+
   // The push subscription id and availability are metadata only; the APNs token stays native.
   useEffect(() => {
     const update = () => {
@@ -351,6 +364,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       case 'keepAwake': (m.on ? activateKeepAwakeAsync('shop') : deactivateKeepAwake('shop')).catch(() => {}); break
       // web/src/native.ts: a cooking timer, a shopping trip or the next leave-by, as a Live Activity.
       // A leave-by follows the reminders: none without notifications allowed.
+      case 'timerSync': syncCookingTimers(); break
       case 'activity':
         if (m.kind === 'event' && !(await Notifications.getPermissionsAsync()).granted) break
         if (m.kind === 'leaveBy') { heldLeaveBy.current = m.payload; if (!(await Notifications.getPermissionsAsync()).granted) break }

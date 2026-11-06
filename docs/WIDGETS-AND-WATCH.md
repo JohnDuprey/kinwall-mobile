@@ -82,12 +82,35 @@ Checked in the iOS 27 Simulator (iPhone 17 Pro) with the demo: all three start a
 
 Built (2026-09-30), in `modules/kinwall-native/ios/CookingAlarms.swift`. The cooking payload carries `alarms`, every running timer's finish (`[{ at, title: "Time's up: Rice", body: "Chicken curry · Step 3 · Simmer" }]`, kinwall `cookingActivity()`); paused and done timers aren't in it. Each payload replaces the last set, so the page stays the source of truth: pause, reset or cancel takes a timer out, and resume puts it back with its new finish. A timer is known by its finish and title (a hash of both is its id), so a payload that didn't change it leaves it alone. The alarms go even with Live Activities turned off.
 
-- **iOS 26 and later:** the first time a cooking timer runs, the app asks to use alarms (`NSAlarmKitUsageDescription`), and once allowed each finish is an AlarmKit alarm, which rings like the Clock app's timer through silent mode and Focus. It's an alarm at a fixed time, not an AlarmKit countdown, because the cooking Live Activity already counts down on the Lock Screen and in the Dynamic Island; a countdown would show a second one, and needs a widget of its own. So the system shows only the alert, with **Stop**, which dismisses it, tinted with the family's accent color (the colors the page sends with its Live Activities; Kinwall's own accent without them). There's no Pause or Resume in the system UI, so nothing there can fall out of step with the page. A timer that's ringing keeps ringing until Stop, unless cooking mode is on screen (the page beeps and marks it done, and the app stops the alarm) or closes. AlarmKit needs no entitlement or capability, so it works on the free Personal Team; `AlarmKit` is weak-linked for iOS 17 to 25.
+- **iOS 26 and later:** the first time a cooking timer runs, the app asks to use alarms (`NSAlarmKitUsageDescription`), and once allowed each finish is an AlarmKit alarm, which rings like the Clock app's timer through silent mode and Focus. It's an alarm at a fixed time, not an AlarmKit countdown, because the cooking Live Activity already counts down on the Lock Screen and in the Dynamic Island; a countdown would show a second one, and needs a widget of its own. So the system shows only the alert, with **Stop**, which dismisses it, tinted with the family's accent color (the colors the page sends with its Live Activities; Kinwall's own accent without them). Pause and Start are on Kinwall's own Live Activity, described below. A timer that's ringing keeps ringing until Stop, unless cooking mode is on screen (the page beeps and marks it done, and the app stops the alarm) or closes. AlarmKit needs no entitlement or capability, so it works on the free Personal Team; `AlarmKit` is weak-linked for iOS 17 to 25.
 - **iOS 17 to 25, or alarms not allowed:** a local notification at each finish with the payload's title and body and the default sound (id `cook:…`; all of them are canceled and scheduled again on every payload). While the app is open they're hidden (`src/reminders.ts`), since cooking mode beeps. They follow the phone's silent switch and Focus like any notification.
 - **Stop ends the Live Activity:** each alarm carries a stop intent (`StopCookingTimerIntent`, `native/ios/LiveActivityIntents.swift`, app only; the native module gets it through `CookingAlarms.stopIntent`, set at launch by `AppHooks`). iOS runs it in the app even while it's closed, and it ends the cooking activity showing that timer, which the page, suspended in the background, couldn't. Alarms set before this change have no stop intent; their activity goes when the page next says the timer rang.
 - **A range's check:** the payload's `checks` (`[{ at, title: "Check it: Rice", body }]`) are always plain local notifications with the default sound, never AlarmKit alarms, since the timer keeps going to its end, which rings as above. Android posts them once on **Timers and countdowns** (`Countdowns.ring`, `soft`), not the loud Cooking timers channel. Older apps ignore `checks`.
 - **Ending:** closing cooking mode (the web's end message) and sign-out cancel them all and stop one that's ringing.
 - **The demo** rings its sample timers; the payload has only the recipe, timer and step names the Live Activity already shows.
+
+**Pause and Start on the Live Activity:** current iPhone shells advertise
+`window.kinwallNative.timerControls`. The web timer payload then includes `timers` with stable
+IDs, absolute finish times, frozen `left` milliseconds, range durations, and localized alarm text.
+The Lock Screen and expanded Dynamic Island show **Pause**, or **Start** with a frozen countdown
+and “Paused” after a pause. The paused timer stays first so Start remains reachable; all other
+running timers keep their alarms. Compact, Watch and CarPlay presentations keep their time display.
+
+`SetCookingTimerIntent` is a `LiveActivityIntent`, which Apple runs in the app process without
+opening the UI ([Apple documentation](https://developer.apple.com/documentation/AppIntents/LiveActivityIntent)).
+`CookingTimerControls` serializes native actions with web updates, stores timer state and pending
+revisions in app-local UserDefaults, cancels the paused timer's alarm/check, and schedules shifted
+finish/check times when it starts again. No network, push capability or App Group is needed.
+The intent carries an explicit desired state and expected deadline/revision so duplicate or stale
+buttons cannot toggle another timer or apply twice.
+
+The page requests `timerSync` before its first tick and whenever it becomes visible; the shell
+returns pending revisions in `kinwall:timer-sync`. TimerHost waits for that reconciliation before
+ringing or sending old state back. Native changes also emit `cookingTimerChanged` for a page that
+is already open. The page echoes `nativeRevision` to acknowledge a change. Until then native
+state wins over old payloads; cancelling a timer removes its override, and sign-out clears the
+whole native store. Older pages/shells and Android keep the previous timer behavior and do not
+show the native button.
 
 Checked: the native module builds against the iOS 27 Simulator SDK. Needs a real phone: the AlarmKit prompt and alert, ringing on silent, Stop, and a timer paused or reset on the page before it's up.
 

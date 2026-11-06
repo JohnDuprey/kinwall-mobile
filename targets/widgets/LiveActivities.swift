@@ -42,7 +42,10 @@ struct KinwallLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(context.headline).font(.headline).lineLimit(2).minimumScaleFactor(0.8)
+                        HStack(spacing: 8) {
+                            Text(context.headline).font(.headline).lineLimit(2).minimumScaleFactor(0.8).frame(maxWidth: .infinity, alignment: .leading)
+                            if context.attributes.kind == "cooking" { CookingTimerButton(context: context) }
+                        }
                         // The recipe, store or event under it (a medicine's headline already says whose).
                         if context.attributes.kind != "medication" {
                             Text(context.attributes.name).font(.subheadline.weight(.semibold)).lineLimit(2).minimumScaleFactor(0.8)
@@ -113,13 +116,13 @@ extension KinwallActivityAttributes {
 extension ActivityViewContext<KinwallActivityAttributes> {
     var s: KinwallActivityAttributes.ContentState { state }
     /// Past its time: a timer that's up, a leave-by or start-prep time that has come.
-    var due: Bool { isStale || s.done || (s.date.map { $0 <= .now } ?? false) }
+    var due: Bool { s.left == nil && (isStale || s.done || (s.date.map { $0 <= .now } ?? false)) }
     /// A cooking timer's headline and countdown (KinwallKit CookingLine).
     var cooking: CookingLine { CookingLine(title: s.title, end: s.date, done: s.done, check: s.check, now: .now) }
 
     var headline: String {
         switch attributes.kind {
-        case "cooking": due ? "Done: \(s.title)" : cooking.headline
+        case "cooking": s.left != nil ? "Paused: \(s.title)" : due ? "Done: \(s.title)" : cooking.headline
         case "shopping": s.count == 0 ? "All done at \(attributes.name)" : s.title.isEmpty ? "\(s.count) left" : s.title
         case "event": s.title
         case "medication": s.title // the web app's headline ("Time for Maya's medicine")
@@ -155,6 +158,8 @@ struct Trailing: View {
     var body: some View {
         if context.attributes.kind == "shopping" {
             Text("\(context.s.count) left").monospacedDigit()
+        } else if let left = context.s.left {
+            Text(Duration.seconds(ceil(left / 1000)).formatted(.time(pattern: left >= 3_600_000 ? .hourMinuteSecond : .minuteSecond))).monospacedDigit()
         } else if let date = context.s.date, !context.due {
             Text(timerInterval: Date.now...max(date, .now), countsDown: true).monospacedDigit().multilineTextAlignment(.trailing)
         } else {
@@ -174,6 +179,7 @@ struct LockScreenActivity: View {
                 Text(lead).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).lineLimit(2).minimumScaleFactor(0.8)
                 Spacer(minLength: 8)
                 Trailing(context: context).font(.title2.weight(.semibold)).foregroundStyle(ActivityTheme.accent).lineLimit(1).frame(maxWidth: 110, alignment: .trailing)
+                if context.attributes.kind == "cooking" { CookingTimerButton(context: context) }
             }
             Text(context.headline).font(.headline).foregroundStyle(context.due ? ActivityTheme.accent : .primary).lineLimit(2)
             if let line = context.stepLine { Text(line).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
@@ -287,6 +293,21 @@ struct EventStopButton: View {
     var body: some View {
         if let e = context.s.event {
             Button(intent: StopEventActivityIntent(eventId: e.eventId, occurrenceStart: e.occurrenceStart ?? "")) { Text("Stop showing") }.buttonStyle(.bordered)
+        }
+    }
+}
+
+struct CookingTimerButton: View {
+    let context: ActivityViewContext<KinwallActivityAttributes>
+    var body: some View {
+        if !context.due, let id = context.s.timerId, let end = context.s.timerEnd {
+            let paused = context.s.left != nil
+            Button(intent: SetCookingTimerIntent(timerId: id, start: paused, endsAt: end, revision: context.s.nativeRevision ?? "")) {
+                Label(paused ? "Start" : "Pause", systemImage: paused ? "play.fill" : "pause.fill")
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .buttonStyle(.bordered).tint(ActivityTheme.accent)
+            .font(.subheadline.weight(.semibold))
         }
     }
 }

@@ -125,3 +125,24 @@ struct StopEventActivityIntent: LiveActivityIntent {
         return .result()
     }
 }
+
+/// LiveActivityIntent executes in the app process without opening its UI. The widget target
+/// carries the same parameter metadata; the native module exists in the app target only.
+struct SetCookingTimerIntent: LiveActivityIntent {
+    static let title: LocalizedStringResource = "Pause or start a timer"
+    static let isDiscoverable = false
+    @Parameter(title: "Timer") var timerId: Double
+    @Parameter(title: "Start") var start: Bool
+    @Parameter(title: "Finish") var endsAt: Double
+    @Parameter(title: "Revision") var revision: String
+    init() {}
+    init(timerId: Double, start: Bool, endsAt: Double, revision: String) {
+        self.timerId = timerId; self.start = start; self.endsAt = endsAt; self.revision = revision
+    }
+    func perform() async throws -> some IntentResult {
+        #if canImport(KinwallNative)
+        try await CookingTimerControls.change(id: timerId, start: start, expectedEnd: endsAt, expectedRevision: revision)
+        #endif
+        return .result()
+    }
+}

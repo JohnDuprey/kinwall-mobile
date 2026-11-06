@@ -35,8 +35,10 @@ public class KinwallNativeModule: Module {
         AsyncFunction("routineImportSelection") { (memberId: String, server: String, encoded: String, revision: Int) in try await RoutineMode.importSelection(memberId: memberId, server: server, encoded: encoded, revision: revision) }
         AsyncFunction("routineSetup") { (memberId: String, appMode: String, websiteList: Bool) in try await RoutineMode.setup(memberId: memberId, appMode: appMode, websiteList: websiteList) }
         AsyncFunction("routineApply") { (json: String) in try await RoutineMode.apply(json: json) }
-        Events("watchStateChanged", "activityToken", "link")
+        Events("watchStateChanged", "activityToken", "link", "cookingTimerChanged")
+        Function("cookingTimerChanges") { CookingTimerControls.changes() }
         OnCreate {
+            NotificationCenter.default.addObserver(forName: CookingTimerControls.changed, object: nil, queue: .main) { [weak self] _ in self?.sendEvent("cookingTimerChanged") }
             NotificationCenter.default.addObserver(forName: PendingLink.posted, object: nil, queue: .main) { [weak self] _ in self?.sendEvent("link") }
             self.watch.onChange = { [weak self] in self?.sendEvent("watchStateChanged") }
             self.watch.start()
@@ -51,12 +53,12 @@ public class KinwallNativeModule: Module {
         /// cooking one also sets its timers' alarms (CookingAlarms.swift).
         /// `colors` the family's (#RRGGBB bg, fg, accent), or nil for Kinwall's.
         AsyncFunction("activitySet") { (kind: String, payload: String, colors: [String: String]?) in
-            if kind == "cooking" { await CookingAlarms.set(json: payload, accent: colors?["accent"]) } // rings even with Live Activities off, in the family's accent
             let theme = colors.flatMap { c in c["bg"].flatMap { bg in c["fg"].flatMap { fg in c["accent"].map { KinwallActivityAttributes.Colors(bg: bg, fg: fg, accent: $0) } } } }
+            if kind == "cooking" { try await CookingTimerControls.set(json: payload, colors: theme); return }
             try await LiveActivities.set(kind: kind, json: payload, colors: theme) { [weak self] token in self?.emitActivityToken(token) }
         }
         AsyncFunction("activityEnd") { (kind: String?) in
-            if kind == nil || kind == "cooking" { await CookingAlarms.clear() }
+            if kind == nil || kind == "cooking" { try await CookingTimerControls.clear() }
             if let kind { await LiveActivities.end(kind: kind) } else { await LiveActivities.endAll() }
         }
         AsyncFunction("activityEndStale") { await LiveActivities.endStale() }

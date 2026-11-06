@@ -193,7 +193,7 @@ import UIKit
         return Set([p.endsAt] + (p.alarms ?? []).map(\.at))
     }
     /// `check`: a range's (web/src/liveActivity.ts); absent for a single time and from older pages.
-    private struct Cooking: Decodable { let recipe: String; let timer: String; let step: String; let endsAt: Double; let done: Bool; let more: Int; let check: Check? }
+    private struct Cooking: Decodable { let recipe: String; let timer: String; let step: String; let endsAt: Double; let done: Bool; let more: Int; let check: Check?; let timerId: Double?; let left: Double?; let nativeRevision: String? }
     private struct Check: Decodable { let at: Double }
     private struct Shopping: Decodable { let listId: String; let store: String; let left: Int; let next: Attributes.Entry?; let upcoming: [Attributes.Entry] }
     private struct Medication: Decodable { let medicationId: String; let date: String; let time: String; let label: String; let headline: String; let windowEndsAt: String; let stage: String; let named: Bool? }
@@ -212,7 +212,7 @@ import UIKit
             let p = try decoder.decode(Cooking.self, from: data)
             let ends = Date(timeIntervalSince1970: p.endsAt / 1000), check = p.check.map { Date(timeIntervalSince1970: $0.at / 1000) }
             // Stale at its end, even for a range: the activity counts to the end and says when to check.
-            return (Attributes(kind: "cooking", name: p.recipe, colors: colors), .init(title: p.timer, detail: p.step, date: ends, count: p.more, done: p.done, check: check), p.done ? nil : ends)
+            return (Attributes(kind: "cooking", name: p.recipe, colors: colors), .init(title: p.timer, detail: p.step, date: p.left == nil ? ends : nil, count: p.more, done: p.done, check: p.left == nil ? check : nil, timerId: p.timerId, timerEnd: p.endsAt, left: p.left, nativeRevision: p.nativeRevision), p.done || p.left != nil ? nil : ends)
         case "shopping":
             let p = try decoder.decode(Shopping.self, from: data)
             return (Attributes(kind: "shopping", name: p.store, listId: p.listId, colors: colors), .init(title: p.next?.title ?? "", detail: p.next?.aisle, count: p.left, itemId: p.next?.id, queue: p.upcoming), nil)

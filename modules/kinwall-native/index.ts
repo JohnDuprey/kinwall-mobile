@@ -2,6 +2,8 @@ import { type EventSubscription, requireOptionalNativeModule } from 'expo-module
 import type { RoutineStatus } from '../../src/routineFlow'
 
 type KinwallNative = {
+  cookingTimerChanges?(): string
+  addListener(event: 'cookingTimerChanged', listener: () => void): EventSubscription
   routineSupported?(): boolean
   routineStatus?(): Promise<RoutineStatus>
   routineUnenroll?(memberId: string, server: string): Promise<RoutineStatus>

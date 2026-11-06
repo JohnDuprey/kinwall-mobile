@@ -8,14 +8,14 @@ import UserNotifications
 
 /// Cooking timers that ring with the app in the background or closed. The web app's cooking
 /// payload lists every running timer's finish (`alarms`, web/src/liveActivity.ts); the page stays
-/// the source of truth and each payload replaces the last set. Pause, reset or cancel on the page
+/// the source of truth after native control revisions have been reconciled (CookingTimerControls). Pause, reset or cancel on the page
 /// takes a timer out of the list, and resume puts it back with its new finish, so a timer is
 /// known by its finish and title.
 ///
 /// iOS 26 and later, once allowed: an AlarmKit alarm at each finish, so it rings like the Clock
 /// app's timer, through silent mode and Focus. It's an alarm at a fixed time rather than an
 /// AlarmKit countdown: the cooking Live Activity already counts down on the Lock Screen, so the
-/// system shows only the alert, with Stop, and has no Pause that could fall out of step with the page.
+/// system shows only the alert, with Stop; Pause and Start live on Kinwall's own Live Activity.
 /// Otherwise (iOS 17 to 25, or AlarmKit not allowed): a local notification at each finish.
 /// A range ("5–6 min") also lists its check (`checks`): always a plain notification, one short
 /// sound, never an alarm, since the timer keeps going. An app from before ranges ignores `checks`.
@@ -31,14 +31,15 @@ public enum CookingAlarms {
 
     /// The page's cooking payload (a page from before `alarms` rings nothing). `accent`: the family's
     /// accent color (#RRGGBB) for the alarm, or nil for Kinwall's.
-    @MainActor static func set(json: String, accent: String? = nil) {
+    @MainActor static func set(json: String, accent: String? = nil) async {
         let p = try? JSONDecoder().decode(Payload.self, from: Data(json.utf8))
         let tint = tint(accent)
         run { await apply(p?.alarms ?? [], checks: p?.checks ?? [], tint: tint) }
+        await last?.value
     }
 
     /// Cooking mode closed, or sign-out: nothing rings, and one that's ringing stops.
-    @MainActor static func clear() { run { await apply(nil, checks: [], tint: tint(nil)) } }
+    @MainActor static func clear() async { run { await apply(nil, checks: [], tint: tint(nil)) }; await last?.value }
 
     /// The family's accent, else Kinwall's own (web/src default scheme).
     private static func tint(_ hex: String?) -> Color {

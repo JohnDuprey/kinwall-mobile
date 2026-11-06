@@ -30,10 +30,16 @@ public struct KinwallActivityAttributes: ActivityAttributes {
         public var itemId: String?
         public var queue: [Entry]?
         public var event: Event?
+        /// Cooking controls, absent in activities from older pages. Left is frozen milliseconds.
+        public var timerId: Double?
+        public var timerEnd: Double?
+        public var left: Double?
+        public var nativeRevision: String?
 
-        public init(title: String, detail: String? = nil, date: Date? = nil, count: Int = 0, done: Bool = false, itemId: String? = nil, queue: [Entry]? = nil, check: Date? = nil, event: Event? = nil) {
+        public init(title: String, detail: String? = nil, date: Date? = nil, count: Int = 0, done: Bool = false, itemId: String? = nil, queue: [Entry]? = nil, check: Date? = nil, event: Event? = nil, timerId: Double? = nil, timerEnd: Double? = nil, left: Double? = nil, nativeRevision: String? = nil) {
             self.title = title; self.detail = detail; self.date = date; self.count = count; self.done = done; self.itemId = itemId; self.queue = queue
             self.check = check; self.event = event
+            self.timerId = timerId; self.timerEnd = timerEnd; self.left = left; self.nativeRevision = nativeRevision
         }
     }
 
