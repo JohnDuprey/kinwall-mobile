@@ -94,7 +94,7 @@ so travelling with the device does not reinterpret the family's schedule.
 Failed network requests retain the last policy; a failed monitor registration keeps apps blocked.
 Only opaque Apple selection tokens and local enforcement state live in the shared App Group.
 
-The app refreshes every 15 seconds while active and on foreground. Background remote unlock,
+The app refreshes every 30 seconds while active (15 until 2026-11-06; the two children's phones were the most frequent caller after the page's own change poll) and on foreground. Background remote unlock,
 reboot/tamper behavior, authorization revocation, and real Family Sharing authorization require
 physical-device testing. John verified all-app blocking and selected-chores persistence on one
 child iPad with TestFlight build 10200.29879676. Additional devices and revocation still need QA. Sign-out retains restrictions; a child cannot lift them by leaving Kinwall.

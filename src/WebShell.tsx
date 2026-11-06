@@ -119,7 +119,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   const origin = new URL(url).origin
   useEffect(() => {
     setRoutineConnection(null, session.mode === 'demo')
-    const timer = setInterval(() => { if (AppState.currentState === 'active') refreshRoutine() }, 15000)
+    const timer = setInterval(() => { if (AppState.currentState === 'active') refreshRoutine() }, 30000) // each poll is two server reads; a finished chore unlocks within 30 s
     const sub = AppState.addEventListener('change', s => { if (s === 'active') refreshRoutine() })
     return () => { clearInterval(timer); sub.remove(); setRoutineConnection(null) }
   }, [url, session.mode])
