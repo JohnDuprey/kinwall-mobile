@@ -45,10 +45,13 @@ struct CookingTimerState: Codable {
         }
     }
 
-    /// Explicit desired state plus version makes delayed or double taps harmless.
+    /// Explicit desired state plus version makes delayed or double taps harmless. The button's
+    /// deadline comes back through App Intents, which doesn't keep a fractional Double bit for bit,
+    /// so it matches within a millisecond; the revision still rejects stale buttons.
     mutating func change(id: Double, start: Bool, expectedEnd: Double, expectedRevision: String, now: Double) -> Bool {
+        let now = now.rounded()
         guard let i = timers.firstIndex(where: { $0.id == id }), !timers[i].done,
-              timers[i].endsAt == expectedEnd, (timers[i].nativeRevision ?? "") == expectedRevision else { return false }
+              abs(timers[i].endsAt - expectedEnd) < 1, (timers[i].nativeRevision ?? "") == expectedRevision else { return false }
         if start {
             guard let left = timers[i].left, left > 0 else { return false }
             timers[i].endsAt = now + left; timers[i].left = nil

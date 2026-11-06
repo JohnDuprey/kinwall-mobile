@@ -103,7 +103,10 @@ opening the UI ([Apple documentation](https://developer.apple.com/documentation/
 revisions in app-local UserDefaults, cancels the paused timer's alarm/check, and schedules shifted
 finish/check times when it starts again. No network, push capability or App Group is needed.
 The intent carries an explicit desired state and expected deadline/revision so duplicate or stale
-buttons cannot toggle another timer or apply twice.
+buttons cannot toggle another timer or apply twice. The deadline matches within a millisecond, since
+App Intents doesn't return a fractional Double exactly (an exact match left the button dead after the
+first native change on a real iPhone), and native changes keep times in whole milliseconds. On the
+Watch the icon sits at the trailing edge of the headline row.
 
 The page requests `timerSync` before its first tick and whenever it becomes visible; the shell
 returns pending revisions in `kinwall:timer-sync`. TimerHost waits for that reconciliation before

@@ -93,6 +93,7 @@ struct SmallActivity: View {
             }
             HStack(spacing: 6) {
                 Text(context.headline).font(.subheadline.weight(.semibold)).foregroundStyle(context.due ? ActivityTheme.accent : .primary).lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading) // the button at the trailing edge, not just after a short headline
                 if context.attributes.kind == "cooking" { CookingTimerButton(context: context) }
             }
             if context.attributes.kind == "medication" { DoseButtons(context: context, compact: true) }
