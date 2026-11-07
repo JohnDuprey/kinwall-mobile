@@ -97,7 +97,7 @@ Android app and is distinct from the server's private FCM signing credentials.
 
 For the installed expo-notifications receiver, send a visible FCM HTTP v1 message with localized
 `notification.title` = “New chore” and `notification.body` = chore title. Use
-`android.priority: 'HIGH'`, `android.ttl: '0s'`, and
+`android.priority: 'HIGH'`, `android.ttl: '3600s'` (a TTL of 0 drops the alert while the device sleeps), and
 `android.notification: { channel_id: 'new_chores', tag: 'chore:new:<id>', sound: 'default' }`.
 Set `data.tag` to that same tag (Expo's foreground identifier), and set **`data.body` to a JSON
 string** containing `{ url: '/#/chores', server: '<canonical family origin>' }`. Expo decodes this
@@ -121,7 +121,10 @@ App Attest routes, and raw FCM tokens never go to them.
 1. `PUT /api/push/android` answers `gatewayAvailable: true` when the server supports the gateway
    and has a valid canonical `PUBLIC_URL`. Absent or false (older servers) means the app does not
    enroll. A direct sender (`delivery: 'direct'`) always wins; the app then revokes any gateway
-   credential it held for that server.
+   credential it held for that origin, including a previous FCM token after rotation. Other
+   origins keep their capabilities. Cleanup is persisted before the revoke request; offline cleanup
+   retries on the next sync without repeating the successful direct registration or enrolling a
+   gateway capability. A direct response with `push: false` does not remove a working capability.
 2. Otherwise the shell asks the gateway for a challenge (`POST /v1/android/enrollment/challenge`
    with the standard-base64 DER SPKI of a P-256 key and `{ token, server, kind: 'android-alert' }`).
    Before any proof it checks the returned `clientData` is exactly
@@ -158,20 +161,24 @@ the web page.
   unsupported; sideloaded installs fail Google's licensing verdict.
 - A device with Google Play services and a current Play Store.
 
+Do not use the earlier internal draft's version code `29901030` as the gateway minimum:
+main's non-gateway build `29901062` is newer. The gateway minimum must be the first configured,
+gateway-enabled **main** build with a version code above `29901062`, after Play linking and the
+release gates are verified. Confirming a Firebase project does not confirm Play Integrity linking;
+leave `KINWALL_PLAY_INTEGRITY_PROJECT_NUMBER` unset until that link is confirmed. This does not
+change app versions or upload a build.
+
 Not yet verified: a real Play verdict on a physical device against the deployed gateway, and
 end-to-end delivery through it. Tests use fake proofs and mocked HTTP only.
 
 ## Verification and rollout status
 
-The backend commit above and kinwall-cloud commit
-`3b05721b31179c2855a34c7cdf4296363df0a21f` (FCM credential forwarding) are locally tested changes;
-they are not deployed merely because the mobile app builds. Cloud compatibility passed against
-both its previous core pin and the new backend in an isolated temporary vendor checkout. The
-cloud repository's tracked vendor pin remains unchanged, so rollout also needs the normal green
-core selection/vendor update and hosted deployment. No deployment or real household sends were
-performed for this integration. Existing hosted secret names were verified separately; that does
-not prove provider delivery. Self-hosters need the new Kinwall server, canonical `PUBLIC_URL`, and
-`FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY` for the same Firebase project.
+The Android credential lifecycle is merged in [core PR85](https://github.com/JohnDuprey/kinwall/pull/85)
+(`dc6086d`); its [public API contract](https://github.com/JohnDuprey/kinwall/blob/main/docs/integrations/rest-api.md)
+defines readiness, token rotation and credential cleanup. A merged change or successful mobile
+build does not establish deployed provider/device delivery. No deployment or real household sends
+were performed for these review fixes. Self-hosters need the current Kinwall server, canonical
+`PUBLIC_URL`, and `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY` for the same Firebase project.
 
 Mobile logic tests cover transport gates, personal reminder identity, subscription metadata on
 reload/expiry, token/access-key rotation, cleanup after a late sign-out registration, and same-family

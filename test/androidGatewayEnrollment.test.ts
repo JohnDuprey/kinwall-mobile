@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { AndroidGatewayEnrollmentClient, type AndroidGatewayState } from '../src/androidGatewayEnrollment.ts'
+import { registerAndroidPush } from '../src/androidPushRegistration.ts'
 import { GatewayHTTPError } from '../src/gatewayEnrollment.ts'
 
 const hash = (s: string) => createHash('sha256').update(s).digest('hex')
@@ -107,4 +108,73 @@ test('Android signout queued during enrollment retires its late credential', asy
   finish(); await Promise.all([enrolling, clearing])
   assert.equal(f.state()!.registrations.length, 0)
   assert.equal(f.calls.at(-1)!.method, 'DELETE')
+})
+
+test('Android direct readiness after token rotation retires the previous capability by origin', async () => {
+  const f = fixture(); await f.client.get(input)
+  const request = f.deps.request
+  f.deps.request = async (...args) => {
+    if (args[0].endsWith('/register') && args[1].registration.server === 'https://other.example') {
+      const otherId = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee'
+      return { id: otherId, credential: `android-v1.${otherId}.${'f'.repeat(64)}`, expiresAt: 2000000 }
+    }
+    return request(...args)
+  }
+  await f.client.get({ ...input, server: 'https://other.example' })
+  const bodies: unknown[] = []
+  const result = await registerAndroidPush({ baseURL: input.server + '/path', key: 'fake-key' }, { token: 'Fake:ROTATED', deviceName: 'Kinwall Android' }, {
+    client: f.client, current: () => true,
+    register: async body => { bodies.push(body); return { push: true, delivery: 'direct' } },
+  })
+  assert.equal(result.push, true)
+  assert.deepEqual(f.state()!.registrations.map(r => r.server), ['https://other.example'], 'previous-token capability must no longer be reusable')
+  const deletes = f.calls.filter(c => c.method === 'DELETE')
+  assert.equal(deletes.length, 1); assert.equal(deletes[0]!.credential, credential)
+  assert.deepEqual(bodies, [{ token: 'Fake:ROTATED', deviceName: 'Kinwall Android' }], 'direct readiness needs one server handoff and no gateway send')
+  assert.equal(f.proofs.length, 2, 'direct readiness must not enroll the rotated token')
+})
+
+test('Android direct rotation persists offline cleanup and retries it after restart without a duplicate handoff', async () => {
+  const f = fixture(); await f.client.get(input); f.offline(true)
+  let handoffs = 0
+  const deps = { client: f.client, current: () => true, register: async () => { handoffs++; return { push: true, delivery: 'direct' as const } } }
+  assert.equal((await registerAndroidPush({ baseURL: input.server, key: 'fake-key' }, { token: 'Fake:ROTATED', deviceName: 'Kinwall Android' }, deps)).push, true)
+  assert.equal(f.state()!.registrations.length, 0)
+  assert.equal(f.state()!.pending.length, 1)
+  f.offline(false)
+  await new AndroidGatewayEnrollmentClient(f.deps).flushRevocations()
+  await new AndroidGatewayEnrollmentClient(f.deps).flushRevocations()
+  assert.equal(f.state()!.pending.length, 0)
+  assert.equal(f.calls.filter(c => c.method === 'DELETE').length, 2, 'one failed delete and one successful retry')
+  assert.equal(handoffs, 1)
+})
+
+test('Android unavailable direct response and failed renewal retain the existing capability and local readiness', async () => {
+  for (const delivery of ['direct', 'gateway'] as const) {
+    const f = fixture(); await f.client.get(input)
+    const result = await registerAndroidPush({ baseURL: input.server, key: 'fake-key' }, { token: input.token, deviceName: 'Kinwall Android' }, {
+      client: { get: async () => { throw new Error('offline') }, revoke: i => f.client.revoke(i), revokeServer: s => f.client.revokeServer(s) },
+      current: () => true,
+      register: async () => ({ push: delivery === 'gateway', delivery, gatewayAvailable: true, gatewayExpiresAt: Date.now() + 60000 }),
+    })
+    assert.equal(result.push, delivery === 'gateway')
+    assert.equal(f.state()!.registrations.length, 1)
+    assert.equal(f.calls.filter(c => c.method === 'DELETE').length, 0)
+  }
+})
+
+test('Android direct handoff after enrollment removes the issued capability without a third registration', async () => {
+  const f = fixture(); let handoffs = 0
+  const result = await registerAndroidPush({ baseURL: input.server, key: 'fake-key' }, { token: input.token, deviceName: 'Kinwall Android' }, {
+    client: f.client, current: () => true,
+    register: async body => {
+      handoffs++
+      if (!body.gateway) return { push: false, delivery: 'unavailable', gatewayAvailable: true }
+      assert.equal(body.gateway.credential, credential)
+      return { push: true, delivery: 'direct', gatewayAvailable: true }
+    },
+  })
+  assert.equal(result.push, true); assert.equal(handoffs, 2)
+  assert.equal(f.state()!.registrations.length, 0)
+  assert.equal(f.calls.filter(c => c.method === 'DELETE').length, 1)
 })
