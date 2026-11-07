@@ -5,7 +5,7 @@ module.exports = {
   displayName: 'Kinwall',
   bundleIdentifier: '.watchkitapp.complications',
   deploymentTarget: '10.0',
-  frameworks: ['SwiftUI', 'WidgetKit', 'AppIntents'],
+  frameworks: ['SwiftUI', 'WidgetKit'],
   // These extensions use the shared Keychain, not Routine Mode's App Group.
   entitlements: { 'com.apple.security.application-groups': [], 'keychain-access-groups': ['$(AppIdentifierPrefix)family.kinwall.shared'] },
 }

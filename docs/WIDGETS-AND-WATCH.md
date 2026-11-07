@@ -137,13 +137,12 @@ Checked: the native module builds against the iOS 27 Simulator SDK. Needs a real
 |---|---|
 | **Next event** with the leave-by countdown, surfacing in the Smart Stack as it nears | First |
 | **Chores left** as a gauge | First |
-| **Take now:** how many medicines are due (circular, inline, corner), never their names. The rectangular Smart Stack widget adds **Taken** and **Snooze** (10 minutes) for the first due dose and its time. Tapping outside a button opens Take now on the Watch. | Built |
+| **Take now:** how many medicines are due (circular, inline, corner), never their names. The rectangular one adds the first due dose's time. Tapping any of them opens Take now on the Watch, where **Taken** and **Snooze** are (two buttons didn't fit the widget). | Built |
 | **Groceries** open count (with watchOS 26's grocery-store relevance, `RelevantContext.location(category: .foodMarket)`, so it comes up in a store with no location permission) | Later |
 | **Points** this week | Later |
 
-The Watch's Take now widget saves with the Watch's own key and reloads after a successful save.
-An unavailable server shows an unknown count instead of “Nothing due.” Small face complications
-open the Watch's Take now page so you can pick a dose there. The widget keeps medicine names hidden.
+An unavailable server shows an unknown count instead of “Nothing due.” The widget keeps medicine
+names hidden.
 
 **Relevance (built 2026-09-30):** Next event rises in the Smart Stack over the hour before the next leave-by time (or start), and Take now while a dose is due (`TimelineEntryRelevance`, watchOS 10 and later, so watchOS 26 too). A watchOS 26 `RelevanceConfiguration` widget isn't needed for that; the grocery-store context waits for a Groceries complication.
 
@@ -166,7 +165,7 @@ Anything that changes the family's Kinwall asks to unlock the iPhone first (`aut
 | Needs an unlocked iPhone | Works while locked |
 |---|---|
 | Add to Kinwall (the parent's full sign-in), Add to a list, Add to Groceries, the iOS 27 Reminders-schema add, Mark a chore done, Log reading, Vote in a poll, Add an event | What's for dinner, What's on today, What's next |
-| The Chores and List widgets' ticks, Take now's **Taken** (widget and Watch complication), the Daily check-in's answers | **Got it** on the shopping trip's Live Activity (a reversible tick, made for a locked phone in the store) |
+| The Chores and List widgets' ticks, Take now's **Taken** (widget), the Daily check-in's answers | **Got it** on the shopping trip's Live Activity (a reversible tick, made for a locked phone in the store) |
 | **Taken** and **Snooze** on the medicine Live Activity, **Taken** and **Done** on reminders (`isAuthenticationRequired`) | **Stop** on a cooking timer (on the device only), **Snooze** on reminders |
 
 Start shopping, Night screen, Open Groceries and the Controls open the app, which already needs the iPhone unlocked. Android's reminder buttons and widgets are unchanged: its widgets are Home Screen only.

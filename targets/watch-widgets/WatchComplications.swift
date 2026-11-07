@@ -1,4 +1,3 @@
-import AppIntents
 import SwiftUI
 import WidgetKit
 import KinwallKit
@@ -171,7 +170,7 @@ struct MedsDueComplication: Widget {
             MedsDueView(entry: entry).widgetURL(WatchDestination.medicinesURL).containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("Take now")
-        .description("Medicines due, with Taken and Snooze in the Smart Stack. Names stay off the watch face.")
+        .description("Medicines due; tap to open Take now. Names stay off the watch face.")
         .supportedFamilies([.accessoryRectangular, .accessoryCircular, .accessoryInline, .accessoryCorner])
     }
 }
@@ -191,16 +190,6 @@ struct MedsDueView: View {
                         Text(at, style: .time)
                     }
                 }.font(.caption.weight(.semibold)).lineLimit(1)
-                if let dose = entry.doses?.first {
-                    HStack(spacing: 6) {
-                        Button(intent: WatchMarkDoseIntent(dose: dose, action: "taken")) {
-                            Text("Taken").frame(maxWidth: .infinity, minHeight: 44)
-                        }
-                        Button(intent: WatchMarkDoseIntent(dose: dose, action: "snooze")) {
-                            Text("Snooze").frame(maxWidth: .infinity, minHeight: 44)
-                        }.accessibilityLabel("Snooze 10 minutes")
-                    }.buttonStyle(.bordered).font(.caption)
-                }
             }
         case .accessoryInline: Text(entry.off ? "💊 Off" : entry.count == nil ? "💊 Open Take now" : n == 0 ? "💊 Nothing due" : "💊 \(n) due")
         case .accessoryCorner: Image(systemName: "pills.fill").widgetLabel { Text(entry.off ? "Off" : entry.count == nil ? "Open Take now" : n == 0 ? "None due" : "\(n) due") }
@@ -214,32 +203,6 @@ struct MedsDueView: View {
             }
         }
     }
-}
-
-/// Runs on the Watch with its own person-scoped key; a failed save leaves the dose visible.
-struct WatchMarkDoseIntent: AppIntent {
-    static let title: LocalizedStringResource = "Mark a dose"
-    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
-    static let isDiscoverable = false
-    @Parameter(title: "Medicine") var medicationId: String
-    @Parameter(title: "Date") var date: String
-    @Parameter(title: "Time") var time: String
-    @Parameter(title: "Action") var action: String
-    init() {}
-    init(dose: DueDose, action: String) {
-        medicationId = dose.medicationId; date = dose.date; time = dose.time; self.action = action
-    }
-    func perform() async throws -> some IntentResult {
-        guard let connection = try SharedKeychain.widgetStore.load() else { throw WatchMedicineError.signedOut }
-        let dose = DueDose(medicationId: medicationId, memberId: "", date: date, time: time, dueAt: "", name: nil, dose: nil)
-        try await KinwallClient(connection).mark(dose, action == "snooze" ? .snooze : .taken)
-        WidgetCenter.shared.reloadTimelines(ofKind: "MedsDue")
-        return .result()
-    }
-}
-enum WatchMedicineError: Error, CustomLocalizedStringResourceConvertible {
-    case signedOut
-    var localizedStringResource: LocalizedStringResource { "Open Kinwall on your iPhone to connect this Watch." }
 }
 
 // MARK: - Energy battery
