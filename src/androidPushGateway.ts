@@ -4,7 +4,8 @@ import KinwallNative from '../modules/kinwall-native'
 import { api, type Connection } from './api'
 import { AndroidGatewayEnrollmentClient, type AndroidGatewayState } from './androidGatewayEnrollment'
 import { GatewayHTTPError } from './gatewayEnrollment'
-import { registerPush, type PushStatus } from './pushGatewayRegistration'
+import type { PushStatus } from './pushGatewayRegistration'
+import { registerAndroidPush } from './androidPushRegistration'
 
 const SAVED = 'androidPushGatewayEnrollment'
 const STORAGE = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY }
@@ -38,19 +39,13 @@ const client = new AndroidGatewayEnrollmentClient({
 })
 
 export function registerAndroidGatewayPush<T extends PushStatus>(c: Connection, body: { token: string; deviceName: string }, current: () => boolean): Promise<T> {
-  return registerPush<T, 'android-alert'>(c, body, 'android-alert', {
+  return registerAndroidPush(c, body, {
+    client, current,
     register: async payload => {
       const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 10000)
-      try {
-        const result = await api<T>(c.baseURL, c.key, 'PUT', 'api/push/android', payload, controller.signal)
-        // An incomplete gateway response must never stop local medicine/daily reminders.
-        if (result.delivery === 'gateway' && (!Number.isSafeInteger(result.gatewayExpiresAt) || (result.gatewayExpiresAt ?? 0) <= Date.now())) return { ...result, push: false }
-        if (result.push && result.delivery === 'direct') await client.revoke({ server: c.baseURL, token: body.token, kind: 'android-alert' }).catch(() => {})
-        return result
-      } finally { clearTimeout(timer) }
+      try { return await api<T>(c.baseURL, c.key, 'PUT', 'api/push/android', payload, controller.signal) }
+      finally { clearTimeout(timer) }
     },
-    canEnroll: status => status.gatewayAvailable === true,
-    enroll: input => client.get(input), revoke: input => client.revoke(input), current,
   })
 }
 export const revokeAndroidGatewayServer = (server: string) => client.revokeServer(server)

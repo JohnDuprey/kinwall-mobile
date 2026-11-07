@@ -189,3 +189,15 @@ waits until it opens again. **Try again** starts a fresh page at the last Kinwal
 Certificate errors still appear immediately. Only a page that renders successfully resets the retry
 count. Checks for a blank or unresponsive page stop when the app goes into the background
 or starts another load; old checks cannot restart a replacement page.
+
+## Development checks
+
+Run `npm run typecheck`, `npm test`, `swift test --package-path KinwallKit`, and
+`CI=1 npx expo prebuild --clean --no-install`; remove generated `ios/` and `android/` afterward.
+The Checks workflow also uses the existing Expo/Gradle setup on Ubuntu with JDK 17 and the Android
+SDK to run `cd android && ./gradlew :kinwall-native:testReleaseUnitTest`. This compiles the real
+native module and runs its JUnit tests, including `PushGatewayTest`'s P-256 signature verification
+and malformed DER rejection. CI requires the gateway JUnit report to contain executed, passing
+tests and retains the XML/HTML reports as artifacts. This job has no release environment or
+secrets and does not sign, upload, publish, or send notifications. To run it locally, prebuild
+Android first and use the same Gradle command with a JDK and Android SDK installed.
