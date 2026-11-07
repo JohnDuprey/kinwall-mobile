@@ -80,8 +80,9 @@ struct FamilyActivity: View {
     }
 }
 
-/// Compact Watch controls reuse the phone's intents. CarPlay disables interactive elements.
-/// Medicine uses the phone’s headline and privacy choices.
+/// Watch and CarPlay: the icon and the countdown (or count), and the headline. A cooking timer keeps
+/// its Pause/Start icon; medicine has no buttons (they don't fit), so a tap opens it instead. A
+/// medicine stays the web app's headline, never its name. CarPlay disables interactive elements.
 struct SmallActivity: View {
     let context: ActivityViewContext<KinwallActivityAttributes>
     var body: some View {
@@ -96,7 +97,6 @@ struct SmallActivity: View {
                     .frame(maxWidth: .infinity, alignment: .leading) // the button at the trailing edge, not just after a short headline
                 if context.attributes.kind == "cooking" { CookingTimerButton(context: context) }
             }
-            if context.attributes.kind == "medication" { DoseButtons(context: context, compact: true) }
         }
         .padding(8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -236,27 +236,21 @@ struct ShoppingLineView: View {
 /// Taken and Snooze 10 min (MarkDoseActivityIntent, native/ios/LiveActivityIntents.swift).
 struct DoseButtons: View {
     let context: ActivityViewContext<KinwallActivityAttributes>
-    var compact = false
     var body: some View {
         if let dose = context.attributes.dose {
             HStack(spacing: 10) {
                 Button(intent: MarkDoseActivityIntent(medicationId: dose.medicationId, date: dose.date, time: dose.time, action: "taken")) {
-                    doseLabel("Taken", icon: "checkmark")
+                    Label("Taken", systemImage: "checkmark").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered).tint(ActivityTheme.accent)
                 Button(intent: MarkDoseActivityIntent(medicationId: dose.medicationId, date: dose.date, time: dose.time, action: "snooze")) {
-                    doseLabel(compact ? "Snooze" : "Snooze 10 min", icon: "zzz")
+                    Label("Snooze 10 min", systemImage: "zzz").frame(maxWidth: .infinity)
                         .accessibilityLabel("Snooze 10 minutes")
                 }
                 .buttonStyle(.bordered).tint(.primary)
             }
-            .font(compact ? .caption.weight(.semibold) : .subheadline.weight(.semibold))
+            .font(.subheadline.weight(.semibold))
         }
-    }
-
-    @ViewBuilder private func doseLabel(_ title: String, icon: String) -> some View {
-        if compact { Text(title).frame(maxWidth: .infinity, minHeight: 44) }
-        else { Label(title, systemImage: icon).frame(maxWidth: .infinity) }
     }
 }
 
