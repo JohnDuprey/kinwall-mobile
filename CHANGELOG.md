@@ -1,5 +1,52 @@
 # Changelog
 
+## [1.3.0](https://github.com/JohnDuprey/kinwall-mobile/compare/v1.2.0...v1.3.0) (2026-11-07)
+
+
+### New
+
+* followed event countdowns as Live Activities ([dbecc7e](https://github.com/JohnDuprey/kinwall-mobile/commit/dbecc7e907d55560ca7f98c170d18c34a111d9f3))
+* **ios:** add App Attest push gateway enrollment ([4811420](https://github.com/JohnDuprey/kinwall-mobile/commit/48114205fd87a11de18ea6da5e016cbb717122f7))
+* **ios:** add pause and start controls to timer live activities ([4f68023](https://github.com/JohnDuprey/kinwall-mobile/commit/4f68023f12904c2e8d75ee75e6a5caa51c1417ce))
+* **ios:** Add routine mode: Screen Time bridge and monitor extension ([ab2ab4d](https://github.com/JohnDuprey/kinwall-mobile/commit/ab2ab4d24146fb0fd0a32fab801afefddaa9af04))
+* **ios:** Enable APNs push, domains, dose sync ([61f3e4e](https://github.com/JohnDuprey/kinwall-mobile/commit/61f3e4e74e5e036b062ed8b4f822c7287e40dd00))
+* **ios:** fall back to intel when arm runners are unavailable ([e7de5ea](https://github.com/JohnDuprey/kinwall-mobile/commit/e7de5ea9c4a314b9c343d8462a40c42e3f724b90))
+* **ios:** honor parent routine unenrollment commands ([1d078b4](https://github.com/JohnDuprey/kinwall-mobile/commit/1d078b4a723128ca699ced3a4fc6e5b65efdbce1))
+* **ios:** refresh routine mode in the background ([03d1e6a](https://github.com/JohnDuprey/kinwall-mobile/commit/03d1e6a998f84f2f7f01ac5b65ec0851e3ba6a21))
+* **ios:** start medicine Live Activities via push ([a109a9e](https://github.com/JohnDuprey/kinwall-mobile/commit/a109a9ee745a9a9d2ef1398dec0d32c0b026a933))
+* **native:** prepare android push for new chore notifications ([d5694a0](https://github.com/JohnDuprey/kinwall-mobile/commit/d5694a0b8e22638892de5c981f8b1e6f5351c23d))
+* **shell:** add opt-in reminders for Anyone chores ([e758aab](https://github.com/JohnDuprey/kinwall-mobile/commit/e758aab3ab0f7d7f7be73fb5f8fc55ff8b7e675a))
+* **watch:** add timer and medicine widget actions ([a6adc9e](https://github.com/JohnDuprey/kinwall-mobile/commit/a6adc9eb1f0f1c4183392728435e514576ee7654))
+
+
+### Fixed
+
+* **android:** configure firebase client in release builds ([60fcbc6](https://github.com/JohnDuprey/kinwall-mobile/commit/60fcbc6c7215d30727e019c2430f10e57a04ee26))
+* **ios:** accept live activity timer taps after a native change ([fcc4f5e](https://github.com/JohnDuprey/kinwall-mobile/commit/fcc4f5ea613c2aed667bd49c6fc14141188fddb4))
+* **ios:** disable inherited App Groups on extensions ([0933f3b](https://github.com/JohnDuprey/kinwall-mobile/commit/0933f3b0fd2c2a8f0db0b6bf1787ca34643f7e09))
+* **ios:** enforce all-app mode without picker choices ([cb514a6](https://github.com/JohnDuprey/kinwall-mobile/commit/cb514a678292afc39da50441156b2c249dec1fc5))
+* **ios:** enforce recurring routine schedules ([a31ed39](https://github.com/JohnDuprey/kinwall-mobile/commit/a31ed39a45a45f9451b33cdb101c44789402cac5))
+* **ios:** keep one live activity per followed event ([8d34361](https://github.com/JohnDuprey/kinwall-mobile/commit/8d34361c261177df4ec0fd61841c3ade78ceb561))
+* **ios:** keep polling when a new TestFlight worker's jobs 404 ([7331cfd](https://github.com/JohnDuprey/kinwall-mobile/commit/7331cfd4999736ea118e3196d00b18395fd78cdd))
+* **ios:** preserve personal identity for local reminders ([9213a12](https://github.com/JohnDuprey/kinwall-mobile/commit/9213a12a8e5e23a27e6fa3659c1c6317b5b351fa))
+* **ios:** remove reserved name from intent description ([cdca5b9](https://github.com/JohnDuprey/kinwall-mobile/commit/cdca5b9fc4338362e20286a260e58d59c960f956))
+* **ios:** retain chore checks for one-time name requirements ([9453442](https://github.com/JohnDuprey/kinwall-mobile/commit/945344275b09a6a330a92301bac6f6f70cb564de))
+* **ios:** retry live activity push token registration ([88995c9](https://github.com/JohnDuprey/kinwall-mobile/commit/88995c9a0d242ac5adb588fd3407e31857b7d4c7))
+* **ios:** reuse a persistent signing identity in testflight ([e9ed989](https://github.com/JohnDuprey/kinwall-mobile/commit/e9ed989fdb918930d3c402077907e8649cc37462))
+* **ios:** use automatic selector with reusable signing identity ([e4fb979](https://github.com/JohnDuprey/kinwall-mobile/commit/e4fb979877acde654df3527e30eaaef0756b49f0))
+* **ios:** use icons for live activity timer controls ([8d3f65b](https://github.com/JohnDuprey/kinwall-mobile/commit/8d3f65b3adfab850a67af812b0257fa105d594de))
+* **ios:** use Intel runners for Apple builds ([8251579](https://github.com/JohnDuprey/kinwall-mobile/commit/82515796097e4413516387a34ed5909479212d12))
+* Retire medicine push-to-start on sign-out ([2dfe160](https://github.com/JohnDuprey/kinwall-mobile/commit/2dfe160f549ba583c7d1c1b084792093005ab778))
+* **shell:** open journal and upkeep notification links ([829c1f9](https://github.com/JohnDuprey/kinwall-mobile/commit/829c1f935218c15e4005692b4c2870cef4bb2547))
+* **shell:** poll routine mode every 30 seconds instead of 15 ([7983b43](https://github.com/JohnDuprey/kinwall-mobile/commit/7983b439dfa6154d6eb4ab21093a8ec9a997a19e))
+* **shell:** recover from transient startup connection failures ([376ecb7](https://github.com/JohnDuprey/kinwall-mobile/commit/376ecb7d9f1749dda30d33eefd54dfc84c400f51))
+* **shell:** show the status bar by default ([d4d8b02](https://github.com/JohnDuprey/kinwall-mobile/commit/d4d8b02ca131019205978d8ebaafe7faf3c43f86))
+* Split routine mode: guardian picker vs child apply ([6390e81](https://github.com/JohnDuprey/kinwall-mobile/commit/6390e81d5fce3387c28d5485ddf036cc0990ad65))
+* **watch:** finish loading chores and check-in on empty or error ([89f9d97](https://github.com/JohnDuprey/kinwall-mobile/commit/89f9d97e20665bf9c3edc371a064a876f3ec7252))
+* **watch:** include app icons in store builds ([328aaeb](https://github.com/JohnDuprey/kinwall-mobile/commit/328aaeb3e57f0f718c729d58ae27a0f6d73b9316))
+* **watch:** stop loading when there are no active lists ([2dd39bd](https://github.com/JohnDuprey/kinwall-mobile/commit/2dd39bd57949ef0807ce5051f14d4bd8d0db3ebb))
+* **watch:** sync a personal connection from the iphone ([f7809c1](https://github.com/JohnDuprey/kinwall-mobile/commit/f7809c192dfe2b5f27b068003db5c5537754c038))
+
 ## [1.2.0](https://github.com/JohnDuprey/kinwall-mobile/compare/v1.1.0...v1.2.0) (2026-10-16)
 
 
