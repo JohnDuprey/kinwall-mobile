@@ -112,6 +112,55 @@ battery restrictions and force-stop behavior. Physical-device background, cold-s
 rotation and sign-out delivery still require verification with the deployed endpoint and credentials.
 No real household pushes are required for unit tests or builds.
 
+## Android: self-hosted push gateway
+
+A server without its own FCM credentials can deliver full alerts to the official Play build
+through `push.kinwall.family`. It is a separate Android protocol: Android never uses the Apple
+App Attest routes, and raw FCM tokens never go to them.
+
+1. `PUT /api/push/android` answers `gatewayAvailable: true` when the server supports the gateway
+   and has a valid canonical `PUBLIC_URL`. Absent or false (older servers) means the app does not
+   enroll. A direct sender (`delivery: 'direct'`) always wins; the app then revokes any gateway
+   credential it held for that server.
+2. Otherwise the shell asks the gateway for a challenge (`POST /v1/android/enrollment/challenge`
+   with the standard-base64 DER SPKI of a P-256 key and `{ token, server, kind: 'android-alert' }`).
+   Before any proof it checks the returned `clientData` is exactly
+   `{"protocol":"kinwall-android-push-v1","challenge":<64 hex>,"keyId":<hex SHA-256 of the SPKI>,
+   "tokenHash":<hex SHA-256 of the raw, case-sensitive FCM token>,"server":<its URL.origin>,
+   "kind":"android-alert"}` in that order, and that `requestHash` is the unpadded base64url
+   SHA-256 of that string.
+3. Native code (`PushGateway.kt`) signs the exact UTF-8 `clientData` with the Keystore key
+   (SHA256withECDSA, converted to raw 64-byte r‖s, base64url) and requests a **standard Play
+   Integrity** token for the same hash, computing it again itself. Each Play step times out after
+   30 s. `POST /v1/android/enrollment/register` returns `{ id, credential, expiresAt }`; the
+   credential is `android-v1.<id>.<64 hex>` and lasts at most 30 days.
+4. The app sends `gateway: { credential }` with the next `PUT /api/push/android`. Readiness still
+   needs `push: true` with a future `gatewayExpiresAt`; until then medicine and daily reminders stay
+   local. Renewal starts within 5 minutes of expiry with a fresh challenge and proof.
+
+The gateway, not the app, decides trust: it verifies the Play verdict (recognized app, licensed,
+device integrity, signing certificate, fresh and bound to the request hash). The Keystore signature
+only proves this install holds the key. The key never leaves the Keystore. Credentials live in
+`expo-secure-store`, encrypted with a Keystore key. Enrollment, renewal, sign-out and token rotation
+run one at a time; replaced credentials go to a durable revoke queue (`DELETE
+/v1/android/registration`) retried on the next sync, so sign-out offline still completes. None of this is reachable from
+the web page.
+
+### Build prerequisites
+
+- A Google Cloud project linked to the app in Play Console (**App integrity → Play Integrity
+  API**), with the API enabled. Its project **number** (not the Firebase project ID) goes in
+  `KINWALL_PLAY_INTEGRITY_PROJECT_NUMBER` at prebuild, alongside `KINWALL_GOOGLE_SERVICES_FILE`;
+  `plugins/withAndroidPushGateway.js` writes it into the manifest. Without it, or without Firebase,
+  the build has no gateway.
+- The app installed from Google Play (internal testing track is enough) and signed by Play App
+  Signing, so the gateway can match the certificate. Debuggable builds report the gateway
+  unsupported; sideloaded installs fail Google's licensing verdict.
+- A device with Google Play services and a current Play Store.
+
+Not yet verified: a real Play verdict on a physical device against the deployed gateway, and
+end-to-end delivery through it. Tests use fake proofs and mocked HTTP only.
+
 ## Verification and rollout status
 
 The backend commit above and kinwall-cloud commit

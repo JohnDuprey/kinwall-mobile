@@ -66,3 +66,22 @@ test('push registration: an older unavailable server keeps local reminders witho
   })
   assert.equal(result.push, false)
 })
+
+test('Android gateway requires explicit server capability, while a supported near-expiry row renews', async () => {
+  for (const gatewayAvailable of [undefined, false, true]) {
+    let enrollments = 0
+    const result = await registerPush(c, { token: 'Fake:FCM' }, 'android-alert', {
+      register: async body => ({ push: !!body.gateway, delivery: body.gateway ? 'gateway' : 'unavailable', gatewayAvailable }),
+      enroll: async input => { assert.equal(input.kind, 'android-alert'); enrollments++; return { credential: 'fake-android-capability', expiresAt: Date.now() + 3600000 } },
+      revoke: async () => {}, canEnroll: status => status.gatewayAvailable === true,
+    })
+    assert.equal(enrollments, gatewayAvailable === true ? 1 : 0)
+    assert.equal(result.push, gatewayAvailable === true)
+  }
+  let renewed = false
+  await registerPush(c, { token: 'Fake:FCM' }, 'android-alert', {
+    register: async () => ({ push: true, delivery: 'gateway', gatewayAvailable: true, gatewayExpiresAt: Date.now() + 60000 }),
+    enroll: async () => { renewed = true; throw new Error('offline') }, revoke: async () => {}, canEnroll: status => status.gatewayAvailable === true,
+  })
+  assert.equal(renewed, true)
+})

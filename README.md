@@ -60,6 +60,13 @@ personal medicine schedule; the widgets keep their shared family access. The gat
 can read push text; medicine names stay off unless enabled for that device. Opening a notification
 still requires access to the family's server.
 
+Official Google Play Android builds can do the same through `push.kinwall.family` when the
+server has no FCM credentials of its own. A Play Integrity verdict bound to the gateway's challenge,
+and a signature from a key kept in the Android Keystore, get a credential scoped to the raw FCM
+token, server origin and alert type (`src/androidPushGateway.ts`, `PushGateway.kt`). Debug,
+sideloaded and unconfigured builds keep local medicine and daily reminders. Setup and the protocol
+are in [docs/CHORE-NOTIFICATIONS.md](docs/CHORE-NOTIFICATIONS.md).
+
 If a Live Activity’s push registration fails, the app keeps it and retries after 5 seconds, then
 increases the automatic retry delay up to one minute while the app can run. Pending activity tokens are also
 retried when the connection refreshes. A newer token replaces the older one; signing out, changing

@@ -13,8 +13,8 @@ import org.json.JSONObject
 
 /** Android's KinwallNative (modules/kinwall-native/index.ts): the keys (Keychain.kt), the
  * countdowns (Countdowns.kt) and the notification channels (Channels.kt). Widgets render from
- * JavaScript on Android (reloadWidgets asks Android to redraw them) and there's no Watch; there's
- * no push, so "activityToken" never fires. */
+ * JavaScript on Android (reloadWidgets asks Android to redraw them) and there's no Watch; push is
+ * FCM through expo-notifications (plus PushGateway.kt's proof), so "activityToken" never fires. */
 class KinwallNativeModule : Module() {
   private val context get() = requireNotNull(appContext.reactContext)
 
@@ -56,6 +56,10 @@ class KinwallNativeModule : Module() {
     AsyncFunction("keychainSet") { service: String, _: Boolean, value: String? ->
       if (!Keychain.set(context, service, value)) throw IllegalStateException("Couldn't save $service")
     }
+    // The self-hosted push gateway's enrollment (src/androidPushGateway.ts); the shell's, never the page's.
+    Function("androidGatewaySupported") { PushGateway.supported(context) }
+    AsyncFunction("androidGatewayPublicKey") { PushGateway.publicKey() }
+    AsyncFunction("androidGatewayProof") { clientData: String -> PushGateway.proof(context, clientData) }
     Function("reloadWidgets") { Widgets.reload(context) }
     Function("watchAppInstalled") { false }
     Function("updateWatch") { _: Map<String, Any?> -> }

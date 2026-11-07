@@ -7,6 +7,7 @@ import KinwallNative from '../modules/kinwall-native'
 import { api, ApiError, type Connection } from './api'
 import { NativePushSession, pushRegistrationActive, type PushRegistration } from './nativePushSession'
 import { registerGatewayPush, revokeGatewayServer, flushGatewayRevocations } from './pushGateway'
+import { registerAndroidGatewayPush, revokeAndroidGatewayServer, flushAndroidGatewayRevocations } from './androidPushGateway'
 import type { PushStatus } from './pushGatewayRegistration'
 
 const SAVED = 'nativePushRegistration', DISABLED = 'nativePushDisabledFor'
@@ -16,6 +17,7 @@ const STORAGE = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE
 let wanted: Connection | null = null
 let canRegister = false
 const listeners = new Set<() => void>()
+const revokeDeviceGateway = (server: string) => Platform.OS === 'android' ? revokeAndroidGatewayServer(server) : revokeGatewayServer(server)
 const transport = () => nativePushTransport(Platform.OS, Constants.expoConfig?.extra?.androidNativePush === true, KinwallNative?.pushEnabled?.() === true)
 export const nativePushAvailable = () => transport() !== null
 export function savedNativePush(): PushRegistration | null {
@@ -41,14 +43,13 @@ const session = new NativePushSession({
     if (!kind) throw new Error('Native push unavailable')
     return registerNativeToken<PushStatus & { subscription: { id: string } }>(kind, token, Platform.OS === 'ios' && Platform.isPad, {
       apple: body => registerGatewayPush(c, 'api/push/native', body, 'alert', () => wanted?.baseURL === c.baseURL && wanted.key === c.key),
-      // Required server endpoint is documented in docs/CHORE-NOTIFICATIONS.md; a 404 keeps local reminders.
-      android: body => request(c, 'PUT', 'api/push/android', body),
+      android: body => registerAndroidGatewayPush(c, body, () => wanted?.baseURL === c.baseURL && wanted.key === c.key && canRegister),
     })
   },
   remove: async (c, id) => {
     try { await request(c, 'DELETE', `api/push/subscriptions/${encodeURIComponent(id)}`) }
     catch (e) { if (!(e instanceof ApiError && e.status === 404)) throw e }
-    finally { await revokeGatewayServer(c.baseURL).catch(() => {}) }
+    finally { await revokeDeviceGateway(c.baseURL).catch(() => {}) }
   },
   changed: r => {
     try { if (r) SecureStore.setItem(SAVED, JSON.stringify(r), STORAGE); else SecureStore.setItem(SAVED, 'null', STORAGE) } catch {}
@@ -56,12 +57,12 @@ const session = new NativePushSession({
   },
 })
 
-/** Called after permission and on resume. Android registers raw FCM tokens, never App Attest.
+/** Called after permission and on resume. Android uses its own Play Integrity enrollment for raw FCM tokens.
  * Direct servers finish after token registration;
  * self-hosted servers can use a device-scoped credential from the official gateway. */
 export async function syncNativePush(c?: Connection): Promise<void> {
   if (!nativePushAvailable()) return
-  flushGatewayRevocations().catch(() => {})
+  ;(Platform.OS === 'android' ? flushAndroidGatewayRevocations() : flushGatewayRevocations()).catch(() => {})
   if (c && (!wanted || wanted.baseURL !== c.baseURL || wanted.key !== c.key)) {
     if (wanted && wanted.baseURL !== c.baseURL) await clearNativePush()
     wanted = c; session.setDevice(c)
@@ -74,7 +75,7 @@ export async function syncNativePush(c?: Connection): Promise<void> {
   if (!permission.granted || SecureStore.getItem(DISABLED) === current.baseURL) {
     canRegister = false
     await session.clear(); session.setDevice(current)
-    await revokeGatewayServer(current.baseURL).catch(() => {})
+    await revokeDeviceGateway(current.baseURL).catch(() => {})
     return
   }
   canRegister = true
@@ -98,7 +99,7 @@ export async function clearNativePush(): Promise<void> {
   canRegister = false
   wanted = null
   await session.clear().catch(() => {})
-  if (previous) await revokeGatewayServer(previous).catch(() => {})
+  if (previous) await revokeDeviceGateway(previous).catch(() => {})
   await Notifications.dismissAllNotificationsAsync().catch(() => {})
   await SecureStore.deleteItemAsync(SAVED)
   await SecureStore.deleteItemAsync(DISABLED)
