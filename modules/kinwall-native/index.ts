@@ -26,6 +26,9 @@ type KinwallNative = {
   activitiesEnabled(): boolean
   /** This signed build carries the APNs entitlement. */
   pushEnabled?(): boolean
+  androidGatewaySupported?(): boolean
+  androidGatewayPublicKey?(): Promise<{ publicKey: string; keyId: string }>
+  androidGatewayProof?(clientData: string): Promise<{ integrityToken: string; signature: string }>
   appAttestSupported?(): boolean
   appAttestGenerateKey?(): Promise<string>
   appAttestKey?(key: string, challenge: string): Promise<string>

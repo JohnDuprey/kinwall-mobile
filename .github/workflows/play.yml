@@ -84,6 +84,9 @@ jobs:
         env:
           UNSIGNED: '1'
           OUT: ${{ runner.temp }}/kinwall-unsigned.aab
+          # Optional repository variable: the Cloud project NUMBER linked for Play Integrity turns on
+          # the self-hosted push gateway (docs/CHORE-NOTIFICATIONS.md). Needs the Firebase secret too.
+          KINWALL_PLAY_INTEGRITY_PROJECT_NUMBER: ${{ vars.KINWALL_PLAY_INTEGRITY_PROJECT_NUMBER }}
           NPM_CI: '0'
         run: scripts/play-bundle.sh
       - name: Remove Firebase client configuration

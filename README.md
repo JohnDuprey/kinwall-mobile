@@ -60,6 +60,13 @@ personal medicine schedule; the widgets keep their shared family access. The gat
 can read push text; medicine names stay off unless enabled for that device. Opening a notification
 still requires access to the family's server.
 
+Official Google Play Android builds can do the same through `push.kinwall.family` when the
+server has no FCM credentials of its own. A Play Integrity verdict bound to the gateway's challenge,
+and a signature from a key kept in the Android Keystore, get a credential scoped to the raw FCM
+token, server origin and alert type (`src/androidPushGateway.ts`, `PushGateway.kt`). Debug,
+sideloaded and unconfigured builds keep local medicine and daily reminders. Setup and the protocol
+are in [docs/CHORE-NOTIFICATIONS.md](docs/CHORE-NOTIFICATIONS.md).
+
 If a Live Activity’s push registration fails, the app keeps it and retries after 5 seconds, then
 increases the automatic retry delay up to one minute while the app can run. Pending activity tokens are also
 retried when the connection refreshes. A newer token replaces the older one; signing out, changing
@@ -182,3 +189,15 @@ waits until it opens again. **Try again** starts a fresh page at the last Kinwal
 Certificate errors still appear immediately. Only a page that renders successfully resets the retry
 count. Checks for a blank or unresponsive page stop when the app goes into the background
 or starts another load; old checks cannot restart a replacement page.
+
+## Development checks
+
+Run `npm run typecheck`, `npm test`, `swift test --package-path KinwallKit`, and
+`CI=1 npx expo prebuild --clean --no-install`; remove generated `ios/` and `android/` afterward.
+The Checks workflow also uses the existing Expo/Gradle setup on Ubuntu with JDK 17 and the Android
+SDK to run `cd android && ./gradlew :kinwall-native:testReleaseUnitTest`. This compiles the real
+native module and runs its JUnit tests, including `PushGatewayTest`'s P-256 signature verification
+and malformed DER rejection. CI requires the gateway JUnit report to contain executed, passing
+tests and retains the XML/HTML reports as artifacts. This job has no release environment or
+secrets and does not sign, upload, publish, or send notifications. To run it locally, prebuild
+Android first and use the same Gradle command with a JDK and Android SDK installed.

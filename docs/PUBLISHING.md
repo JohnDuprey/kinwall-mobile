@@ -163,6 +163,9 @@ repository Actions secret `KINWALL_GOOGLE_SERVICES_JSON`: the Firebase Android *
 `family.kinwall.app`, separate from the Play service account and server FCM private key. Without
 it, builds keep local reminders. Local/EAS builds use the file variable
 `KINWALL_GOOGLE_SERVICES_FILE`. See [configuration and rollout checks](CHORE-NOTIFICATIONS.md).
+The Play bundle workflow also takes the optional repository **variable**
+`KINWALL_PLAY_INTEGRITY_PROJECT_NUMBER` (the Cloud project number linked in Play Console → App
+integrity), which turns on self-hosted push through the gateway; without it, Play builds skip it.
 
 **Each release**
 
