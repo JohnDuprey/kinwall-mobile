@@ -11,4 +11,6 @@
   <string name="kinwall_tile_groceries">Add to Groceries</string>
   <string name="kinwall_tile_night">Night screen</string>
   <string name="kinwall_share_label">Kinwall</string>
+  <string name="kinwall_new_chores">New chores</string>
+  <string name="kinwall_new_chores_description">When a chore is added for someone you follow, or for Anyone. Turn on New chores in Kinwall first.</string>
 </resources>

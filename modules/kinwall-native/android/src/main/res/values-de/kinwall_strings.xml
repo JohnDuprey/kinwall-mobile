@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="kinwall_new_chores">Neue Aufgaben</string>
+  <string name="kinwall_new_chores_description">Wenn eine Aufgabe für jemanden, dem du folgst, oder für alle hinzugefügt wird. Aktiviere zuerst „Neue Aufgaben“ in Kinwall.</string>
+</resources>

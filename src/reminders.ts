@@ -147,7 +147,7 @@ export async function clearReminders(): Promise<void> {
  * "medicine names" choice lives with the web's push settings, which the app can't read). */
 async function personal(c: Connection, person: string, now: number): Promise<Planned[]> {
   const out: Planned[] = []
-  const meds = remoteMedicineReminders(c.baseURL) ? null : await medicationDay(c, person).catch(() => null) // APNs takes over only once registered
+  const meds = remoteMedicineReminders(c.baseURL) ? null : await medicationDay(c, person).catch(() => null) // Remote delivery takes over only once registered
   for (const d of meds ? doseReminders(meds, now) : []) {
     if (d.at <= now || d.at > now + HORIZON) continue
     out.push(at(d.at, `${PREFIX}med:${d.medicationId}:${d.date}:${d.time}`, 'medicine', MEDICINE, 'Time for your medicine', `${time(new Date(d.at))} dose`,

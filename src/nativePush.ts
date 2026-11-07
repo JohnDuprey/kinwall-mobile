@@ -1,3 +1,5 @@
+import Constants from 'expo-constants'
+import { nativePushTransport, registerNativeToken, acceptsNativeToken } from './nativePushTransport'
 import * as Notifications from 'expo-notifications'
 import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
@@ -9,12 +11,13 @@ import type { PushStatus } from './pushGatewayRegistration'
 
 const SAVED = 'nativePushRegistration', DISABLED = 'nativePushDisabledFor'
 // Background reminder refreshes run while locked. Keep this registration metadata readable then
-// so they do not mistakenly recreate local medicine reminders alongside working APNs delivery.
+// so they do not mistakenly recreate local medicine reminders alongside working remote delivery.
 const STORAGE = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY }
 let wanted: Connection | null = null
 let canRegister = false
 const listeners = new Set<() => void>()
-export const nativePushAvailable = () => Platform.OS === 'ios' && KinwallNative?.pushEnabled?.() === true
+const transport = () => nativePushTransport(Platform.OS, Constants.expoConfig?.extra?.androidNativePush === true, KinwallNative?.pushEnabled?.() === true)
+export const nativePushAvailable = () => transport() !== null
 export function savedNativePush(): PushRegistration | null {
   try {
     const r = JSON.parse(SecureStore.getItem(SAVED) ?? 'null')
@@ -33,8 +36,15 @@ async function request<T>(c: Connection, method: string, path: string, body?: un
   finally { clearTimeout(timer) }
 }
 const session = new NativePushSession({
-  register: (c, token) => registerGatewayPush<PushStatus & { subscription: { id: string } }>(c, 'api/push/native',
-    { token, deviceName: Platform.OS === 'ios' && Platform.isPad ? 'Kinwall iPad' : 'Kinwall iPhone' }, 'alert', () => wanted?.baseURL === c.baseURL && wanted.key === c.key),
+  register: (c, token) => {
+    const kind = transport()
+    if (!kind) throw new Error('Native push unavailable')
+    return registerNativeToken<PushStatus & { subscription: { id: string } }>(kind, token, Platform.OS === 'ios' && Platform.isPad, {
+      apple: body => registerGatewayPush(c, 'api/push/native', body, 'alert', () => wanted?.baseURL === c.baseURL && wanted.key === c.key),
+      // Required server endpoint is documented in docs/CHORE-NOTIFICATIONS.md; a 404 keeps local reminders.
+      android: body => request(c, 'PUT', 'api/push/android', body),
+    })
+  },
   remove: async (c, id) => {
     try { await request(c, 'DELETE', `api/push/subscriptions/${encodeURIComponent(id)}`) }
     catch (e) { if (!(e instanceof ApiError && e.status === 404)) throw e }
@@ -46,7 +56,8 @@ const session = new NativePushSession({
   },
 })
 
-/** Called after permission and on resume. Direct servers finish after token registration;
+/** Called after permission and on resume. Android registers raw FCM tokens, never App Attest.
+ * Direct servers finish after token registration;
  * self-hosted servers can use a device-scoped credential from the official gateway. */
 export async function syncNativePush(c?: Connection): Promise<void> {
   if (!nativePushAvailable()) return
@@ -69,12 +80,12 @@ export async function syncNativePush(c?: Connection): Promise<void> {
   canRegister = true
   let timeout: ReturnType<typeof setTimeout> | undefined
   const token = await Promise.race([Notifications.getDevicePushTokenAsync(), new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('Push token request timed out')), 10_000) })]).finally(() => clearTimeout(timeout))
-  if (wanted !== current || token.type !== 'ios' || typeof token.data !== 'string') return
+  if (wanted !== current || !acceptsNativeToken(transport(), token)) return
   await session.register(token.data)
 }
 // Do not call getDevicePushTokenAsync from its listener (it can trigger the listener again).
 Notifications.addPushTokenListener(token => {
-  if (canRegister && wanted && token.type === 'ios' && typeof token.data === 'string' && SecureStore.getItem(DISABLED) !== wanted.baseURL) session.register(token.data).catch(() => {})
+  if (canRegister && wanted && acceptsNativeToken(transport(), token) && SecureStore.getItem(DISABLED) !== wanted.baseURL) session.register(token.data).catch(() => {})
 })
 export async function setNativePushEnabled(on: boolean): Promise<void> {
   if (!wanted) return

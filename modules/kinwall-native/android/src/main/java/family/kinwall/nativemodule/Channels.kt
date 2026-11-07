@@ -19,6 +19,7 @@ import androidx.core.app.NotificationManagerCompat
  * - `medicine` Medicine: reminders and the due-dose countdown, on the person's own phone. A parent
  *   can let it through Do Not Disturb with the channel's own switch (openSettings), no permission needed
  * - `chores` Chores: the daily chore nudge. Opt-in, so it starts off (turned on in its settings)
+ * - `new_chores` New chores: immediate server pushes, gated by subscription prefs.newChores
  * - `countdowns` Timers and countdowns: the cooking timer's countdown and the shopping trip
  * - `cooking_timers` Cooking timers: rings when a timer is up (Countdowns.ring)
  *
@@ -30,9 +31,10 @@ object Channels {
   const val LEAVE_BY = "leave_by"
   const val MEDICINE = "medicine"
   const val CHORES = "chores"
+  const val NEW_CHORES = "new_chores"
   const val COUNTDOWNS = "countdowns"
   const val COOKING = "cooking_timers"
-  val ALL = listOf(REMINDERS, LEAVE_BY, MEDICINE, CHORES, COUNTDOWNS, COOKING)
+  val ALL = listOf(REMINDERS, LEAVE_BY, MEDICINE, CHORES, NEW_CHORES, COUNTDOWNS, COOKING)
 
   private const val HIGH = NotificationManagerCompat.IMPORTANCE_HIGH
   private const val DEFAULT = NotificationManagerCompat.IMPORTANCE_DEFAULT
@@ -50,6 +52,7 @@ object Channels {
     make(LEAVE_BY, if (countdownsOff && nm.getNotificationChannelCompat(LEAVE_BY) == null) NONE else HIGH, "Leave-by", "When to leave or start prep, and the countdown to it")
     make(MEDICINE, HIGH, "Medicine", "Your own doses on this phone. To let them through Do Not Disturb, turn on Override Do Not Disturb here.")
     make(CHORES, NONE, "Chores", "A morning nudge with your chores left today. Off until you turn it on here.")
+    make(NEW_CHORES, HIGH, c.getString(R.string.kinwall_new_chores), c.getString(R.string.kinwall_new_chores_description))
     make(COUNTDOWNS, DEFAULT, "Timers and countdowns", "Cooking timers and shopping trips")
     val sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM) ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
     make(COOKING, HIGH, "Cooking timers", "Rings when a cooking timer is done") {

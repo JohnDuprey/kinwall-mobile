@@ -40,3 +40,23 @@ test('native push: registration failure keeps a working registration; permission
   assert.equal(session.registration, null)
   assert.deepEqual(removed, ['phone'])
 })
+
+test('Android reconnect and token rotation retain the device subscription without sending preference defaults', async () => {
+  const calls: unknown[] = [], removed: string[] = []
+  const session = new NativePushSession({
+    register: async (c, token) => { calls.push({ c, token }); return { push: true, subscription: { id: 'android-phone' } } },
+    remove: async (_, id) => { removed.push(id) }, changed: () => {},
+  })
+  session.setDevice({ baseURL: 'https://family.example', key: 'oauth-one' })
+  await session.register('fake:fcm-one')
+  session.setDevice({ baseURL: 'https://family.example', key: 'oauth-refreshed' })
+  await session.register('fake:fcm-rotated')
+  assert.equal(session.registration?.id, 'android-phone')
+  assert.deepEqual(calls, [
+    { c: { baseURL: 'https://family.example', key: 'oauth-one' }, token: 'fake:fcm-one' },
+    { c: { baseURL: 'https://family.example', key: 'oauth-refreshed' }, token: 'fake:fcm-rotated' },
+  ])
+  await session.clear()
+  assert.deepEqual(removed, ['android-phone'])
+  assert.equal(session.registration, null)
+})

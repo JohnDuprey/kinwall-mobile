@@ -144,3 +144,11 @@ test('followed event activity opens its occurrence in Calendar', () => {
  assert.equal(routeFor(`family.kinwall.app:/open?to=event&event=soccer&at=${encodeURIComponent(at)}`),`calendar?${new URLSearchParams({event:'soccer',at})}`)
  assert.equal(routeFor('family.kinwall.app:/open?to=event&event=bad/id'),null)
 })
+
+test('new chore pushes open Chores for the current family on APNs and FCM', () => {
+  // APNs body and FCM data.body JSON both become content.data in expo-notifications.
+  const data = JSON.parse('{"url":"/#/chores","server":"https://family.example"}')
+  assert.equal(notificationRoute(data.url, data.server, data.server), 'chores')
+  assert.equal(notificationRoute(data.url, 'https://other.example', data.server), null)
+  assert.equal(notificationRoute('https://untrusted.example/#/chores', data.server, data.server), null)
+})
