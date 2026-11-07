@@ -158,6 +158,12 @@ it), account deletion info (in iPhone Settings → Kinwall), no purchases or pri
      `ACCESS_NOTIFICATION_POLICY`: Do Not Disturb for medicine is the person's own channel switch,
    - Ads: none.
 
+For native Android FCM alerts, both the test APK and Play bundle workflows accept the optional
+repository Actions secret `KINWALL_GOOGLE_SERVICES_JSON`: the Firebase Android **client** file for
+`family.kinwall.app`, separate from the Play service account and server FCM private key. Without
+it, builds keep local reminders. Local/EAS builds use the file variable
+`KINWALL_GOOGLE_SERVICES_FILE`. See [configuration and rollout checks](CHORE-NOTIFICATIONS.md).
+
 **Each release**
 
 1. Automatic: merging the release PR runs `.github/workflows/play.yml`, which builds the bundle and

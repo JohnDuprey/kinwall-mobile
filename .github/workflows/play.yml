@@ -12,7 +12,7 @@
 #
 # Three jobs, so the upload key never shares a machine with dependency code:
 # check   Are the secrets set?
-# build   No secrets. npm, Expo prebuild and Gradle (all of which run code from node_modules) build
+# build   Only optional Firebase client config, never signing/server keys. npm, Expo prebuild and Gradle build
 #         the bundle unsigned (UNSIGNED=1), kept as a short-lived artifact.
 # upload  No checkout and no npm. Signs the bundle with jarsigner (the upload key is written, used
 #         and deleted within one step) and uploads it with the Play service account.
@@ -23,6 +23,11 @@ on:
   workflow_call:
     inputs:
       tag: { type: string, required: true }
+    secrets:
+      KINWALL_GOOGLE_SERVICES_JSON: { required: false }
+      ANDROID_UPLOAD_KEYSTORE: { required: false }
+      ANDROID_UPLOAD_PASSWORD: { required: false }
+      PLAY_SERVICE_ACCOUNT_JSON: { required: false }
   workflow_dispatch:
     inputs:
       tag:
@@ -71,12 +76,19 @@ jobs:
         with: { distribution: temurin, java-version: 17 }
       - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       - run: npm ci --ignore-scripts # no dependency has an install script; this keeps it that way
+      - name: Configure optional Android Firebase client
+        env:
+          KINWALL_GOOGLE_SERVICES_JSON: ${{ secrets.KINWALL_GOOGLE_SERVICES_JSON }}
+        run: node scripts/android-firebase-ci.mjs
       - name: Build the bundle, unsigned
         env:
           UNSIGNED: '1'
           OUT: ${{ runner.temp }}/kinwall-unsigned.aab
           NPM_CI: '0'
         run: scripts/play-bundle.sh
+      - name: Remove Firebase client configuration
+        if: always()
+        run: rm -f "$RUNNER_TEMP/google-services.json" android/app/google-services.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: { name: aab-unsigned, path: '${{ runner.temp }}/kinwall-unsigned.aab', if-no-files-found: error, retention-days: 1 }
 

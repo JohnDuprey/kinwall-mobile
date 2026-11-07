@@ -1,7 +1,8 @@
 # Unsigned app builds (README "Install a test build"). Called by release-please.yml when a release
 # is made, which attaches them to it with SHA256SUMS.txt; or run by hand: with a tag it builds that
 # release and attaches (or replaces) its files, without one it builds the chosen branch and keeps
-# the files as this run's artifacts. Nothing is signed with a real key, so no secrets.
+# the files as this run's artifacts. Signing uses a throwaway key; optional Firebase client config
+# comes from KINWALL_GOOGLE_SERVICES_JSON (never a Firebase service-account key).
 # Build numbers: iOS buildNumber and Android versionCode are major*10000 + minor*100 + patch
 # (0.2.0 -> 200), passed to app.config.js as KINWALL_BUILD_NUMBER.
 name: App builds
@@ -9,6 +10,8 @@ on:
   workflow_call:
     inputs:
       tag: { type: string, required: true }
+    secrets:
+      KINWALL_GOOGLE_SERVICES_JSON: { required: false }
   workflow_dispatch:
     inputs:
       tag:
@@ -59,6 +62,10 @@ jobs:
         with: { distribution: temurin, java-version: 17 }
       - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       - run: npm ci
+      - name: Configure optional Android Firebase client
+        env:
+          KINWALL_GOOGLE_SERVICES_JSON: ${{ secrets.KINWALL_GOOGLE_SERVICES_JSON }}
+        run: node scripts/android-firebase-ci.mjs
       - run: CI=1 npx expo prebuild --platform android --clean
       - name: Build the release APK, unsigned
         working-directory: android
@@ -74,10 +81,13 @@ jobs:
           pass=$(openssl rand -hex 16)
           keytool -genkeypair -keystore "$RUNNER_TEMP/throwaway.jks" -storepass "$pass" -alias kinwall \
             -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Kinwall test build"
-          apksigner=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
+          apksigner=$(printf '%s\n' "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
           "$apksigner" sign --v4-signing-enabled false --ks "$RUNNER_TEMP/throwaway.jks" --ks-pass "pass:$pass" --out "out/$NAME.apk" "out/$NAME-unsigned.apk"
           "$apksigner" verify "out/$NAME.apk"
           rm "$RUNNER_TEMP/throwaway.jks"
+      - name: Remove Firebase client configuration
+        if: always()
+        run: rm -f "$RUNNER_TEMP/google-services.json" android/app/google-services.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with: { name: '${{ env.NAME }}', path: out/, if-no-files-found: error }
 

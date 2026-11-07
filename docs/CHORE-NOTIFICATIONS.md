@@ -13,9 +13,12 @@ Tapping its `/#/chores` URL opens Chores on the current family. APNs registratio
 remain unchanged. Bridge metadata is now initialized again on every web document load, including
 reconnects; expired gateway registrations report not ready.
 
-## Android: mobile transport prepared, server work still required
+## Android: FCM integration
 
-Ordinary builds still use local reminders and do **not** receive immediate new-chore pushes.
+Firebase-configured builds register with Kinwall and receive native FCM alerts when the server
+has the matching implementation and credentials. Builds without Firebase configuration, older
+servers (404), and servers reporting unavailable delivery keep local reminders and do **not**
+receive immediate new-chore pushes.
 There is no polling substitute and no new chore alarm. Turning on Android's daily Chores channel
 does not enable new-chore messages. The separate **New chores** (`new_chores`) channel controls
 sound/presentation, while `prefs.newChores` controls whether the server sends anything. Its channel
@@ -40,37 +43,57 @@ See Expo's [direct FCM guide](https://docs.expo.dev/push-notifications/sending-n
 and [Firebase configuration](https://docs.expo.dev/push-notifications/fcm-credentials/).
 
 A configured build attempts **PUT /api/push/android** with `{ token, deviceName: 'Kinwall Android' }`.
-This is a **proposed required endpoint**, absent from the referenced Kinwall server. A 404 or failed
-registration leaves local scheduling enabled and never reports push ready. Raw FCM tokens must
+Kinwall commit
+`d5c69a89489a2be44be481b928af38ff250080d5` implements this endpoint and the full native FCM
+alert sender. A 404 or failed first registration leaves local scheduling enabled and never reports
+push ready; a temporary renewal failure preserves an already working registration. Raw FCM tokens must
 never be posted to the APNs route, browser Web Push registration or Apple App Attest gateway.
-The existing web server-settings path is exposed in configured builds; until the endpoint exists,
-it cannot obtain an Android subscription or save New chores. Unconfigured builds retain the
-local-reminder settings path, which has no New chores switch.
+The web server-settings path is exposed in configured builds. Successful registration supplies
+the subscription ID so the web can save New chores and followed members directly on the server.
+Unconfigured builds retain the local-reminder settings path, which has no New chores switch.
 
-### Required server contract before enabling Android push in distributed builds
+### Build configuration in CI and EAS
 
-- Add authenticated `PUT /api/push/android`, accepting opaque FCM tokens (not the APNs hex regex).
-  Return `{ push: boolean, delivery: 'direct' | 'unavailable', subscription: { id, deviceName,
+The unsigned Android APK workflow and Google Play bundle workflow accept the optional repository
+Actions secret **KINWALL_GOOGLE_SERVICES_JSON**, containing the Firebase **Android client**
+`google-services.json` for `family.kinwall.app`. The release workflow forwards it to the reusable
+APK workflow; the Play workflow inherits it. Do not use the FCM service-account JSON or Play upload
+credentials for this secret. `scripts/android-firebase-ci.mjs` validates the client identity, rejects
+service-account keys, writes only to the runner's temporary directory with mode 0600, and exports
+`KINWALL_GOOGLE_SERVICES_FILE` for both prebuild and Gradle's JavaScript bundle. It never prints the
+configuration. Cleanup removes both temporary and generated native copies. A missing secret
+produces a local-reminder build; malformed or mismatched configuration fails the build.
+
+For local builds, keep `KINWALL_GOOGLE_SERVICES_FILE` in an ignored `.env.local` or export it for
+the whole build. For EAS, create a file environment variable named `KINWALL_GOOGLE_SERVICES_FILE`
+with the client file in the environment selected by the build profile. All profiles use the same
+opt-in app config; none embeds a developer's local path. The client config is packaged into the
+Android app and is distinct from the server's private FCM signing credentials.
+
+### Implemented server contract
+
+- Authenticated `PUT /api/push/android`, accepting opaque FCM tokens (not the APNs hex regex).
+  Returns `{ push: boolean, delivery: 'direct' | 'unavailable', subscription: { id, deviceName,
   memberIds, prefs, createdAt, lastSuccessAt } }`, using the existing subscription schema.
-- Reuse the subscription across token/access-key rotation via stable OAuth grant or paired-key
-  identity, preserve preferences and followed members, and enforce child-owner targeting.
-  Store the encrypted token with a transport-specific fingerprint, retire its previous sign-in,
-  and default `newChores` to false for both existing and new registrations.
-- Route FCM subscriptions through the same new-chore recipient selection as APNs/Web Push,
+- Reuses the subscription across token/access-key rotation via stable OAuth grant or paired-key
+  identity, preserving preferences and followed members and enforcing child-owner targeting.
+  Stores the encrypted token with a transport-specific fingerprint, retires its previous sign-in,
+  and defaults `newChores` to false for both existing and new registrations.
+- Routes FCM subscriptions through the same new-chore recipient selection as APNs/Web Push,
   including Anyone chores, creator device/person exclusion, feature switches and silent edits,
-  imports, templates and inactive chores. Keep the single bell entry server-owned.
-- Keep `PATCH` merge semantics and `DELETE /api/push/subscriptions/{id}` compatible. Sign-out,
+  imports, templates and inactive chores. The single bell entry stays server-owned.
+- Keeps `PATCH` merge semantics and `DELETE /api/push/subscriptions/{id}` compatible. Sign-out,
   permission revocation and turning off notifications use this DELETE while credentials remain
   valid; a late registration after sign-out is deleted by the serialized session coordinator.
-- Configure an FCM HTTP v1 sender with server-side credentials for the same Firebase project.
-  Remove retired tokens on FCM UNREGISTERED, not on temporary failures. No keys enter the app.
-- Return `push: true` only when the full native alert path works. As on iOS, event reminders stay
+- Uses an FCM HTTP v1 sender with server-side credentials for the same Firebase project.
+  Removes retired tokens on FCM UNREGISTERED, not on temporary failures. No keys enter the app.
+- Returns `push: true` only with the full native alert sender configured. This reports capability,
+  not provider or device health. As on iOS, event reminders stay
   local (`eventReminders: false` enforced on register/PATCH), while medicine and daily chore
   reminders transfer to the server only after confirmed readiness. A chore-only sender must
   **not** return true under this contract: doing so would stop local medicine/daily reminders.
-- Update the web native-push explanation and unavailable-delivery text to be platform-aware:
-  the current web strings say “Apple push” for every native device. Translate those web changes
-  alongside the endpoint. The existing New chores switch itself already saves the right preference.
+- The web native-push explanation and unavailable-delivery text are platform-aware, with German
+  translations. The New chores switch saves the existing server preference.
 
 For the installed expo-notifications receiver, send a visible FCM HTTP v1 message with localized
 `notification.title` = “New chore” and `notification.body` = chore title. Use
@@ -86,5 +109,25 @@ A notification + data message uses FCM's visible background delivery and Expo's 
 presentation. Do not send an additional local copy or rely on a foreground/background polling
 interval. Delivery remains subject to notification permission, channel settings, network, Android
 battery restrictions and force-stop behavior. Physical-device background, cold-start tap, token
-rotation and sign-out delivery must be verified after the endpoint and credentials are available.
+rotation and sign-out delivery still require verification with the deployed endpoint and credentials.
 No real household pushes are required for unit tests or builds.
+
+## Verification and rollout status
+
+The backend commit above and kinwall-cloud commit
+`3b05721b31179c2855a34c7cdf4296363df0a21f` (FCM credential forwarding) are locally tested changes;
+they are not deployed merely because the mobile app builds. Cloud compatibility passed against
+both its previous core pin and the new backend in an isolated temporary vendor checkout. The
+cloud repository's tracked vendor pin remains unchanged, so rollout also needs the normal green
+core selection/vendor update and hosted deployment. No deployment or real household sends were
+performed for this integration. Existing hosted secret names were verified separately; that does
+not prove provider delivery. Self-hosters need the new Kinwall server, canonical `PUBLIC_URL`, and
+`FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY` for the same Firebase project.
+
+Mobile logic tests cover transport gates, personal reminder identity, subscription metadata on
+reload/expiry, token/access-key rotation, cleanup after a late sign-out registration, and same-family
+tap routing. The installed Expo receiver decodes `data.body` for foreground and background taps;
+FCM owns visible background delivery and the existing Expo handler owns foreground presentation.
+No second local notification is scheduled for a remote new chore. Full provider/device delivery,
+Google IAM acceptance and permission/channel/battery/force-stop behavior remain unverified; mocks
+and a successful Firebase-enabled Android build do not establish end-to-end delivery.

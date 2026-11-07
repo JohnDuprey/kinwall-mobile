@@ -80,11 +80,13 @@ npx expo run:android            # an emulator or a connected device
 The Live Activities show on Android as ongoing notifications on their own **Timers and countdowns** channel: a cooking timer, a shopping trip (with **Got it** and **Open**) and the next leave-by or start-prep time, with countdowns that tick on their own. Android 16 promotes them to Live Updates (the status bar chip and the top of the Lock Screen). A cooking timer rings when it's up on its own **Cooking timers** channel, with the alarm sound until **Stop**. Leave-by and prep-by times are also scheduled ahead as exact alarms (`USE_EXACT_ALARM`, granted at install), so they appear on time with the app closed and no push. See [docs/PLAN.md](docs/PLAN.md#android-countdowns-built-2026-09-29).
 
 **New chore notifications:** supported iOS push builds expose the web’s per-device **New chores**
-switch (off by default), and tapping a message opens Chores. Android’s FCM integration is prepared
-behind Firebase build configuration, but immediate delivery and saving this opt-in still require
-an Android registration endpoint and FCM sender in Kinwall. Current ordinary Android builds keep
-local reminders. See [setup and the exact server contract](docs/CHORE-NOTIFICATIONS.md); no local
-poll or daily reminder can substitute for immediate push.
+switch (off by default), and tapping a message opens Chores. Firebase-configured Android builds
+use the same server-owned switch through `PUT /api/push/android` with the matching Kinwall backend
+and FCM credentials. Older servers and builds without Firebase keep local reminders. CI accepts
+optional `KINWALL_GOOGLE_SERVICES_JSON` client configuration; no Firebase config or server key is
+committed. See [setup, contract and rollout status](docs/CHORE-NOTIFICATIONS.md); these backend
+changes still need deployment and physical-device delivery checks. No local poll or daily reminder
+substitutes for immediate push.
 
 **Anyone chore reminders:** in Kinwall’s Notifications settings, **Include Anyone chores** adds shared chores to this device’s daily chore reminder. It starts off, including on existing installs; personal reminders are unchanged. Enable the daily reminder separately in iPhone Settings → Kinwall, or Android’s Chores notification channel (8:00 AM). The choice is saved on this device and applies to background scheduling too. A shared-chore reminder opens Chores so you can choose who did it. Supported push-enabled iOS builds use the same option on their server subscription instead. The mobile and web updates are both needed to show the local reminder switch.
 

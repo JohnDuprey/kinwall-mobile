@@ -29,6 +29,8 @@ jobs:
     permissions:
       contents: write
     uses: ./.github/workflows/build.yml
+    secrets:
+      KINWALL_GOOGLE_SERVICES_JSON: ${{ secrets.KINWALL_GOOGLE_SERVICES_JSON }}
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
   testflight:
