@@ -97,7 +97,7 @@ Android app and is distinct from the server's private FCM signing credentials.
 
 For the installed expo-notifications receiver, send a visible FCM HTTP v1 message with localized
 `notification.title` = “New chore” and `notification.body` = chore title. Use
-`android.priority: 'HIGH'`, `android.ttl: '0s'`, and
+`android.priority: 'HIGH'`, `android.ttl: '3600s'` (a TTL of 0 drops the alert while the device sleeps), and
 `android.notification: { channel_id: 'new_chores', tag: 'chore:new:<id>', sound: 'default' }`.
 Set `data.tag` to that same tag (Expo's foreground identifier), and set **`data.body` to a JSON
 string** containing `{ url: '/#/chores', server: '<canonical family origin>' }`. Expo decodes this
