@@ -8,7 +8,8 @@ import { StatusBar } from 'expo-status-bar'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import type { Tokens } from './oauth'
 import { DEMO_URL, enterDemo, leaveDemo } from './demo'
-import { refreshReminders, scheduleBackgroundRefresh } from './reminders'
+import { refreshReminders, refreshRemindersOnResume, scheduleBackgroundRefresh } from './reminders'
+import { atMostEvery } from './throttle'
 import { clearServer, loadServer, saveServer } from './server'
 import { ServerEntry } from './ServerEntry'
 import { type Session, freshTokens, loadSession, signOut } from './session'
@@ -39,6 +40,10 @@ Linking.addEventListener('url', (e) => { if (linkTo) linkTo(e.url); else early.p
 /** The phone and tablet app: the household's own Kinwall web app, full screen, in a native frame
  * (docs/PLAN.md). First launch asks for the server, then signs in (OAuth in the system's auth
  * sheet, or a pairing code). */
+
+// Coming back to the app: reminders, ended Live Activities, Spotlight and the Watch, at most once a
+// minute (iOS can report the app active again every few seconds).
+const resumeSync = atMostEvery(60_000, () => { refreshRemindersOnResume(); endStaleActivities(); syncSpotlight(); syncWatch().catch(() => {}) })
 
 export default function App() {
   const [server, setServer] = useState<string | null | undefined>() // undefined: still loading
@@ -121,7 +126,7 @@ export default function App() {
   // contacts (src/spotlight.ts).
   useEffect(() => {
     refreshReminders().catch(() => {}); endStaleActivities(); syncSpotlight()
-    const sub = AppState.addEventListener('change', (s) => { if (s === 'background') { scheduleBackgroundRefresh(); refreshReminders().catch(() => {}) } if (s === 'active') { refreshReminders().catch(() => {}); endStaleActivities(); syncSpotlight(); syncWatch().catch(() => {}) } })
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'background') { scheduleBackgroundRefresh(); refreshReminders().catch(() => {}) } if (s === 'active') resumeSync() })
     const watch = KinwallNative?.addListener('watchStateChanged', () => { syncWatch() }) // e.g. the Watch app was just installed
     return () => { sub.remove(); watch?.remove() }
   }, [])

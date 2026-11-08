@@ -17,6 +17,7 @@ import type { LeaveByEvent } from './leaveBy'
 import { DoseReminderState, parseDoseChange } from './doseReminders'
 import { readChoreNudgeAnyone } from './choreNudgeAnyone'
 import { remoteMedicineReminders } from './nativePush'
+import { atMostEvery } from './throttle'
 
 const doseState = new DoseReminderState()
 /** Called while the page is still active, immediately after the server confirms Taken/Skipped. */
@@ -95,6 +96,10 @@ const categories = Promise.all([
 ]).catch(() => {})
 
 type Planned = { fire: number; request: Notifications.NotificationRequestInput }
+
+/** refreshReminders when the app becomes active, shared by every resume handler (App, WebShell):
+ * at most once a minute, since iOS can report the app active again every few seconds. */
+export const refreshRemindersOnResume = atMostEvery(60_000, () => { refreshReminders().catch(() => {}) })
 
 export async function refreshReminders(): Promise<void> {
   const doseRevision = doseState.revision

@@ -60,3 +60,31 @@ test('Android reconnect and token rotation retain the device subscription withou
   assert.deepEqual(removed, ['android-phone'])
   assert.equal(session.registration, null)
 })
+
+// The app re-registers on every resume and page load; on 2026-11-08 one phone sent 35 identical
+// registrations in two minutes. An unchanged one inside REREGISTER_MS is skipped.
+test('native push: an unchanged registration is not sent again until it is due', async () => {
+  let now = 0
+  const sent: string[] = []
+  const session = new NativePushSession({
+    register: async (c, token) => { sent.push(`${c.key}:${token}`); return { push: true, subscription: { id: 'phone' }, gatewayExpiresAt: now + 7 * 86400_000 } },
+    remove: async () => {}, changed: () => {}, now: () => now,
+  })
+  session.setDevice({ baseURL: 'https://family.example', key: 'one' })
+  await session.register('aa')
+  await session.register('aa'); await session.register('aa')
+  assert.deepEqual(sent, ['one:aa'])
+  await session.register('bb') // rotated token
+  session.setDevice({ baseURL: 'https://family.example', key: 'two' })
+  await session.register('bb') // refreshed key
+  now += 12 * 3600_000
+  await session.register('bb') // due again
+  assert.deepEqual(sent, ['one:aa', 'one:bb', 'two:bb', 'two:bb'])
+  now += 6.5 * 86400_000 // gateway credential expires within a day
+  await session.register('bb')
+  assert.equal(sent.length, 5)
+  await session.clear()
+  session.setDevice({ baseURL: 'https://family.example', key: 'two' })
+  await session.register('bb') // turned off and on again
+  assert.equal(sent.length, 6)
+})

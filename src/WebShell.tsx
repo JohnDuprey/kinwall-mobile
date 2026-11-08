@@ -10,7 +10,7 @@ import { AppState, BackHandler, Dimensions, Linking, Platform, Pressable, StyleS
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 import type { Tokens } from './oauth'
-import { doseChanged, refreshReminders, requestPermission } from './reminders'
+import { doseChanged, refreshReminders, refreshRemindersOnResume, requestPermission } from './reminders'
 import { nativePushAvailable, onNativePushChange, savedNativePush, setNativePushEnabled, syncNativePush } from './nativePush'
 import { type Surface, activityColors, frameColors, parseAppearance } from './appearance'
 import { setEventActivities, activitiesEnabled, endActivity, endAllActivities, setActivityDevice, setLeaveByPush, setMedicineActivityPush, setActivityPushAllowed, showActivity } from './liveActivities'
@@ -257,7 +257,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       if (s !== 'active') return
       web.current?.injectJavaScript(`try { window.kinwallNative.liveActivities = ${JSON.stringify(activitiesEnabled())}; window.dispatchEvent(new Event('kinwallnative')) } catch (e) {} true;`)
       setActivityPushAllowed(activitiesEnabled() === true && (await Notifications.getPermissionsAsync()).granted)
-      syncNativePush().catch(() => {}).finally(() => refreshReminders().catch(() => {}))
+      syncNativePush().catch(() => {}).finally(refreshRemindersOnResume) // the push registration skips itself when unchanged (nativePushSession.ts)
       if (heldLeaveBy.current && (await Notifications.getPermissionsAsync()).granted) showActivity('leaveBy', heldLeaveBy.current, activityColors(frameNow.current))
     })
     return () => sub.remove()
