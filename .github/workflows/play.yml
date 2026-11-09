@@ -1,4 +1,4 @@
-# Signed Android App Bundle uploaded to Google Play's internal testing track (docs/PUBLISHING.md),
+# Signed Android App Bundle uploaded to a Google Play testing track (docs/PUBLISHING.md),
 # built by scripts/play-bundle.sh like a hand build. Called by release-please.yml for each release,
 # or run by hand: with a tag it uploads that release, without one the chosen branch.
 # Skipped until these secrets exist (repository secrets, or secrets of the "release" environment):
@@ -8,6 +8,9 @@
 #                             Users and permissions with release rights for Kinwall
 # Releases go up as drafts (Play only takes drafts until the app's first release is reviewed);
 # set the repository variable PLAY_RELEASE_STATUS to "completed" after that to roll out directly.
+# The track is the repository variable PLAY_TRACK, else internal testing. Set it to the closed testing
+# track's name (Play Console's track list; the first closed track is "alpha") to send releases straight
+# to closed testers instead of promoting each one by hand.
 # Version codes are minutes since 1970, as in scripts/play-bundle.sh, so CI and hand builds always go up.
 #
 # Three jobs, so the upload key never shares a machine with dependency code:
@@ -126,5 +129,5 @@ jobs:
           packageName: family.kinwall.app
           releaseFiles: ${{ runner.temp }}/kinwall.aab
           releaseName: ${{ inputs.tag || github.sha }}
-          track: internal
+          track: ${{ vars.PLAY_TRACK || 'internal' }}
           status: ${{ vars.PLAY_RELEASE_STATUS || 'draft' }}

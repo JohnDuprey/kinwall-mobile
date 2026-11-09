@@ -170,8 +170,10 @@ integrity), which turns on self-hosted push through the gateway; without it, Pla
 **Each release**
 
 1. Automatic: merging the release PR runs `.github/workflows/play.yml`, which builds the bundle and
-   uploads it to the internal testing track (as a draft until the app's first review; then set the
-   repository variable `PLAY_RELEASE_STATUS` to `completed`). It's skipped until the secrets listed at
+   uploads it to the internal testing track, or the track named by the repository variable
+   `PLAY_TRACK` (the closed testing track's name, such as `alpha`, sends releases straight to closed
+   testers with no promoting by hand). It goes up as a draft until the app's first review; then set the
+   repository variable `PLAY_RELEASE_STATUS` to `completed`. It's skipped until the secrets listed at
    its top are set: the upload key (base64), its password, and a service account's JSON key.
 2. By hand: `scripts/play-bundle.sh` writes a signed `.aab` to the Desktop (it asks for the upload
    key password); upload it in Play Console to a track. Version codes are minutes since 1970 in
