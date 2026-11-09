@@ -178,3 +178,11 @@ test('Android direct handoff after enrollment removes the issued capability with
   assert.equal(f.state()!.registrations.length, 0)
   assert.equal(f.calls.filter(c => c.method === 'DELETE').length, 1)
 })
+test('Android gateway: a credential enrolled for the canonical address is revoked when leaving the address the app connects through', async () => {
+  const f = fixture()
+  await f.client.get({ ...input, app: 'http://192.168.1.20:8080/' })
+  assert.deepEqual(f.calls[0]!.body.registration, input, 'the gateway sees only the canonical registration')
+  await f.client.revokeServer('http://192.168.1.20:8080')
+  assert.equal(f.state()!.registrations.length, 0)
+  assert.ok(f.calls.some(c => c.method === 'DELETE' && c.credential === credential))
+})

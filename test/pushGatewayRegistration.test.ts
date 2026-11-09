@@ -85,3 +85,30 @@ test('Android gateway requires explicit server capability, while a supported nea
   })
   assert.equal(renewed, true)
 })
+
+test('push registration: enrolls with the server\'s canonical address, not the one the app connects through', async () => {
+  const lan = { baseURL: 'http://192.168.1.20:8080', key: 'device-key' }
+  const inputs: any[] = []
+  const result = await registerPush(lan, { token }, 'android-alert', {
+    register: async body => ({ push: !!body.gateway, delivery: body.gateway ? 'gateway' : 'unavailable', gatewayAvailable: true, gatewayServer: 'https://kinwall.example', gatewayExpiresAt: Date.now() + 3600000 }),
+    enroll: async input => { inputs.push(input); return { credential: 'scoped-device-credential', expiresAt: Date.now() + 3600000 } },
+    revoke: async () => assert.fail('must not revoke'), canEnroll: s => s.gatewayAvailable === true,
+  })
+  assert.equal(result.push, true); assert.equal(result.problem, undefined)
+  assert.deepEqual(inputs, [{ server: 'https://kinwall.example', token, kind: 'android-alert', app: lan.baseURL }])
+});
+test('push registration: says why push stayed off', async () => {
+  const unavailable = { push: false, delivery: 'unavailable' as const, gatewayServer: 'https://kinwall.example' }
+  const run = (deps: Partial<Parameters<typeof registerPush>[3]>, first: object = { ...unavailable, gatewayAvailable: true }) => registerPush(c, { token }, 'android-alert', {
+    register: async body => body.gateway ? { ...unavailable, push: false } : first as never,
+    enroll: async () => ({ credential: 'scoped-device-credential', expiresAt: Date.now() + 3600000 }),
+    revoke: async () => {}, canEnroll: s => s.gatewayAvailable === true, ...deps,
+  })
+  // The server has no public address, so there's nothing to enroll with.
+  assert.equal((await run({}, { ...unavailable, gatewayAvailable: false, gatewayServer: null })).problem, 'address')
+  // Google Play couldn't verify the phone (or the gateway was out of reach).
+  assert.equal((await run({ enroll: async () => { throw new Error('integrity failed') } })).problem, 'device')
+  // The phone was verified, but the server didn't take the credential.
+  assert.equal((await run({})).problem, 'server')
+  assert.equal((await run({ register: async body => { if (body.gateway) throw new Error('400'); return { ...unavailable, gatewayAvailable: true } } })).problem, 'server')
+});

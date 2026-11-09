@@ -5,5 +5,7 @@ import type { PushRegistration } from './nativePushSession'
 export function nativePushPageScript(server: string, registration: PushRegistration | null, enabled: boolean, now = Date.now()): string {
   const mine = enabled && registration?.baseURL === server ? registration : null
   const ready = !!mine?.push && (mine.expiresAt === undefined || mine.expiresAt > now)
-  return `if (location.origin === ${JSON.stringify(new URL(server).origin)} && window.kinwallNative) { window.kinwallNative.pushReady = ${JSON.stringify(ready)}; try { ${mine ? `localStorage.setItem('kinwall.pushSubId', ${JSON.stringify(mine.id)});` : `localStorage.removeItem('kinwall.pushSubId');`} } catch (e) {} window.dispatchEvent(new Event('kinwallnative')); } true;`
+  // Why it isn't ready, so the settings can say what to fix (pushGatewayRegistration.ts PushProblem).
+  const problem = !ready && mine?.problem && ['address', 'device', 'server'].includes(mine.problem) ? mine.problem : null
+  return `if (location.origin === ${JSON.stringify(new URL(server).origin)} && window.kinwallNative) { window.kinwallNative.pushReady = ${JSON.stringify(ready)}; window.kinwallNative.pushProblem = ${JSON.stringify(problem)}; try { ${mine ? `localStorage.setItem('kinwall.pushSubId', ${JSON.stringify(mine.id)});` : `localStorage.removeItem('kinwall.pushSubId');`} } catch (e) {} window.dispatchEvent(new Event('kinwallnative')); } true;`
 }

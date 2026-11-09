@@ -1,7 +1,8 @@
 import { GatewayHTTPError } from './gatewayEnrollment.ts'
 
 export type AndroidGatewayInput = { server: string; token: string; kind: 'android-alert' }
-export type AndroidGatewayCredential = AndroidGatewayInput & { credential: string; expiresAt: number }
+// app: the address this app connects through, when it isn't `server` (the server's canonical one).
+export type AndroidGatewayCredential = AndroidGatewayInput & { credential: string; expiresAt: number; app?: string }
 export type AndroidGatewayState = { registrations: AndroidGatewayCredential[]; pending: AndroidGatewayCredential[] }
 type Dependencies = {
   supported(): boolean
@@ -38,7 +39,7 @@ export class AndroidGatewayEnrollmentClient {
     const valid = (value: unknown): value is AndroidGatewayCredential => {
       const r = object(value)
       try { const input = normalize(r as AndroidGatewayCredential)
-        return input.server === r.server && typeof r.credential === 'string' && credentialPattern.test(r.credential)
+        return input.server === r.server && (r.app === undefined || typeof r.app === 'string') && typeof r.credential === 'string' && credentialPattern.test(r.credential)
           && Number.isSafeInteger(r.expiresAt) && (r.expiresAt as number) > this.now()
       } catch { return false }
     }
@@ -60,9 +61,10 @@ export class AndroidGatewayEnrollmentClient {
       await this.deps.save(state)
     }
   }
-  get(input: AndroidGatewayInput): Promise<AndroidGatewayCredential> {
+  get(input: AndroidGatewayInput & { app?: string }): Promise<AndroidGatewayCredential> {
     return this.run(async () => {
       const registration = normalize(input), state = await this.load()
+      const app = input.app && new URL(input.app).origin !== registration.server ? new URL(input.app).origin : undefined
       // Check build support even with cached state: a restored credential cannot enable a debug build.
       if (!this.deps.supported()) throw new Error('Android app verification unavailable')
       const cached = state.registrations.find(r => same(r, registration) && r.expiresAt > this.now() + 300000)
@@ -87,7 +89,7 @@ export class AndroidGatewayEnrollmentClient {
       const match = typeof result.credential === 'string' ? credentialPattern.exec(result.credential) : null
       if (!match || result.id !== match[1] || !Number.isSafeInteger(result.expiresAt) || (result.expiresAt as number) <= this.now()
         || (result.expiresAt as number) > this.now() + 30 * 86400000) throw new Error('Invalid Android gateway registration')
-      const entry: AndroidGatewayCredential = { ...registration, credential: result.credential as string, expiresAt: result.expiresAt as number }
+      const entry: AndroidGatewayCredential = { ...registration, ...(app ? { app } : {}), credential: result.credential as string, expiresAt: result.expiresAt as number }
       const old = state.registrations.filter(r => r.server === registration.server)
       // Renewal rotates a bearer on the same row; deleting its old bearer could revoke the new row.
       this.retire(state, old.filter(r => credentialPattern.exec(r.credential)?.[1] !== result.id))
@@ -106,7 +108,7 @@ export class AndroidGatewayEnrollmentClient {
   revokeServer(server: string): Promise<void> {
     return this.run(async () => {
       const origin = new URL(server).origin, state = await this.load()
-      this.retire(state, state.registrations.filter(r => r.server === origin))
+      this.retire(state, state.registrations.filter(r => r.server === origin || r.app === origin))
       await this.deps.save(state); await this.flush(state)
     })
   }

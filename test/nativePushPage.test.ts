@@ -31,3 +31,9 @@ test('expired, other-family and demo registrations never advertise ready', () =>
   assert.equal(demo.native.pushReady, false)
   assert.equal(page(null, 'https://untrusted.example').storage.get('kinwall.pushSubId'), 'stale')
 })
+test('why push stayed off reaches the page, and clears once it works', () => {
+  assert.equal(page({ baseURL: server, id: 'phone', push: false, problem: 'address' }).native.pushProblem, 'address')
+  assert.equal(page({ baseURL: server, id: 'phone', push: true }).native.pushProblem, null)
+  assert.equal(page({ baseURL: server, id: 'phone', push: false, problem: '<script>' }).native.pushProblem, null, 'only known reasons')
+  assert.equal(page(null).native.pushProblem, null)
+})

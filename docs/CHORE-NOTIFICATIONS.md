@@ -127,6 +127,11 @@ App Attest routes, and raw FCM tokens never go to them.
    gateway capability. A direct response with `push: false` does not remove a working capability.
 2. Otherwise the shell asks the gateway for a challenge (`POST /v1/android/enrollment/challenge`
    with the standard-base64 DER SPKI of a P-256 key and `{ token, server, kind: 'android-alert' }`).
+   `server` is the response's `gatewayServer`, the server's canonical origin (`PUBLIC_URL`, else its
+   saved public address), not the address the app connects through: the server accepts only a
+   credential bound to its canonical origin, and families often reach it on a LAN IP or another
+   port. Older servers send no `gatewayServer`, and the app falls back to its own address. The
+   stored credential remembers the app's address too, so leaving that server still revokes it.
    Before any proof it checks the returned `clientData` is exactly
    `{"protocol":"kinwall-android-push-v1","challenge":<64 hex>,"keyId":<hex SHA-256 of the SPKI>,
    "tokenHash":<hex SHA-256 of the raw, case-sensitive FCM token>,"server":<its URL.origin>,
@@ -140,6 +145,10 @@ App Attest routes, and raw FCM tokens never go to them.
 4. The app sends `gateway: { credential }` with the next `PUT /api/push/android`. Readiness still
    needs `push: true` with a future `gatewayExpiresAt`; until then medicine and daily reminders stay
    local. Renewal starts within 5 minutes of expiry with a fresh challenge and proof.
+5. When push stays off, the app tells the page why as `kinwallNative.pushProblem`, and the web
+   settings explain it: `address` (no `gatewayAvailable`: the server has no public address),
+   `device` (the Keystore key, Play Integrity or the gateway failed) or `server` (the server refused
+   or didn't answer the credential handoff). It is `null` once push works.
 
 The gateway, not the app, decides trust: it verifies the Play verdict (recognized app, licensed,
 device integrity, signing certificate, fresh and bound to the request hash). The Keystore signature
