@@ -45,7 +45,7 @@ import UIKit
     /// Starts the kind's activity, or updates the one showing. What an activity is about (its
     /// attributes) can't change, so another recipe, store or event ends the old one first.
     static func set(kind: String, json: String, colors: Attributes.Colors?, onToken: @escaping ([String: Any]) -> Void) async throws {
-        if kind == "event" {
+        if coalesced.contains(kind) {
             try await eventWork.perform { try await setActivity(kind: kind, json: json, colors: colors, onToken: onToken) }
         } else {
             try await setActivity(kind: kind, json: json, colors: colors, onToken: onToken)
@@ -107,7 +107,7 @@ import UIKit
 
     static func end(kind: String) async {
         if (kind == "medication" || kind == "event") && UIApplication.shared.applicationState != .active { return }
-        if kind == "event" {
+        if coalesced.contains(kind) {
             try? await eventWork.perform { for activity in onScreen(kind) { await close(activity) } }
         } else {
             for activity in onScreen(kind) { await close(activity) }
@@ -137,7 +137,7 @@ import UIKit
     /// With push (a paid team): the push-to-start token, and each leave-by activity's update token
     /// (ones the server started too), for the app to register with the server.
     nonisolated static func watchPush(_ onToken: @escaping ([String: Any]) -> Void) {
-        Task { @MainActor in try? await eventWork.perform { await coalesceEvents(preferred: nil) } }
+        Task { @MainActor in try? await eventWork.perform { for kind in coalesced { await coalesce(kind, preferred: nil) } } }
         guard pushEnabled else { return }
         if #available(iOS 17.2, *) {
             Task { for await data in Activity<Attributes>.pushToStartTokenUpdates { onToken(["kind": "start", "token": hex(data)]) } }
@@ -146,29 +146,34 @@ import UIKit
         Task { for await activity in Activity<Attributes>.activityUpdates where activity.attributes.activity != nil { watchToken(activity, onToken) } }
     }
 
-    /// Apple may start a card while the foreground app is creating one. Reconcile on arrival,
-    /// not only when the web page next refreshes, and keep one deterministic live instance.
-    private static func coalesceEvents(preferred: String?) async {
-        let events = onScreen("event")
-        let keep = EventActivityCoordinator.keeper(events.map {
+    /// Kinds the server can start by push while the app shows one too.
+    nonisolated static let coalesced: Set<String> = ["event", "medication"]
+
+    /// Apple may start a card while the foreground app is creating one, or deliver the same card
+    /// twice. Reconcile on arrival, not only when the web page next refreshes, and keep one
+    /// deterministic live instance of the kind.
+    private static func coalesce(_ kind: String, preferred: String?) async {
+        let cards = onScreen(kind)
+        let keep = EventActivityCoordinator.keeper(cards.map {
             .init(id: $0.id, activity: $0.attributes.activity, running: ($0.activityState == .active || $0.activityState == .stale) && !UserDefaults.standard.bool(forKey: "dismissed:" + ($0.attributes.activity ?? "")))
         }, preferred: preferred)
-        for event in events where event.id != keep { await close(event) }
+        for card in cards where card.id != keep { await close(card) }
     }
 
     nonisolated private static func watchToken(_ activity: Activity<Attributes>, _ onToken: @escaping ([String: Any]) -> Void) {
-        if activity.attributes.kind == "event" {
-            watchEventDismissal(activity)
-            Task { @MainActor in try? await eventWork.perform { await coalesceEvents(preferred: activity.attributes.activity) } }
+        let kind = activity.attributes.kind
+        if kind == "event" { watchEventDismissal(activity) }
+        if coalesced.contains(kind) {
+            Task { @MainActor in try? await eventWork.perform { await coalesce(kind, preferred: activity.attributes.activity) } }
         }
         Task {
             for await data in activity.pushTokenUpdates {
                 var token: [String: Any] = ["kind": "update", "token": hex(data), "activity": activity.attributes.activity ?? ""]
                 if let ends = activity.attributes.endsAt { token["endsAt"] = ISO8601DateFormatter().string(from: ends) }
-                if activity.attributes.kind == "event" {
+                if coalesced.contains(kind) {
                     let registered = token
                     try? await eventWork.perform {
-                        await coalesceEvents(preferred: activity.attributes.activity)
+                        await coalesce(kind, preferred: activity.attributes.activity)
                         // A duplicate's late token must never replace the survivor's server token.
                         if activity.activityState == .active || activity.activityState == .stale { onToken(registered) }
                     }

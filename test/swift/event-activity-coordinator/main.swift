@@ -31,6 +31,9 @@ import Foundation
   precondition(EventActivityCoordinator.keeper([a,b,next],preferred:"event:piano")=="next")
   precondition(EventActivityCoordinator.keeper([ended,next],preferred:"event:soccer")=="next","A late callback for an ended event must not close the current event")
   precondition(EventActivityCoordinator.keeper([ended],preferred:nil)==nil,"An ended Lock Screen card cannot survive")
+  let pushed=EventActivityCoordinator.Candidate(id:"B",activity:"medication:x:private",running:true)
+  let local=EventActivityCoordinator.Candidate(id:"A",activity:"medication:x:private",running:true)
+  precondition(EventActivityCoordinator.keeper([pushed,local],preferred:"medication:x:private")=="A","The same dose started twice keeps one card")
   print("event activity checks passed")
  }
 }

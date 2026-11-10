@@ -7,6 +7,9 @@ The web app updates or ends its medication Live Activity immediately, independen
 confirmation animation. A failed save leaves reminders intact. This needs the updated web app;
 local-alert cancellation also needs an updated mobile build. It does not enable remote APNs push.
 
+When the server starts a medicine Live Activity by push while the app shows the same dose, or
+Apple delivers it twice, the app keeps one card (`LiveActivities.coalesce`, as for followed events).
+
 A menu for M3 (widgets), M4 (Watch) and M5 (Siri), built on things Kinwall already does. Each idea is tagged:
 
 - **First:** worth doing in the first pass.
