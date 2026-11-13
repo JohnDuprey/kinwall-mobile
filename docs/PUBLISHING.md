@@ -213,6 +213,10 @@ requested by Expo fingerprinting and Apple target generation. Keep these overrid
 upstream consumers request patched versions, and check prebuild plus both platform bundles when
 changing them. Updating the Expo CLI removes its old Zod dependency.
 
+The legacy XML-parser override targets `@expo/plist` directly rather than nesting below
+`@bacons/xcode`. This keeps clean installs consistent across npm versions when plist packages
+are hoisted, while preserving the newer parser required by `plist`.
+
 The remaining `deepmerge` advisory (GHSA-gcqx-w48m-w2h4) has no patched release. It is pulled in by
 `@bacons/apple-targets` through Expo 55's `@expo/prebuild-config` and `@expo/config`, which merge
 local build configuration. Keep that alert open until the Apple targets plugin updates its
