@@ -197,3 +197,10 @@ Routine Mode also requires the App Group `group.family.kinwall.routine`, assigne
 identifiers need Family Controls distribution approval. Regenerate provisioning profiles after
 assigning the group. Widgets, share and Watch widget target configs explicitly disable inherited
 App Groups; these extensions keep using the shared Keychain and do not use the routine container.
+
+### Build dependency isolation
+
+The dispatched TestFlight worker installs CocoaPods dependencies fresh rather than saving or
+restoring `ios/Pods` or the CocoaPods download directory in GitHub Actions caches. Its source SHA
+may be a feature commit, so files from that build must not enter a cache used by a later signed
+build. The npm download cache remains integrity-checked against `package-lock.json`.
