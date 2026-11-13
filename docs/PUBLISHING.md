@@ -204,3 +204,17 @@ The dispatched TestFlight worker installs CocoaPods dependencies fresh rather th
 restoring `ios/Pods` or the CocoaPods download directory in GitHub Actions caches. Its source SHA
 may be a feature commit, so files from that build must not enter a cache used by a later signed
 build. The npm download cache remains integrity-checked against `package-lock.json`.
+
+### Build-tool security dependencies
+
+The overrides update Expo's SDK 57 CLI without changing the app's Expo or React Native
+versions. `glob` and `minimatch` overrides select patched releases for the older ranges still
+requested by Expo fingerprinting and Apple target generation. Keep these overrides until all
+upstream consumers request patched versions, and check prebuild plus both platform bundles when
+changing them. Updating the Expo CLI removes its old Zod dependency.
+
+The remaining `deepmerge` advisory (GHSA-gcqx-w48m-w2h4) has no patched release. It is pulled in by
+`@bacons/apple-targets` through Expo 55's `@expo/prebuild-config` and `@expo/config`, which merge
+local build configuration. Keep that alert open until the Apple targets plugin updates its
+prebuild dependency; do not force an Expo SDK major upgrade or downgrade `deepmerge` just to
+hide the advisory.
