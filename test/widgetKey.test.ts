@@ -50,3 +50,16 @@ test('watchKeyFits: replaces legacy shared keys and keys belonging to a differen
   owners = { app: null, watch: 'shared' }
   assert.equal(await watchKeyFits(saved, app), true)
 })
+
+// Sign-out revokes the widgets' and Watch's keys after the phone has let go of them (src/session.ts):
+// an unreachable server must not keep that request open for minutes.
+test('revokeOwnKey gives up after 10 seconds', async (t) => {
+  const { revokeOwnKey } = await import('../src/api.ts')
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  globalThis.fetch = ((_url: string, init: RequestInit) => new Promise((_, reject) => {
+    init.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+  })) as typeof fetch
+  const revoking = revokeOwnKey({ baseURL: server, key: 'widgets' })
+  t.mock.timers.tick(10_000)
+  await assert.rejects(revoking, /aborted/)
+})

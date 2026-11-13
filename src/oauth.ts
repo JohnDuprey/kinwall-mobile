@@ -54,9 +54,12 @@ export async function signIn(baseURL: string): Promise<Tokens | null> {
 
 export const refresh = (t: Tokens) => tokenRequest(t.baseURL, t.clientId, { grant_type: 'refresh_token', refresh_token: t.refreshToken, client_id: t.clientId })
 
-/** Ends the grant on the server. Best effort. */
+/** Ends the grant on the server. Best effort: 10 s, then give up. */
 export async function revoke(t: Tokens) {
-  await fetch(new URL('oauth/revoke', t.baseURL).toString(), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form({ token: t.refreshToken, client_id: t.clientId }) }).catch(() => {})
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), 10_000)
+  await fetch(new URL('oauth/revoke', t.baseURL).toString(), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form({ token: t.refreshToken, client_id: t.clientId }), signal: ctl.signal }).catch(() => {})
+  clearTimeout(timer)
 }
 
 // The tokens, in the keychain / keystore. iOS keeps them in the shared Keychain group, where the

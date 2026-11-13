@@ -96,7 +96,13 @@ export const dueDoses = (c: Connection) => api<{ doses: unknown[] }>(c.baseURL, 
 /** An everyday-access key for widgets or the watch; the plaintext comes back once. */
 export const createDeviceKey = (baseURL: string, key: string, name: string, purpose?: 'watch') =>
   api<{ id: string; key: string }>(baseURL, key, 'POST', 'api/device-keys', { name, ...(purpose ? { purpose } : {}) })
-export const revokeOwnKey = (c: Connection) => api<{ ok: boolean }>(c.baseURL, c.key, 'DELETE', 'api/device-keys/self')
+/** Best effort everywhere it's used (sign-out, a replaced key): 10 s, then give up. */
+export async function revokeOwnKey(c: Connection) {
+  const ctl = new AbortController()
+  const t = setTimeout(() => ctl.abort(), 10_000)
+  try { return await api<{ ok: boolean }>(c.baseURL, c.key, 'DELETE', 'api/device-keys/self', undefined, ctl.signal) }
+  finally { clearTimeout(t) }
+}
 
 /** Timed events today that haven't ended: the one under way, and the next one. */
 export function nowAndNext(b: Board, now = new Date()): { now?: BoardEvent; next?: BoardEvent } {

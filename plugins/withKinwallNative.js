@@ -148,8 +148,8 @@ const withAppHooks = (config) =>
 // Android's share sheet: "Kinwall" takes links, text and photos in its own small sheet
 // (modules/kinwall-native ShareActivity.kt, which declares those filters), and shared contacts
 // (vCards) here, on the main activity, before React Native reads the intent: a contact's vCard goes
-// to the cache for KinwallNative.takeSharedContacts, and ?to=contacts/import opens the page's review
-// (src/WebShell.tsx). A vCard shared as plain text reaches ShareActivity, which hands it on here.
+// to the cache for KinwallNative.takeSharedContacts (read in the background by SharedContacts.kt),
+// and ?to=contacts/import opens the page's review (src/WebShell.tsx). A vCard shared as plain text reaches ShareActivity, which hands it on here.
 // The iOS equivalent is targets/share.
 const OVERRIDE_MIN_SDK = ['com.google.mlkit.genai.prompt', 'com.google.mlkit.genai.common', 'com.google.mlkit.nl.entityextraction']
 const VCARD_TYPES = ['text/x-vcard', 'text/vcard', 'text/directory']
@@ -168,15 +168,8 @@ const SHARE_KOTLIN = String.raw`
     if (!vcardText && intent.type?.lowercase() !in listOf("text/x-vcard", "text/vcard", "text/directory")) return false
     val uris = if (intent.action == Intent.ACTION_SEND_MULTIPLE) IntentCompat.getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
       else listOfNotNull(IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java))
-    val file = File(cacheDir, "shared-contacts.vcf")
-    try {
-      // ponytail: read in full on the main thread; fine for the few contacts people share at once.
-      val text = uris.joinToString("\r\n") { uri -> contentResolver.openInputStream(uri)?.use { String(it.readBytes(), Charsets.UTF_8) } ?: "" }
-        .ifBlank { intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty() }
-      if (text.contains("BEGIN:VCARD", ignoreCase = true)) file.writeText(text) else file.delete()
-    } catch (e: Exception) {
-      file.delete()
-    }
+    // Read off the main thread, content: URIs only, 2 MB at most (SharedContacts.kt in modules/kinwall-native).
+    SharedContacts.read(this, uris, intent.getStringExtra(Intent.EXTRA_TEXT))
     intent.action = Intent.ACTION_VIEW
     intent.data = Uri.parse("family.kinwall.app:/open?to=contacts%2Fimport&n=" + System.currentTimeMillis())
     return true
@@ -211,7 +204,7 @@ const withShareIntent = (config) => {
     let src = c.modResults.contents
     if (src.includes('shareToApp')) return c
     if (c.modResults.language !== 'kt' || !src.includes('super.onCreate(')) throw new Error('withShareIntent: the MainActivity template changed; update the patch')
-    src = src.replace(/\nimport android\.os\.Bundle\n/, '\nimport android.content.Intent\nimport android.net.Uri\nimport android.os.Bundle\nimport androidx.core.content.IntentCompat\nimport java.io.File\n')
+    src = src.replace(/\nimport android\.os\.Bundle\n/, '\nimport android.content.Intent\nimport android.net.Uri\nimport android.os.Bundle\nimport androidx.core.content.IntentCompat\nimport family.kinwall.nativemodule.SharedContacts\n')
     src = src.replace(/(\n\s*)super\.onCreate\(/, '$1shareToApp(intent)$1super.onCreate(')
     src = src.replace(/\n}\s*$/, `\n${SHARE_KOTLIN}}\n`)
     c.modResults.contents = src

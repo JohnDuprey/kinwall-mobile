@@ -221,11 +221,18 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       if (!next) { onSignedOut(); return }
       onTokens(next)
       web.current?.injectJavaScript(`if (location.origin === ${JSON.stringify(origin)}) localStorage.setItem('kinwall.apiKey', ${JSON.stringify(next.accessToken)}); true;`)
+      // No page load follows, so no 'key' message: routine mode and the Watch get the new key here,
+      // or after an hour they kept the old one and their requests came back 401.
+      if (next.accessToken !== session.tokens.accessToken) {
+        const c = { baseURL: url, key: next.accessToken }
+        setRoutineConnection(c)
+        syncWatch(c).catch(() => {})
+      }
     }
     timer = setInterval(tick, 60_000)
     const sub = AppState.addEventListener('change', (s) => { if (s === 'active') tick() })
     return () => { clearInterval(timer); sub.remove() }
-  }, [session, onTokens, onSignedOut])
+  }, [session, url, onTokens, onSignedOut])
 
   const syncCookingTimers = () => {
     const changes = KinwallNative?.cookingTimerChanges?.()
@@ -442,7 +449,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
           await refreshReminders()
           await syncWatch({ baseURL: url, key: m.key })
           syncSpotlight(true)
-        } catch (err) { synced.current = null; throw err } // try again on the next load
+        } catch { synced.current = null } // try again on the next load (nothing above this handler would catch a rethrow)
         break
     }
   }

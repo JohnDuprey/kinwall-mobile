@@ -88,10 +88,14 @@ function retireDevice(previous: Connection) {
   updates.clear()
   const token = start?.token
   pushQueue = retireActivityPush(pushQueue,
-    () => api(previous.baseURL,previous.key,'DELETE','api/live-activities/tokens',{}),
+    async () => { // 10 s: a later sign-in's registrations queue behind this
+      const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 10_000)
+      try { return await api(previous.baseURL,previous.key,'DELETE','api/live-activities/tokens',{},ctl.signal) } finally { clearTimeout(timer) }
+    },
     () => token ? revokeGatewayToken(previous.baseURL,token,'liveactivity-start') : Promise.resolve())
 }
-/** Sign-out waits for queued cleanup while the old sign-in still authorizes it. */
+/** Sign-out: stops at once; the promise is the queued server cleanup, which needs the old sign-in
+ * to still authorize it (src/session.ts revokes the OAuth grant only after it). */
 export async function clearActivityPush() { setActivityDevice(null); await pushQueue }
 function syncActivityPreferences() {
   const next = activityPushPreferences(leaveByWanted,medicineWanted,allowed,eventsWanted)

@@ -10,7 +10,7 @@ import type { Tokens } from './oauth'
 import { DEMO_URL, enterDemo, leaveDemo } from './demo'
 import { refreshReminders, refreshRemindersOnResume, scheduleBackgroundRefresh } from './reminders'
 import { atMostEvery } from './throttle'
-import { clearServer, loadServer, saveServer } from './server'
+import { clearServer, loadServer, resaveServer, saveServer } from './server'
 import { ServerEntry } from './ServerEntry'
 import { type Session, freshTokens, loadSession, signOut } from './session'
 import { syncWatch, widgetConnection } from './sharedKey'
@@ -34,6 +34,7 @@ SplashScreen.preventAutoHideAsync().catch(() => {})
 // process is often already running without a screen (the reminders' background refresh), and then
 // Android hands the link over as soon as the screen opens, before App listens; the tile opened Home.
 let linkTo: ((u: string) => void) | null = null
+let initialTaken = false
 const early: string[] = []
 Linking.addEventListener('url', (e) => { if (linkTo) linkTo(e.url); else early.push(e.url) })
 
@@ -54,16 +55,18 @@ export default function App() {
   const tapped = Notifications.useLastNotificationResponse()
 
   // The demo is never saved, so a fresh launch clears anything it left for the widgets and reminders.
-  // The saved server and sign-in come from the Keychain, which refuses while the phone is locked:
-  // iOS can start the app in the background then (its reminder refresh), and the first read failing
-  // left a blank screen until the app was closed. So a failed read tries again when it's opened.
+  // The saved server and sign-in come from the Keychain. The address is saved "after first unlock"
+  // (src/server.ts), but one saved by an older build stays "when unlocked" until it's saved again,
+  // which resaveServer does once the read works; until then iOS refuses it while the phone is
+  // locked: iOS can start the app in the background then (its reminder refresh), and the first read
+  // failing left a blank screen until the app was closed. So a failed read tries again when it's opened.
   useEffect(() => {
     if (__DEV__ && process.env.EXPO_PUBLIC_ROUTINE_PREVIEW === '1') {
       setSession({ mode: 'demo' }); setServer(DEMO_URL); setRoute('routine'); hideSplash(); return
     }
     leaveDemo()
     let done = false
-    const load = () => { if (!done) loadServer().then(async (s) => { const ses = s ? await launchSession(s) : null; done = true; setSession(ses); setServer(s) }).catch(() => {}) }
+    const load = () => { if (!done) loadServer().then(async (s) => { const ses = s ? await launchSession(s) : null; done = true; setSession(ses); setServer(s); resaveServer().catch(() => {}) }).catch(() => {}) }
     load()
     const sub = AppState.addEventListener('change', (s) => { if (s === 'active') load() })
     return () => sub.remove()
@@ -82,7 +85,9 @@ export default function App() {
     if (server === undefined) return
     linkTo = open
     early.splice(0).forEach(open)
-    Linking.getInitialURL().then(open).catch(() => {})
+    // The launch link once: this runs again on every server change (Change server, leaving the
+    // demo), and the old link was opened on the new family's page.
+    if (!initialTaken) { initialTaken = true; Linking.getInitialURL().then(open).catch(() => {}) }
     return () => { linkTo = null }
   }, [server])
   // A Google/Microsoft sign-in handed back from the in-app browser (src/providerReturn.ts): close
@@ -107,9 +112,13 @@ export default function App() {
     return () => { sub?.remove(); active.remove() }
   }, [])
   // A tapped reminder, or its Open, opens its event; its other buttons (Snooze, Taken, Done) run
-  // natively without opening the page (native/ios/NotificationActions.swift).
+  // natively without opening the page (native/ios/NotificationActions.swift). Each tap once, once
+  // the server is known: it stays the last response, and was applied again after Change server.
+  const tappedSeen = useRef<typeof tapped>(null)
   useEffect(() => {
-    if (tapped && tapped.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER && tapped.actionIdentifier !== 'open') return
+    if (!tapped || server === undefined || tappedSeen.current === tapped) return
+    tappedSeen.current = tapped
+    if (tapped.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER && tapped.actionIdentifier !== 'open') return
     const r = tapped?.notification.request.content.data?.route
     if (typeof r === 'string') setRoute(r)
     else {
@@ -127,7 +136,7 @@ export default function App() {
   useEffect(() => {
     refreshReminders().catch(() => {}); endStaleActivities(); syncSpotlight()
     const sub = AppState.addEventListener('change', (s) => { if (s === 'background') { scheduleBackgroundRefresh(); refreshReminders().catch(() => {}) } if (s === 'active') resumeSync() })
-    const watch = KinwallNative?.addListener('watchStateChanged', () => { syncWatch() }) // e.g. the Watch app was just installed
+    const watch = KinwallNative?.addListener('watchStateChanged', () => { syncWatch().catch(() => {}) }) // e.g. the Watch app was just installed
     return () => { sub.remove(); watch?.remove() }
   }, [])
 
@@ -180,5 +189,9 @@ async function launchSession(server: string): Promise<Session> {
   // A slow network doesn't hold the launch: past a few seconds, carry on with the old key (the
   // page's 401 comes back to WebShell, which refreshes and reloads).
   const tokens = await Promise.race([freshTokens(s.tokens), new Promise<Tokens>((r) => setTimeout(() => r(s.tokens), 4000))])
-  return tokens ? { mode: 'oauth', tokens } : null
+  if (tokens) return { mode: 'oauth', tokens }
+  // The grant is gone: the same cleanup as signing out (Live Activities, scheduled reminders, keys),
+  // or reminders kept firing for up to two days with nothing to reschedule them.
+  await signOut(s).catch(() => {})
+  return null
 }

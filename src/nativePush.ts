@@ -98,9 +98,11 @@ export async function clearNativePush(): Promise<void> {
   const previous = wanted?.baseURL
   canRegister = false
   wanted = null
-  await session.clear().catch(() => {})
-  if (previous) await revokeDeviceGateway(previous).catch(() => {})
+  const removed = session.clear().catch(() => {}) // the server's copy, 10 s per request (request above)
+  // This device's side first, so a sign-out offline isn't left waiting on the server for it.
   await Notifications.dismissAllNotificationsAsync().catch(() => {})
-  await SecureStore.deleteItemAsync(SAVED)
-  await SecureStore.deleteItemAsync(DISABLED)
+  await SecureStore.deleteItemAsync(SAVED).catch(() => {})
+  await SecureStore.deleteItemAsync(DISABLED).catch(() => {})
+  await removed
+  if (previous) await revokeDeviceGateway(previous).catch(() => {})
 }

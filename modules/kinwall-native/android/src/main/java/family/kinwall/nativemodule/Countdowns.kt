@@ -578,6 +578,8 @@ class CountdownReceiver : BroadcastReceiver() {
 /** Alarms don't survive a restart or an update: set them again, and redraw what was showing. */
 class CountdownBootReceiver : BroadcastReceiver() {
   override fun onReceive(context: Context, intent: Intent) {
+    // Exported for the system's broadcasts: anything else sent to it is ignored.
+    if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
     Countdowns.armEvents(context)
     Countdowns.arm(context)
     Countdowns.armRings(context)

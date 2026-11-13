@@ -7,7 +7,7 @@ import { revokeWidgetKey, shareKey, watchSignOut } from './sharedKey'
 import { clearAppearance } from './theme'
 import { reloadWidgets } from './widgets'
 import { clearNativePush } from './nativePush'
-import { clearActivityPush } from './liveActivities'
+import { clearActivityPush, endAllActivities } from './liveActivities'
 
 // How this device is signed in to the household: OAuth tokens (kept fresh here), or a paired
 // key the web app holds itself. Null means "show the sign-in screen".
@@ -46,11 +46,21 @@ export function freshTokens(t: Tokens, force = false): Promise<Tokens | null> {
   return refreshing
 }
 
-/** Back to the sign-in screen, ending the OAuth grant on the server. */
-export async function signOut(session: Session): Promise<void> {
-  await clearActivityPush() // paired keys remain valid: explicitly remove their background starts
-  await clearNativePush() // while this sign-in can still unregister its token
-  if (session?.mode === 'oauth') await revoke(session.tokens)
+let signingOut: Promise<void> | null = null
+/** Back to the sign-in screen, ending the OAuth grant on the server. Everything on this device goes
+ * before this resolves; telling the server is best effort afterward (each request 10 s at most), so
+ * an unreachable server no longer holds the screen for minutes. A second call while one is under
+ * way joins it. Also a sign-in found gone (WebShell's refresh, App's launch): same cleanup. */
+export function signOut(session: Session): Promise<void> {
+  signingOut ??= signOutHere(session).finally(() => { signingOut = null })
+  return signingOut
+}
+
+async function signOutHere(session: Session): Promise<void> {
+  // Both stop locally at once and unregister in the background, while this sign-in still
+  // authorizes it (paired keys remain valid: their background starts are removed explicitly).
+  const unregistered = Promise.all([clearActivityPush(), clearNativePush()].map((p) => p.catch(() => {})))
+  endAllActivities() // nothing of this household left on the Lock Screen
   await clearTokens()
   await shareKey(null)
   await revokeWidgetKey()
@@ -60,4 +70,9 @@ export async function signOut(session: Session): Promise<void> {
   await SecureStore.deleteItemAsync(PAIRED)
   await clearAppearance() // the next family starts from the app's own colors
   reloadWidgets()
+  // The grant ends last: the unregistering above may still be using its access token.
+  if (session?.mode === 'oauth') {
+    const tokens = session.tokens
+    Promise.race([unregistered, new Promise((r) => setTimeout(r, 10_000))]).then(() => revoke(tokens)).catch(() => {})
+  }
 }

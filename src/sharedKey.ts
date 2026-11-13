@@ -44,10 +44,11 @@ export async function ensureWidgetKey(baseURL: string, key: string): Promise<voi
   await save(WIDGETS, { baseURL, key: minted.key })
 }
 
+/** Sign-out: off the device now; revoking it on the server finishes in the background (10 s at most). */
 export async function revokeWidgetKey(): Promise<void> {
   const saved = await load(WIDGETS)
-  if (saved) await revokeOwnKey(saved).catch(() => {})
   await save(WIDGETS, null).catch(() => {})
+  if (saved) revokeOwnKey(saved).catch(() => {})
 }
 
 // Only the active app supplies this credential; never persist another copy of its sign-in.
@@ -75,11 +76,21 @@ async function syncPersonalWatch(): Promise<void> {
   try { KinwallNative.updateWatch({ server: watch.baseURL, key: watch.key }) } catch {}
 }
 
+/** Sign-out: the Watch's key goes from the device now; the server side follows in the background.
+ * A sync still minting sees watchSource cleared and revokes its own new key (syncPersonalWatch);
+ * one already saving it is caught by the second look once it settles. */
 export async function watchSignOut(): Promise<void> {
   watchSource = null
-  await watchSync?.catch(() => {})
   const watch = await load(WATCH)
-  if (watch) await revokeOwnKey(watch).catch(() => {})
   await save(WATCH, null).catch(() => {})
   try { KinwallNative?.updateWatch({ signedOut: true }) } catch {}
+  if (watch) revokeOwnKey(watch).catch(() => {})
+  const pending = watchSync
+  if (pending) pending.catch(() => {}).then(async () => {
+    if (watchSource) return // signed in again meanwhile: that key is the new sign-in's
+    const left = await load(WATCH)
+    if (!left) return
+    await save(WATCH, null).catch(() => {})
+    await revokeOwnKey(left).catch(() => {})
+  })
 }

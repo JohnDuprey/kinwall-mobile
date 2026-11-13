@@ -47,10 +47,7 @@ class KinwallNativeModule : Module() {
     OnActivityEntersForeground { padForKeyboard() }
 
     // A contact shared to the app: MainActivity (plugins/withKinwallNative.js) leaves its vCard here.
-    Function("takeSharedContacts") {
-      val file = java.io.File(context.cacheDir, "shared-contacts.vcf")
-      if (!file.exists()) null else file.readText().also { file.delete() }
-    }
+    Function("takeSharedContacts") { SharedContacts.take(context) }
 
     AsyncFunction("keychainGet") { service: String, _: Boolean -> Keychain.get(context, service) }
     AsyncFunction("keychainSet") { service: String, _: Boolean, value: String? ->

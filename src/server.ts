@@ -1,11 +1,29 @@
 import * as SecureStore from 'expo-secure-store'
+import { Platform } from 'react-native'
+import { resave } from './keychainResave'
 
-// The household's Kinwall address.
+// The household's Kinwall address. Readable after the first unlock: the reminders' background
+// refresh (src/reminders.ts) reads it while the phone is locked, as it does the sign-in and keys.
 const KEY = 'serverURL'
+const STORE = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK }
 
 export const loadServer = async () => (await SecureStore.getItemAsync(KEY)) ?? null
-export const saveServer = (url: string) => SecureStore.setItemAsync(KEY, url)
+export const saveServer = (url: string) => SecureStore.setItemAsync(KEY, url, STORE)
 export const clearServer = () => SecureStore.deleteItemAsync(KEY)
+
+/** iOS: an address saved by an older build is still "when unlocked"; move it once, on a launch
+ * that could read it (src/App.tsx). Android has no such setting. */
+const MOVED = 'serverURLAfterFirstUnlock'
+export async function resaveServer(): Promise<void> {
+  if (Platform.OS !== 'ios' || SecureStore.getItem(MOVED) === '1') return
+  await resave({
+    get: loadServer,
+    remove: clearServer,
+    save: saveServer,
+    restore: (url) => SecureStore.setItemAsync(KEY, url),
+  })
+  SecureStore.setItem(MOVED, '1', STORE)
+}
 
 /** "ourfamily" → https://ourfamily.kinwall.family, "kinwall.local:8080" → http://kinwall.local:8080,
  * "http://192.168.1.20:8080" stays as typed. Null for anything that isn't a web address. */
