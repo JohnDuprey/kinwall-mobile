@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.4.0](https://github.com/JohnDuprey/kinwall-mobile/compare/v1.3.0...v1.4.0) (2026-11-14)
+
+
+### New
+
+* **android:** enroll self-hosted servers with the push gateway ([ee7b618](https://github.com/JohnDuprey/kinwall-mobile/commit/ee7b61828ebdea9a53b7122cd2ae78113979d28e))
+
+
+### Fixed
+
+* **android,shell:** safer shared contacts, sign-out and keychain ([5d75a2a](https://github.com/JohnDuprey/kinwall-mobile/commit/5d75a2a2dcb649d32c6f0e1d22060f022dcf5d40))
+* **android:** enroll with the server's public address and say why push is off ([bfd1106](https://github.com/JohnDuprey/kinwall-mobile/commit/bfd11063e00976d45987746e73149559349d880c))
+* **android:** retire rotated gateway tokens and run native tests ([4482304](https://github.com/JohnDuprey/kinwall-mobile/commit/44823049317c936cd112a5be559bea0a5972ab98))
+* **android:** revoke rotated gateway tokens when direct FCM is ready ([fae0c51](https://github.com/JohnDuprey/kinwall-mobile/commit/fae0c51d5201a70bd9630d9c7cd8b823c3de9269))
+* **ios:** isolate testflight dependencies and update forge ([81ef70a](https://github.com/JohnDuprey/kinwall-mobile/commit/81ef70a811d4329dbbd04e44e8541ca10901b8b1))
+* **ios:** keep one medicine live activity per dose ([708609b](https://github.com/JohnDuprey/kinwall-mobile/commit/708609b3fcb73e65b40538eee7af9cfd0037a55b))
+* **shell:** make plist override compatible with current npm ([ae71e89](https://github.com/JohnDuprey/kinwall-mobile/commit/ae71e890375a78ad440286fab4d94efb2de20fe8))
+* **shell:** plain sign-in errors, matching error titles, confirm before sign-out ([8dcfdcf](https://github.com/JohnDuprey/kinwall-mobile/commit/8dcfdcf21064028073d4e21e0338522154fb9742))
+* **shell:** stop re-registering and refreshing on every resume ([ab4d0af](https://github.com/JohnDuprey/kinwall-mobile/commit/ab4d0af7889959c1b43f32316c48b195e6b034a9))
+* **shell:** update vulnerable build dependencies ([1b64e94](https://github.com/JohnDuprey/kinwall-mobile/commit/1b64e940ee3effa1409124e49a38bdb10b46dc85))
+* **watch:** drop Taken and Snooze from the Take now widget ([a34f54a](https://github.com/JohnDuprey/kinwall-mobile/commit/a34f54a59a2f91ba2272ac4898eff8bb18fb046c))
+* **widgets:** drop medicine buttons from the Watch Live Activity ([590a1b9](https://github.com/JohnDuprey/kinwall-mobile/commit/590a1b919f00894fef78dc1e458a1ed4d04efd9b))
+
 ## [1.3.0](https://github.com/JohnDuprey/kinwall-mobile/compare/v1.2.0...v1.3.0) (2026-11-07)
 
 
