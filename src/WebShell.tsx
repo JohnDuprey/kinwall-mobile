@@ -6,7 +6,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
 import { StatusBar } from 'expo-status-bar'
 import * as SecureStore from 'expo-secure-store'
 import { useEffect, useRef, useState } from 'react'
-import { AppState, BackHandler, Dimensions, Linking, Platform, Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native'
+import { Alert, AppState, BackHandler, Dimensions, Linking, Platform, Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 import type { Tokens } from './oauth'
@@ -99,6 +99,9 @@ type Props = {
 
 /** The Kinwall web app, full screen. Tells the page it's inside the app, keeps other sites in
  * the browser, follows the page's theme color, and hands the paired key to the widgets, Watch and Siri. */
+const REJECTED = "Kinwall didn't accept this phone's sign-in. Try again, or sign out and sign in again."
+const UNFINISHED = "Kinwall didn't finish loading."
+
 export function WebShell({ url, session, route, onRouteApplied, onTokens, onSignedOut, onChangeServer }: Props) {
   const web = useRef<WebView>(null)
   const ui = useUi()
@@ -338,7 +341,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       case 'alive': // probe(): a page that drew nothing gets two fresh starts, then the error screen
         if (!m.blank) { blankRestarts.current = 0; loadRecovery.loaded() }
         else if (blankRestarts.current++ < 2) restart()
-        else { blankRestarts.current = 0; setFailed("Kinwall didn't finish loading.") }
+        else { blankRestarts.current = 0; setFailed(UNFINISHED) }
         break
       case 'back': if (backTimer.current) back(m.handled === true); break // Android's Back, answered (above)
       case 'theme': if (m.color) setTheme(m.color); break
@@ -419,7 +422,7 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
         if (m.reason === 'rejected' && session.mode === 'oauth') {
           const again = Date.now() - lastRejected.current < 60_000
           lastRejected.current = Date.now()
-          if (again) { setFailed("Kinwall didn't accept this phone's sign-in."); return }
+          if (again) { setFailed(REJECTED); return }
           const next = await freshTokens(session.tokens, true)
           if (next) { reloadOnToken.current = true; onTokens(next); if (next.accessToken === token) { reloadOnToken.current = false; web.current?.reload() } return }
         }
@@ -458,12 +461,17 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   const dark = frame ? frame.dark : theme ? isDark(theme) : ui.dark
   const bar = statusBarSurface(look, systemDark, bg)
   useEffect(() => { if (Platform.OS === 'android') KinwallNative?.navigationBar(dark) }, [dark])
+  // Changing the server signs this device out (a paired phone loses its pairing): say so first.
+  const changeServer = () => session.mode === 'demo' ? onChangeServer() : Alert.alert(
+    'Sign out and change server?',
+    'This signs this device out of Kinwall. To use it again, sign in or pair it again.',
+    [{ text: 'Cancel', style: 'cancel' }, { text: 'Sign out', style: 'destructive', onPress: onChangeServer }])
   const view = failed ? (
     <View style={ui.root}><View style={ui.screen}>
-      <Text style={ui.title}>Can't reach Kinwall</Text>
+      <Text style={ui.title}>{failed === REJECTED ? "Couldn't sign in" : failed === UNFINISHED ? "Kinwall didn't load" : "Can't reach Kinwall"}</Text>
       <Text style={ui.muted}>{failed}</Text>
       <Pressable style={ui.button} onPress={() => { blankRestarts.current = 0; loadRecovery.retry() }}><Text style={ui.buttonText}>Try again</Text></Pressable>
-      <Pressable onPress={onChangeServer}><Text style={ui.link}>Change server</Text></Pressable>
+      <Pressable onPress={changeServer} accessibilityRole="button"><Text style={ui.link}>{session.mode === 'demo' ? 'Change server' : 'Sign out and change server'}</Text></Pressable>
     </View></View>
   ) : startsPairing === null ? null : (
     <WebView

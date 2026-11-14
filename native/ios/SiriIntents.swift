@@ -248,7 +248,7 @@ struct TodaySnippet: View {
             }
             if summary.events.isEmpty { Text("Nothing else on the calendar today.").font(.subheadline).foregroundStyle(.secondary) }
             if summary.choresTotal > 0 {
-                Label(summary.choresLeft == 0 ? "All chores done" : "\(summary.choresLeft) of \(summary.choresTotal) chores left", systemImage: "checkmark.circle")
+                Label(summary.choresLeft == 0 ? "All chores done" : "\(summary.choresLeft) of \(summary.choresTotal) \(summary.choresTotal == 1 ? "chore" : "chores") left", systemImage: "checkmark.circle")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
         }
@@ -298,7 +298,7 @@ struct CompleteChoreIntent: AppIntent {
         WidgetCenter.shared.reloadAllTimelines()
         // This key is everyday access, so a chore that needs an OK waits for a parent: no points yet.
         if waits { return .result(dialog: "Marked \(chore.title) done. It's waiting for a parent's OK.") }
-        let points = current.map { " \($0.points) points!" } ?? ""
+        let points = current.map { " \($0.points) \($0.points == 1 ? "point" : "points")!" } ?? ""
         return .result(dialog: "Marked \(chore.title) done.\(points)")
     }
 }

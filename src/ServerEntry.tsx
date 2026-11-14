@@ -45,10 +45,10 @@ export function ServerEntry({ onConnect, onDemo }: { onConnect: (url: string) =>
             <Image source={logo(ui.dark)} style={ui.logo}
               accessibilityIgnoresInvertColors accessible={false} />
             <Text style={ui.title} accessibilityRole="header">Welcome to Kinwall</Text>
-            <Text style={ui.muted}>Enter your family's Kinwall address. For hosted Kinwall, your family name is enough.</Text>
+            <Text style={ui.muted}>Enter your family's Kinwall address.</Text>
           </View>
           <View style={wide ? ui.column : ui.screenPart}>
-            <TextInput ref={field} style={ui.input} placeholder="ourfamily or kinwall.example.com" placeholderTextColor={ui.c.dim} value={address}
+            <TextInput ref={field} style={ui.input} placeholder="kinwall.example.com or http://192.168.1.20:8080" placeholderTextColor={ui.c.dim} value={address}
               onChangeText={(t) => { setAddress(t); setProblem(null) }} keyboardAppearance={ui.dark ? 'dark' : 'light'} selectionColor={ui.c.accent}
               autoCapitalize="none" autoCorrect={false} keyboardType="url" textContentType="URL" returnKeyType="go" onSubmitEditing={connect} autoFocus />
             {problem && <Text style={ui.problem}>{problem}</Text>}
@@ -59,7 +59,7 @@ export function ServerEntry({ onConnect, onDemo }: { onConnect: (url: string) =>
               <Text style={ui.link}>Try the demo</Text>
             </Pressable>
             <Text style={[ui.muted, ui.footnote]}>A sample family to look around in. Nothing is saved.</Text>
-            <Text style={[ui.muted, ui.footnote]}>You'll sign in on the next screen. A grown-up approves this device in Kinwall under Settings → Access.</Text>
+            <Text style={[ui.muted, ui.footnote]}>You'll sign in on the next screen.</Text>
           </View>
         </View>
       </ScrollView>

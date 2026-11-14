@@ -58,10 +58,10 @@ export function Scanner({ facing: initialFacing, onDone }: { facing: 'front' | '
               <Text style={styles.hint} accessibilityRole="header">Point at the barcode</Text>
               <View style={styles.buttons}>
                 <Pressable style={styles.sound} onPress={toggleSound} accessibilityRole="switch" accessibilityState={{ checked: sound }} accessibilityLabel="Beep when scanned">
-                  <Text style={styles.soundText}>{sound ? '🔊 Beep' : '🔇 Beep off'}</Text>
+                  <Text style={styles.soundText}>{sound ? '🔊 Beep on' : '🔇 Beep off'}</Text>
                 </Pressable>
                 <Pressable style={styles.sound} onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))} accessibilityRole="button" accessibilityLabel={facing === 'front' ? 'Use the back camera' : 'Use the front camera'}>
-                  <Text style={styles.soundText}>🔄 Flip</Text>
+                  <Text style={styles.soundText}>🔄 Flip camera</Text>
                 </Pressable>
               </View>
             </View>
