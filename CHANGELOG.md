@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/JohnDuprey/kinwall-mobile/compare/v1.4.0...v1.5.0) (2026-11-18)
+
+
+### New
+
+* **widgets:** show the school bus Live Activity with a bus icon ([ecff3c7](https://github.com/JohnDuprey/kinwall-mobile/commit/ecff3c753458c7fbed7d6da0ca5f3c0858cb2a31))
+
 ## [1.4.0](https://github.com/JohnDuprey/kinwall-mobile/compare/v1.3.0...v1.4.0) (2026-11-14)
 
 
