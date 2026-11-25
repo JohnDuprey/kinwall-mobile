@@ -192,7 +192,9 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
   // A refreshed key reaches the page through the bridge script, so reload only once it has the new one.
   const reloadOnToken = useRef(false)
   const lastRejected = useRef(0)
-  useEffect(() => { if (reloadOnToken.current) { reloadOnToken.current = false; web.current?.reload() } }, [token])
+  // The page's parallel requests each 401 and each say so: one refresh answers them all, until the reload.
+  const renewing = useRef(false)
+  useEffect(() => { if (reloadOnToken.current) { reloadOnToken.current = false; renewing.current = false; web.current?.reload() } }, [token])
 
   useEffect(() => {
     if (!token) return
@@ -420,11 +422,14 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
         // if it looks current: the server just turned it down) and carry on. Turned down again
         // within a minute: say so rather than reload forever.
         if (m.reason === 'rejected' && session.mode === 'oauth') {
+          if (renewing.current) return
           const again = Date.now() - lastRejected.current < 60_000
           lastRejected.current = Date.now()
           if (again) { setFailed(REJECTED); return }
+          renewing.current = true
           const next = await freshTokens(session.tokens, true)
-          if (next) { reloadOnToken.current = true; onTokens(next); if (next.accessToken === token) { reloadOnToken.current = false; web.current?.reload() } return }
+          if (next) { reloadOnToken.current = true; onTokens(next); if (next.accessToken === token) { reloadOnToken.current = false; renewing.current = false; web.current?.reload() } return }
+          renewing.current = false
         }
         endAllActivities(); setActivityDevice(null); synced.current = null
         onSignedOut(); break
