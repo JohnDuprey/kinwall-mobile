@@ -95,10 +95,17 @@ export async function orchestrate({ api, parentId, ref, sourceSha, tag = '', sel
         request: `${parentId}-${runner}`, createdAt: parent.created_at })
       active = id
       log(`TestFlight ${runner}: https://github.com/${process.env.GITHUB_REPOSITORY ?? 'repository'}/actions/runs/${id}`)
-      let acquired = false, queuedAt = null, fallback = false
+      let acquired = false, queuedAt = null, fallback = false, seen = false
+      const dispatchedAt = now()
       for (;;) {
         if (cancelled()) throw Error('Controller cancelled')
-        const run = await api.run(id)
+        // A run dispatched a moment ago can 404 until GitHub has it: keep polling, for a while.
+        const run = await api.run(id).catch(e => {
+          if (!seen && / returned 404$/.test(e.message) && now() - dispatchedAt < queueMs) return null
+          throw e
+        })
+        if (!run) { await sleep(pollMs); continue }
+        seen = true
         const jobs = !acquired || run.status === 'completed' ? await api.jobs(id) : []
         const job = jobs.find(j => j.name === 'upload')
         acquired ||= started(job)

@@ -129,3 +129,13 @@ test('a just-dispatched run whose jobs 404 reads as no jobs yet',async()=>{
  assert.deepEqual(await api.jobs('1'),[])
  await assert.rejects(api.run('1'),/returned 404/)
 })
+test('a just-dispatched run that 404s is polled until it appears',async()=>{
+ const f=fixture({arm:[success]})
+ let reads=0
+ const run=f.api.run
+ f.api.run=async(id:string)=>id==='arm'&&++reads<3?Promise.reject(Error('GitHub GET /actions/runs/arm returned 404')):run(id)
+ assert.equal(await orchestrate(f.options),'arm')
+ const gone=fixture({arm:[success]})
+ gone.api.run=async(id:string)=>id==='arm'?Promise.reject(Error('GitHub GET /actions/runs/arm returned 404')):{created_at:'2030-01-01T00:00:00Z'}
+ await assert.rejects(orchestrate(gone.options),/404/)
+})
