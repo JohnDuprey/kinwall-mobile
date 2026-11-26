@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.0](https://github.com/JohnDuprey/kinwall-mobile/compare/v1.4.0...v1.5.0) (2026-11-26)
+
+
+### New
+
+* **print:** print the current recipe from native webviews ([d9cd00a](https://github.com/JohnDuprey/kinwall-mobile/commit/d9cd00aff78689673d7b168f49d65494aa968276))
+* **share:** show and change a recipe's type before adding it ([2a4b23e](https://github.com/JohnDuprey/kinwall-mobile/commit/2a4b23e735b2fab8c7699055af7d11d86d2194d3))
+* **widgets:** show the school bus Live Activity with a bus icon ([ecff3c7](https://github.com/JohnDuprey/kinwall-mobile/commit/ecff3c753458c7fbed7d6da0ca5f3c0858cb2a31))
+
+
+### Fixed
+
+* **ci:** keep polling a just-dispatched TestFlight worker that 404s ([f64b19d](https://github.com/JohnDuprey/kinwall-mobile/commit/f64b19d901f2be23d5f539ffbdb582c407b3f272))
+* **shell:** one refresh for a page's parallel 401s ([fdfe49b](https://github.com/JohnDuprey/kinwall-mobile/commit/fdfe49b47afec7d2f0bdd9666b71ca0584cc7be0))
+
 ## [1.4.0](https://github.com/JohnDuprey/kinwall-mobile/compare/v1.3.0...v1.4.0) (2026-11-14)
 
 
