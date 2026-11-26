@@ -16,12 +16,16 @@ object Share {
    * (a contact of kind place) or a place to visit (an outing), picked in "Restaurant or place?".
    * OUTING: an event's "Save to Outings", or a Maps place to visit. */
   enum class Kind { RECIPE, RESTAURANT, BOOK, EVENT, PLACE, OUTING; val wire get() = name.lowercase() }
+  enum class RecipeKind { MEAL, SIDE, DESSERT, BASIC;
+    val wire get() = name.lowercase()
+    companion object { fun from(wire: String?) = entries.firstOrNull { it.wire == wire } }
+  }
 
   /** `event` is an event as the person checked it in the sheet (sent instead of text); `save` adds it
    * to `calendarId` now instead of answering with a link to check it. `preview`: a recipe, restaurant
    * or book comes back as what would be saved (Result.preview), and nothing is saved; `token` goes
    * with the save after a link's preview, so Kinwall doesn't read the page again. */
-  data class Request(val kind: Kind? = null, val url: String? = null, val text: String? = null, val name: String? = null, val address: String? = null, val event: EventDraft? = null, val save: Boolean = false, val calendarId: String? = null, val preview: Boolean = false, val token: String? = null) {
+  data class Request(val kind: Kind? = null, val url: String? = null, val text: String? = null, val name: String? = null, val address: String? = null, val event: EventDraft? = null, val save: Boolean = false, val calendarId: String? = null, val preview: Boolean = false, val token: String? = null, val recipeKind: RecipeKind? = null) {
     fun json(): String = JSONObject().apply {
       kind?.let { put("kind", it.wire) }
       url?.let { put("url", it) }
@@ -33,10 +37,12 @@ object Share {
       calendarId?.let { put("calendarId", it) }
       if (preview) put("preview", true)
       token?.let { put("token", it) }
+      if (!preview && (kind == null || kind == Kind.RECIPE)) recipeKind?.let { put("recipeKind", it.wire) }
     }.toString()
 
     /** The save after `shown`'s card: the same share without preview, with its token. */
-    fun saving(shown: Result) = copy(preview = false, token = shown.preview?.token)
+    fun saving(shown: Result, recipeKind: RecipeKind? = null) = copy(preview = false, token = shown.preview?.token,
+      recipeKind = recipeKind.takeIf { shown.kind == Kind.RECIPE && shown.preview?.recipeKind != null })
 
     companion object {
       /** Save to Outings from the event form: the event as checked, with the words it was read from,
@@ -47,12 +53,12 @@ object Share {
 
   /** What would be saved (the server's ShareResult preview), for the sheet's card: the photo or
    * cover, the name, short lines of facts, and a line when it's already in Kinwall. */
-  data class Preview(val title: String, val imageUrl: String? = null, val lines: List<String> = emptyList(), val already: String? = null, val token: String? = null) {
+  data class Preview(val title: String, val imageUrl: String? = null, val lines: List<String> = emptyList(), val already: String? = null, val token: String? = null, val recipeKind: RecipeKind? = null) {
     companion object {
       private fun JSONObject.text(key: String) = if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
       fun from(json: JSONObject?) = json?.let { p ->
         val lines = p.optJSONArray("lines")
-        Preview(p.optString("title"), p.text("imageUrl"), (0 until (lines?.length() ?: 0)).map { lines!!.getString(it) }, p.text("already"), p.text("token"))
+        Preview(p.optString("title"), p.text("imageUrl"), (0 until (lines?.length() ?: 0)).map { lines!!.getString(it) }, p.text("already"), p.text("token"), RecipeKind.from(p.optJSONObject("recipe")?.text("kind")))
       }
     }
   }

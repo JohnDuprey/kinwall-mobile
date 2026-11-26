@@ -175,6 +175,39 @@ import Testing
         #expect(s.preview == nil && !s.needsReview)
     }
 
+    @Test func recipeTypesDecodeAndOnlyTheRecipeSaveSendsTheChoice() throws {
+        for kind in Share.RecipeKind.allCases {
+            let data = Data("""
+            {"kind":"recipe","summary":"Ready","link":"https://k/#/meals","review":true,"preview":{"title":"Tacos","lines":[],"token":"fake-token","recipe":{"kind":"\(kind.rawValue)"}}}
+            """.utf8)
+            guard case .done(let result) = Share.outcome(status: 200, data: data) else { Issue.record("not done"); return }
+            #expect(result.preview?.recipe?.kind == kind)
+            let asked = Share.Request(url: "https://example.com/recipe", preview: true)
+            let save = asked.saving(result, recipeKind: .dessert)
+            let body = try JSONSerialization.jsonObject(with: JSONEncoder().encode(save)) as! [String: Any]
+            #expect(body["recipeKind"] as? String == "dessert")
+            #expect(body["token"] as? String == "fake-token" && body["preview"] == nil)
+            var previewAgain = save
+            previewAgain.preview = true
+            let previewBody = try JSONSerialization.jsonObject(with: JSONEncoder().encode(previewAgain)) as! [String: Any]
+            #expect(previewBody["recipeKind"] == nil)
+            previewAgain.preview = nil
+            previewAgain.kind = .book
+            let bookBody = try JSONSerialization.jsonObject(with: JSONEncoder().encode(previewAgain)) as! [String: Any]
+            #expect(bookBody["recipeKind"] == nil)
+            #expect(asked.saving(result).recipeKind == nil, "no choice keeps the detected type")
+            let other = Share.Result(kind: .book, summary: "Ready", link: "https://k", review: true, preview: result.preview)
+            #expect(asked.saving(other, recipeKind: kind).recipeKind == nil)
+        }
+        for recipe in ["", ",\"recipe\":{}", ",\"recipe\":{\"kind\":null}", ",\"recipe\":{\"kind\":\"future\"}"] {
+            let old = Data("{\"title\":\"Tacos\",\"lines\":[]\(recipe)}".utf8)
+            let preview = try JSONDecoder().decode(Share.Preview.self, from: old)
+            #expect(preview.recipe?.kind == nil)
+            let result = Share.Result(kind: .recipe, summary: "Ready", link: "https://k", review: true, preview: preview)
+            #expect(Share.Request(url: "https://example.com").saving(result, recipeKind: .side).recipeKind == nil)
+        }
+    }
+
     @Test func theModelsLinesThenTheWordsAsRead() {
         #expect(Share.eventText("Title: Swim\nPlace: Oak Pool", raw: "SWIM\n9 Lake Ave") == "Title: Swim\nPlace: Oak Pool\n---\nSWIM\n9 Lake Ave")
         #expect(Share.eventText(nil, raw: "SWIM") == "SWIM")

@@ -17,6 +17,8 @@ public enum Share {
     /// outing: an event's "Save to Outings", or a Maps place to visit.
     public enum Kind: String, Codable, CaseIterable, Sendable { case recipe, restaurant, book, event, place, outing }
 
+    public enum RecipeKind: String, Codable, CaseIterable, Sendable { case meal, side, dessert, basic }
+
     public struct Request: Encodable, Equatable, Sendable {
         public var kind: Kind?
         public var url: String?
@@ -35,9 +37,33 @@ public enum Share {
         public var preview: Bool?
         /// With the save after a link's preview: its token, so Kinwall doesn't read the page again.
         public var token: String?
+        /// The type chosen on a recipe's preview card; absent for previews and other shares.
+        public private(set) var recipeKind: RecipeKind?
         public init(kind: Kind? = nil, url: String? = nil, text: String? = nil, name: String? = nil, event: EventDraft? = nil, save: Bool? = nil, calendarId: String? = nil, preview: Bool? = nil, token: String? = nil) {
             self.kind = kind; self.url = url; self.text = text; self.name = name; self.event = event; self.save = save; self.calendarId = calendarId
             self.preview = preview; self.token = token
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case kind, url, text, name, phone, address, website, event, save, calendarId, preview, token, recipeKind
+        }
+        public func encode(to encoder: Encoder) throws {
+            var body = encoder.container(keyedBy: CodingKeys.self)
+            try body.encodeIfPresent(kind, forKey: .kind)
+            try body.encodeIfPresent(url, forKey: .url)
+            try body.encodeIfPresent(text, forKey: .text)
+            try body.encodeIfPresent(name, forKey: .name)
+            try body.encodeIfPresent(phone, forKey: .phone)
+            try body.encodeIfPresent(address, forKey: .address)
+            try body.encodeIfPresent(website, forKey: .website)
+            try body.encodeIfPresent(event, forKey: .event)
+            try body.encodeIfPresent(save, forKey: .save)
+            try body.encodeIfPresent(calendarId, forKey: .calendarId)
+            try body.encodeIfPresent(preview, forKey: .preview)
+            try body.encodeIfPresent(token, forKey: .token)
+            if preview != true && (kind == nil || kind == .recipe) {
+                try body.encodeIfPresent(recipeKind, forKey: .recipeKind)
+            }
         }
 
         /// A Maps place of `kind` (restaurant or place) with what its card says.
@@ -53,10 +79,11 @@ public enum Share {
         }
 
         /// The save after `preview`'s card: the same share without preview, with its token.
-        public func saving(_ preview: Result) -> Request {
+        public func saving(_ preview: Result, recipeKind: RecipeKind? = nil) -> Request {
             var r = self
             r.preview = nil
             r.token = preview.preview?.token
+            r.recipeKind = preview.kind == .recipe && preview.preview?.recipe?.kind != nil ? recipeKind : nil
             return r
         }
     }
@@ -69,8 +96,19 @@ public enum Share {
         public let lines: [String]
         public let already: String?
         public let token: String?
-        public init(title: String, imageUrl: String? = nil, lines: [String] = [], already: String? = nil, token: String? = nil) {
+        public let recipe: Recipe?
+        public struct Recipe: Decodable, Equatable, Sendable {
+            public let kind: RecipeKind?
+            public init(kind: RecipeKind?) { self.kind = kind }
+            private enum CodingKeys: String, CodingKey { case kind }
+            public init(from decoder: Decoder) throws {
+                let values = try decoder.container(keyedBy: CodingKeys.self)
+                kind = (try values.decodeIfPresent(String.self, forKey: .kind)).flatMap(RecipeKind.init(rawValue:))
+            }
+        }
+        public init(title: String, imageUrl: String? = nil, lines: [String] = [], already: String? = nil, token: String? = nil, recipe: Recipe? = nil) {
             self.title = title; self.imageUrl = imageUrl; self.lines = lines; self.already = already; self.token = token
+            self.recipe = recipe
         }
     }
 

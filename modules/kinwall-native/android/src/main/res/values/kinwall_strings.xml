@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+  <string name="kinwall_recipe_type">Type</string>
+  <string name="kinwall_recipe_type_value">Type: %1$s</string>
+  <string name="kinwall_recipe_meal">Main dish</string>
+  <string name="kinwall_recipe_side">Side</string>
+  <string name="kinwall_recipe_dessert">Dessert</string>
+  <string name="kinwall_recipe_basic">Basic</string>
   <string name="kinwall_shortcut_groceries">Add to Groceries</string>
   <string name="kinwall_shortcut_groceries_short">Add</string>
   <string name="kinwall_shortcut_shop">Start shopping</string>

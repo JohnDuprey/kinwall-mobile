@@ -302,8 +302,8 @@ final class ShareViewController: UIViewController {
     label.isHidden = true
     let context = extensionContext
     review = embed(SharePreview(kind: r.kind, preview: r.preview!, guessed: guessed != nil,
-      add: { [weak self] in
-        switch await Share.send(save) {
+      add: { [weak self] recipeKind in
+        switch await Share.send(save.saving(r, recipeKind: recipeKind)) {
         case .failed(let message): return message
         case .done(let saved): self?.closeReview(); self?.saved(saved); return nil
         }

@@ -119,6 +119,10 @@ The web app's **📷 Scan** buttons (the Reading tracker's Add a book, and shopp
 
 Activity plugins speak words with `Kinwall.speak()`. Android's WebView has no Web Speech, so in the app the page asks the system voice instead: the app says it can with `window.kinwallNative.speech`, the page posts `{ type: 'speak', id, text, rate, lang }` (or `{ type: 'stopSpeaking' }`), `expo-speech` says it (at most 500 characters), and the app answers with a `kinwall-native` event, `{ type: 'spoken', id }`, once it's finished, stopped or failed. On iPhone the app takes the audio only while it speaks: other audio ducks rather than pauses, and the app lets the audio go (so it comes back up) once nothing is left to say. Nothing claims the audio when the app opens.
 
+Recipe preview cards on both platforms let you check and change a detected **Type** before
+adding the recipe. See [Check a recipe before adding it](docs/SHARE-RECIPES.md), including
+compatibility with older servers.
+
 ## Test the shared core
 
 ```bash

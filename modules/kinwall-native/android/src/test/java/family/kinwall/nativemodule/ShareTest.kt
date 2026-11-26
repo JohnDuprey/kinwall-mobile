@@ -18,6 +18,30 @@ class ShareTest {
   private val tenAm = 1778335200000L
   private val twoPm = tenAm + 4 * 3_600_000
 
+  @Test fun recipeTypesDecodeAndOnlyTheRecipeSaveSendsTheChoice() {
+    for (kind in Share.RecipeKind.entries) {
+      val p = Share.Preview.from(JSONObject("""{"title":"Tacos","lines":[],"token":"fake-token","recipe":{"kind":"${kind.wire}"}}"""))!!
+      assertEquals(kind, p.recipeKind)
+      val result = Share.Result(Kind.RECIPE, "Ready", "https://k", true, preview = p)
+      val asked = Share.Request(url = "https://example.com/recipe", preview = true)
+      val saved = JSONObject(asked.saving(result, Share.RecipeKind.DESSERT).json())
+      assertEquals("dessert", saved.getString("recipeKind"))
+      assertEquals("fake-token", saved.getString("token"))
+      assertFalse(saved.has("preview"))
+      val save = asked.saving(result, kind)
+      assertFalse(JSONObject(save.copy(preview = true).json()).has("recipeKind"))
+      assertFalse(JSONObject(save.copy(kind = Kind.BOOK).json()).has("recipeKind"))
+      assertFalse(JSONObject(asked.saving(result).json()).has("recipeKind"))
+      assertFalse(JSONObject(asked.saving(result.copy(kind = Kind.BOOK), kind).json()).has("recipeKind"))
+    }
+    for (recipe in listOf("", ",\"recipe\":{}", ",\"recipe\":{\"kind\":null}", ",\"recipe\":{\"kind\":\"future\"}")) {
+      val p = Share.Preview.from(JSONObject("{\"title\":\"Tacos\",\"lines\":[]$recipe}"))!!
+      assertNull(p.recipeKind)
+      val result = Share.Result(Kind.RECIPE, "Ready", "https://k", true, preview = p)
+      assertFalse(JSONObject(Share.Request().saving(result, Share.RecipeKind.SIDE).json()).has("recipeKind"))
+    }
+  }
+
   @Test fun linkIn() {
     assertEquals("https://example.org/tacos", Share.linkIn("  https://example.org/tacos\n"))
     assertEquals("https://example.org/tacos", Share.linkIn("Lemon chicken https://example.org/tacos."))

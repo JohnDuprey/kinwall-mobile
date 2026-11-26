@@ -18,6 +18,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
+import android.widget.AdapterView
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
@@ -102,6 +103,9 @@ class ShareActivity : AppCompatActivity() {
   private lateinit var cardTitle: TextView
   private lateinit var cardLines: TextView
   private lateinit var cardAlready: TextView
+  private lateinit var recipeTypeLabel: TextView
+  private lateinit var recipeTypePicker: Spinner
+  private var selectedRecipeKind: Share.RecipeKind? = null
   private lateinit var cardError: TextView
 
   private sealed interface Choice { data object Add : Choice; data class Pick(val kind: Share.Kind) : Choice; data object Save : Choice; data object Open : Choice; data object Outing : Choice }
@@ -335,6 +339,25 @@ class ShareActivity : AppCompatActivity() {
     cardLines.visibility = if (p.lines.isEmpty()) View.GONE else View.VISIBLE
     cardAlready.text = p.already.orEmpty()
     cardAlready.visibility = if (p.already == null) View.GONE else View.VISIBLE
+    selectedRecipeKind = null
+    val hasRecipeType = r.kind == Share.Kind.RECIPE && p.recipeKind != null
+    recipeTypeLabel.visibility = if (hasRecipeType) View.VISIBLE else View.GONE
+    recipeTypePicker.visibility = recipeTypeLabel.visibility
+    recipeTypePicker.onItemSelectedListener = null
+    if (hasRecipeType) {
+      val types = Share.RecipeKind.entries
+      val labels = listOf(R.string.kinwall_recipe_meal, R.string.kinwall_recipe_side, R.string.kinwall_recipe_dessert, R.string.kinwall_recipe_basic).map { getString(it) }
+      recipeTypePicker.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, labels).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+      recipeTypePicker.setSelection(types.indexOf(p.recipeKind))
+      recipeTypePicker.contentDescription = getString(R.string.kinwall_recipe_type_value, labels[types.indexOf(p.recipeKind)])
+      recipeTypePicker.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+        override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+          selectedRecipeKind = types[position].takeIf { it != p.recipeKind }
+          recipeTypePicker.contentDescription = getString(R.string.kinwall_recipe_type_value, labels[position])
+        }
+        override fun onNothingSelected(parent: AdapterView<*>?) {}
+      }
+    }
     cardImage.visibility = View.GONE
     p.imageUrl?.let { url -> scope.launch { withContext(Dispatchers.IO) { image(url) }?.let { cardImage.setImageBitmap(it); cardImage.visibility = View.VISIBLE } } }
     notThat.text = Share.notLabel(r.kind)
@@ -344,11 +367,12 @@ class ShareActivity : AppCompatActivity() {
       when (val c = wait()) {
         Choice.Add -> {
           cardError.visibility = View.GONE
-          for (v in listOf(add, notThat, done)) v.isEnabled = false
+          for (v in listOf(add, notThat, done, recipeTypePicker)) v.isEnabled = false
           spinner.visibility = View.VISIBLE
-          val o = withContext(Dispatchers.IO) { post(this@ShareActivity, save) }
+          val request = save.saving(r, selectedRecipeKind)
+          val o = withContext(Dispatchers.IO) { post(this@ShareActivity, request) }
           spinner.visibility = View.GONE
-          for (v in listOf(add, notThat, done)) v.isEnabled = true
+          for (v in listOf(add, notThat, done, recipeTypePicker)) v.isEnabled = true
           when (o) {
             is Share.Outcome.Failed -> { cardError.text = o.message; cardError.visibility = View.VISIBLE }
             is Share.Outcome.Done -> { label.text = ""; return saved(o.result) }
@@ -481,11 +505,19 @@ class ShareActivity : AppCompatActivity() {
     cardTitle = TextView(this).apply { textSize = 20f; setTypeface(typeface, Typeface.BOLD); setTextColor(getColor(R.color.kinwall_share_text)) }
     cardLines = TextView(this).apply { textSize = 15f; setTextColor(getColor(R.color.kinwall_share_dim)); setLineSpacing(0f, 1.2f); setPadding(0, dp(4), 0, 0) }
     cardAlready = TextView(this).apply { textSize = 15f; setTextColor(getColor(R.color.kinwall_share_text)); setPadding(0, dp(10), 0, 0) }
+    recipeTypePicker = Spinner(this).apply { id = View.generateViewId(); minimumHeight = dp(48) }
+    recipeTypeLabel = TextView(this).apply {
+      text = getString(R.string.kinwall_recipe_type)
+      textSize = 14f
+      setTextColor(getColor(R.color.kinwall_share_dim))
+      setPadding(0, dp(8), 0, 0)
+      labelFor = recipeTypePicker.id
+    }
     cardError = TextView(this).apply { setTextColor(getColor(R.color.kinwall_share_error)); visibility = View.GONE; setPadding(0, dp(8), 0, 0) }
     return LinearLayout(this).apply {
       orientation = LinearLayout.VERTICAL
       layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) }
-      listOf(cardImage, cardTitle, cardLines, cardAlready, cardError).forEach(::addView)
+      listOf(cardImage, cardTitle, cardLines, cardAlready, recipeTypeLabel, recipeTypePicker, cardError).forEach(::addView)
     }
   }
 

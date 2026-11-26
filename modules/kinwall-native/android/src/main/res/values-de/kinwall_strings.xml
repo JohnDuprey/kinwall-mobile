@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+  <string name="kinwall_recipe_type">Art</string>
+  <string name="kinwall_recipe_type_value">Art: %1$s</string>
+  <string name="kinwall_recipe_meal">Hauptgericht</string>
+  <string name="kinwall_recipe_side">Beilage</string>
+  <string name="kinwall_recipe_dessert">Dessert</string>
+  <string name="kinwall_recipe_basic">Grundrezept</string>
   <string name="kinwall_new_chores">Neue Aufgaben</string>
   <string name="kinwall_new_chores_description">Wenn eine Aufgabe für jemanden, dem du folgst, oder für alle hinzugefügt wird. Aktiviere zuerst „Neue Aufgaben“ in Kinwall.</string>
 </resources>

@@ -10,12 +10,13 @@ struct SharePreview: View {
   let preview: Share.Preview
   let guessed: Bool
   /// Saves it: an error line to show, or nil once it's saved (the sheet moves on).
-  let add: () async -> String?
+  let add: (Share.RecipeKind?) async -> String?
   let notThat: () -> Void
   let cancel: () -> Void
 
   @State private var working = false
   @State private var error: String?
+  @State private var recipeKind: Share.RecipeKind?
 
   var body: some View {
     NavigationStack {
@@ -37,6 +38,17 @@ struct SharePreview: View {
           if let already = preview.already {
             Label(already, systemImage: "info.circle").font(.subheadline)
           }
+          if kind == .recipe, let detected = preview.recipe?.kind {
+            Picker(selection: Binding(get: { recipeKind ?? detected }, set: { recipeKind = $0 })) {
+              ForEach(Share.RecipeKind.allCases, id: \.self) { choice in
+                Text(recipeLabel(choice)).tag(choice)
+              }
+            } label: { Text(NSLocalizedString("Type", comment: "Recipe type")) }
+            .pickerStyle(.menu)
+            .frame(minHeight: 44)
+            .accessibilityLabel(NSLocalizedString("Type", comment: "Recipe type"))
+            .accessibilityValue(recipeLabel(recipeKind ?? detected))
+          }
         }
         if let error { Section { Text(error).foregroundStyle(.red) } }
       }
@@ -56,7 +68,7 @@ struct SharePreview: View {
   private var buttons: some View {
     VStack(spacing: 4) {
       Button {
-        Task { working = true; error = await add(); working = false }
+        Task { working = true; error = await add(recipeKind); working = false }
       } label: {
         Group { if working { ProgressView() } else { Text("Add to Kinwall").bold() } }.frame(maxWidth: .infinity, minHeight: 44)
       }
@@ -69,6 +81,15 @@ struct SharePreview: View {
     .padding(.horizontal)
     .padding(.vertical, 8)
     .background(.bar)
+  }
+
+  private func recipeLabel(_ kind: Share.RecipeKind) -> String {
+    switch kind {
+    case .meal: NSLocalizedString("Main dish", comment: "Recipe type")
+    case .side: NSLocalizedString("Side", comment: "Recipe type")
+    case .dessert: NSLocalizedString("Dessert", comment: "Recipe type")
+    case .basic: NSLocalizedString("Basic", comment: "Recipe type")
+    }
   }
 }
 
