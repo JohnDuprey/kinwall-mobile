@@ -4,6 +4,7 @@ import WatchConnectivity
 import Security
 import ActivityKit
 import DeviceCheck
+import UIKit
 
 /// What the shell can't do from JavaScript: reload the widgets' timelines, hand the Watch its key
 /// over WatchConnectivity (src/sharedKey.ts mints it; targets/watch keeps it), and keep keys in
@@ -11,6 +12,7 @@ import DeviceCheck
 /// suffix to the service name, which the widgets, Watch and Siri wouldn't find).
 public class KinwallNativeModule: Module {
     private let watch = WatchBridge()
+    private let printing = PagePrinting()
 
     // ActivityKit may deliver its first token before React Native has attached a listener.
     // Keep the newest token per activity so JS can replay it immediately after subscribing.
@@ -27,6 +29,13 @@ public class KinwallNativeModule: Module {
 
     public func definition() -> ModuleDefinition {
         Name("KinwallNative")
+        Function("printSupported") { UIPrintInteractionController.isPrintingAvailable }
+        AsyncFunction("printCurrentPage") { (viewTag: Int, title: String) in
+            guard let host = self.appContext?.findView(withTag: viewTag, ofType: UIView.self) else {
+                throw Exception(name: "PrintError", description: "The recipe is not ready to print.")
+            }
+            try self.printing.printPage(in: host, title: title)
+        }.runOnQueue(.main)
         Function("routineSupported") { !ProcessInfo.processInfo.isiOSAppOnMac }
         AsyncFunction("routineStatus") { await RoutineMode.status() }
         AsyncFunction("routineUnenroll") { (memberId: String, server: String) in try await RoutineMode.unenroll(memberId: memberId, server: server) }

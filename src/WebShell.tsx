@@ -6,7 +6,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake'
 import { StatusBar } from 'expo-status-bar'
 import * as SecureStore from 'expo-secure-store'
 import { useEffect, useRef, useState } from 'react'
-import { Alert, AppState, BackHandler, Dimensions, Linking, Platform, Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native'
+import { Alert, AppState, BackHandler, Dimensions, Linking, Platform, Pressable, StyleSheet, Text, View, findNodeHandle, useColorScheme } from 'react-native'
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView, type WebViewMessageEvent } from 'react-native-webview'
 import type { Tokens } from './oauth'
@@ -25,6 +25,7 @@ import * as Crypto from 'expo-crypto'
 import * as Speech from 'expo-speech'
 import { setAudioModeAsync, setIsAudioActiveAsync } from 'expo-audio'
 import { backAction, bridgeMessage, sameDocument, sameOrigin } from './bridge'
+import { printAvailable, routePrint } from './printing'
 import { importContactsScript, meetCall } from './links'
 import { barcodeScript, scanFacing } from './barcode'
 import { Scanner } from './Scanner'
@@ -61,7 +62,7 @@ const NONCE = Array.from(Crypto.getRandomValues(new Uint8Array(16)), (b) => b.to
  * the page's first frame ("Loading…") is already in them; the page's own theme takes over once
  * its settings load (web/src/useTheme.ts). */
 const bridge = (origin: string, token: string | null, frame: (Surface & { dark: boolean }) | null, push: boolean, statusBarHidden: boolean, choreNudgeAnyone: boolean) => `
-window.kinwallNative = { timerControls: ${JSON.stringify(!!KinwallNative?.cookingTimerChanges)}, choreNudgeAnyone: ${JSON.stringify(choreNudgeAnyone)}, eventActivitiesSupported: true, routineModeSupported: ${JSON.stringify(KinwallNative?.routineSupported?.() ?? true)}, routineModeVersion: ${KinwallNative?.routineChoose ? 2 : 1}, platform: ${JSON.stringify(Platform.OS)}, version: ${JSON.stringify(VERSION)}, providerReturn: true, nativePush: ${JSON.stringify(push)}, liveActivities: ${JSON.stringify(activitiesEnabled())}, notificationSettings: ${JSON.stringify(Platform.OS === 'android')}, quickSettingsTiles: ${JSON.stringify(Platform.OS === 'android' && Number(Platform.Version) >= 33)}, videoCall: ${JSON.stringify(Platform.OS === 'android')}, barcodeScanner: true, speech: true, statusBar: true, statusBarHidden: ${JSON.stringify(statusBarHidden)} };
+window.kinwallNative = { ${printAvailable(KinwallNative) ? 'print: true,' : ''} timerControls: ${JSON.stringify(!!KinwallNative?.cookingTimerChanges)}, choreNudgeAnyone: ${JSON.stringify(choreNudgeAnyone)}, eventActivitiesSupported: true, routineModeSupported: ${JSON.stringify(KinwallNative?.routineSupported?.() ?? true)}, routineModeVersion: ${KinwallNative?.routineChoose ? 2 : 1}, platform: ${JSON.stringify(Platform.OS)}, version: ${JSON.stringify(VERSION)}, providerReturn: true, nativePush: ${JSON.stringify(push)}, liveActivities: ${JSON.stringify(activitiesEnabled())}, notificationSettings: ${JSON.stringify(Platform.OS === 'android')}, quickSettingsTiles: ${JSON.stringify(Platform.OS === 'android' && Number(Platform.Version) >= 33)}, videoCall: ${JSON.stringify(Platform.OS === 'android')}, barcodeScanner: true, speech: true, statusBar: true, statusBarHidden: ${JSON.stringify(statusBarHidden)} };
 ${token ? `if (location.origin === ${JSON.stringify(origin)}) try { localStorage.setItem('kinwall.apiKey', ${JSON.stringify(token)}) } catch (e) {}` : ''}
 ${frame ? `try { var r = document.documentElement; r.setAttribute('data-theme', ${JSON.stringify(frame.dark ? 'dark' : 'light')}); r.style.setProperty('--bg', ${JSON.stringify(frame.bg)}); r.style.setProperty('--card', ${JSON.stringify(frame.card)}) } catch (e) {}` : ''}
 (function () {
@@ -104,6 +105,7 @@ const UNFINISHED = "Kinwall didn't finish loading."
 
 export function WebShell({ url, session, route, onRouteApplied, onTokens, onSignedOut, onChangeServer }: Props) {
   const web = useRef<WebView>(null)
+  const printHost = useRef<View>(null)
   const ui = useUi()
   const insets = useSafeAreaInsets()
   const systemDark = useColorScheme() === 'dark'
@@ -331,6 +333,10 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
     if (!m || (m.type === 'alive' && !pageProbe.answer(m.probe))) return
     here.current = e.nativeEvent.url
     switch (m.type) {
+      case 'print':
+        try { await routePrint(m, findNodeHandle(printHost.current), KinwallNative) }
+        catch { Alert.alert("Couldn't print", 'Try printing the recipe again.') }
+        break
       case 'routineMode': {
         const request = routineRequest(m)
         if (!request) break
@@ -479,52 +485,54 @@ export function WebShell({ url, session, route, onRouteApplied, onTokens, onSign
       <Pressable onPress={changeServer} accessibilityRole="button"><Text style={ui.link}>{session.mode === 'demo' ? 'Change server' : 'Sign out and change server'}</Text></Pressable>
     </View></View>
   ) : startsPairing === null ? null : (
-    <WebView
-      ref={web}
-      style={styles.web}
-      key={mount.n}
-      source={{ uri: mount.at ?? (startsPairing ? `${url}?start=pair` : url) }}
-      applicationNameForUserAgent={`KinwallApp/${VERSION}`}
-      injectedJavaScriptBeforeContentLoaded={bridge(origin, token, frame, session.mode !== 'demo' && nativePushAvailable(), statusBarHidden, choreAnyone) + nativePushPageScript(url, savedNativePush(), session.mode !== 'demo' && nativePushAvailable())}
-      injectedJavaScriptBeforeContentLoadedForMainFrameOnly // the default, and required: the nonce is in here
-      onMessage={onMessage}
-      // Android sends a load start for a #/ route change, often with no end: only a real load counts.
-      onLoadStart={(e) => { const was = pageUrl.current; track(e.nativeEvent.url); if (sameDocument(was, e.nativeEvent.url)) return; setLoading(true); clearTimeout(loadCheck.current); pageProbe.cancel() }}
-      // Android can emit onLoad just before onError. Only a healthy page's
-      // appearance/alive message resets retries, not native load events.
-      onLoad={(e) => { pageUrl.current = e.nativeEvent.url; hideSplash(); setLoading(false); syncPushPage(); syncKey(); if (pending.current) { go(pending.current); pending.current = null }; clearTimeout(loadCheck.current); loadCheck.current = setTimeout(probe, 15_000) }}
-      onNavigationStateChange={(s) => { canGoBack.current = s.canGoBack; track(s.url) }}
-      onError={(e) => {
-        pageUrl.current = null
-        hideSplash()
-        clearTimeout(loadCheck.current)
-        pageProbe.cancel()
-        setLoading(true)
-        loadRecovery.failed(e.nativeEvent)
-      }}
-      renderError={() => <View style={ui.root}><View style={ui.screen}><Text style={ui.muted}>Connecting to Kinwall…</Text></View></View>}
-      onContentProcessDidTerminate={(e) => restart(e.nativeEvent.url)} // iOS
-      onRenderProcessGone={(e) => restart((e.nativeEvent as { url?: string }).url)} // Android: this web view can't be used again
-      // Other schemes (tel:, mailto:) go straight to Linking without reaching the handler below;
-      // intent: (the contact sheet's Video call, which Linking can't open) comes here for openOutside.
-      originWhitelist={['http://*', 'https://*', 'intent:*']}
-      // Other sites open outside the app (openOutside); Kinwall stays here.
-      onShouldStartLoadWithRequest={(r) => {
-        if (isKinwall(r.url) || r.url.startsWith('about:') || r.url.startsWith('blob:')) return true
-        if (r.isTopFrame !== false) openOutside(r.url)
-        return false
-      }}
-      onOpenWindow={(e) => { const u = e.nativeEvent.targetUrl; if (isKinwall(u)) web.current?.injectJavaScript(`location.href = ${JSON.stringify(u)}; true;`); else openOutside(u) }}
-      onFileDownload={(e) => { Linking.openURL(e.nativeEvent.downloadUrl).catch(() => {}) }} // the photo zip, a saved drawing: the browser saves it
-      contentInsetAdjustmentBehavior="never" // the page lays itself out with env(safe-area-inset-*)
-      bounces={false}
-      allowsInlineMediaPlayback
-      allowsBackForwardNavigationGestures={false}
-      allowsLinkPreview={false}
-      setSupportMultipleWindows
-      webviewDebuggingEnabled={__DEV__}
-      domStorageEnabled
-    />
+    <View ref={printHost} collapsable={false} style={styles.web}>
+      <WebView
+        ref={web}
+        style={styles.web}
+        key={mount.n}
+        source={{ uri: mount.at ?? (startsPairing ? `${url}?start=pair` : url) }}
+        applicationNameForUserAgent={`KinwallApp/${VERSION}`}
+        injectedJavaScriptBeforeContentLoaded={bridge(origin, token, frame, session.mode !== 'demo' && nativePushAvailable(), statusBarHidden, choreAnyone) + nativePushPageScript(url, savedNativePush(), session.mode !== 'demo' && nativePushAvailable())}
+        injectedJavaScriptBeforeContentLoadedForMainFrameOnly // the default, and required: the nonce is in here
+        onMessage={onMessage}
+        // Android sends a load start for a #/ route change, often with no end: only a real load counts.
+        onLoadStart={(e) => { const was = pageUrl.current; track(e.nativeEvent.url); if (sameDocument(was, e.nativeEvent.url)) return; setLoading(true); clearTimeout(loadCheck.current); pageProbe.cancel() }}
+        // Android can emit onLoad just before onError. Only a healthy page's
+        // appearance/alive message resets retries, not native load events.
+        onLoad={(e) => { pageUrl.current = e.nativeEvent.url; hideSplash(); setLoading(false); syncPushPage(); syncKey(); if (pending.current) { go(pending.current); pending.current = null }; clearTimeout(loadCheck.current); loadCheck.current = setTimeout(probe, 15_000) }}
+        onNavigationStateChange={(s) => { canGoBack.current = s.canGoBack; track(s.url) }}
+        onError={(e) => {
+          pageUrl.current = null
+          hideSplash()
+          clearTimeout(loadCheck.current)
+          pageProbe.cancel()
+          setLoading(true)
+          loadRecovery.failed(e.nativeEvent)
+        }}
+        renderError={() => <View style={ui.root}><View style={ui.screen}><Text style={ui.muted}>Connecting to Kinwall…</Text></View></View>}
+        onContentProcessDidTerminate={(e) => restart(e.nativeEvent.url)} // iOS
+        onRenderProcessGone={(e) => restart((e.nativeEvent as { url?: string }).url)} // Android: this web view can't be used again
+        // Other schemes (tel:, mailto:) go straight to Linking without reaching the handler below;
+        // intent: (the contact sheet's Video call, which Linking can't open) comes here for openOutside.
+        originWhitelist={['http://*', 'https://*', 'intent:*']}
+        // Other sites open outside the app (openOutside); Kinwall stays here.
+        onShouldStartLoadWithRequest={(r) => {
+          if (isKinwall(r.url) || r.url.startsWith('about:') || r.url.startsWith('blob:')) return true
+          if (r.isTopFrame !== false) openOutside(r.url)
+          return false
+        }}
+        onOpenWindow={(e) => { const u = e.nativeEvent.targetUrl; if (isKinwall(u)) web.current?.injectJavaScript(`location.href = ${JSON.stringify(u)}; true;`); else openOutside(u) }}
+        onFileDownload={(e) => { Linking.openURL(e.nativeEvent.downloadUrl).catch(() => {}) }} // the photo zip, a saved drawing: the browser saves it
+        contentInsetAdjustmentBehavior="never" // the page lays itself out with env(safe-area-inset-*)
+        bounces={false}
+        allowsInlineMediaPlayback
+        allowsBackForwardNavigationGestures={false}
+        allowsLinkPreview={false}
+        setSupportMultipleWindows
+        webviewDebuggingEnabled={__DEV__}
+        domStorageEnabled
+      />
+    </View>
   )
 
   const scanner = scanning && <Scanner facing={scanning} onDone={(code) => { setScanning(null); web.current?.injectJavaScript(barcodeScript(code)) }} />

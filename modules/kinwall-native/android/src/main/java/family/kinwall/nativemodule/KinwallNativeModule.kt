@@ -9,6 +9,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.functions.Queues
 import org.json.JSONObject
 
 /** Android's KinwallNative (modules/kinwall-native/index.ts): the keys (Keychain.kt), the
@@ -17,6 +18,7 @@ import org.json.JSONObject
  * FCM through expo-notifications (plus PushGateway.kt's proof), so "activityToken" never fires. */
 class KinwallNativeModule : Module() {
   private val context get() = requireNotNull(appContext.reactContext)
+  private val printing = PagePrinting()
 
   private fun padForKeyboard() {
     val activity = appContext.currentActivity ?: return
@@ -32,6 +34,12 @@ class KinwallNativeModule : Module() {
 
   override fun definition() = ModuleDefinition {
     Name("KinwallNative")
+    Function("printSupported") { PagePrinting.supported(context) }
+    AsyncFunction("printCurrentPage") { viewTag: Int, title: String ->
+      val activity = checkNotNull(appContext.currentActivity) { "The app is not open." }
+      val host = checkNotNull(appContext.findView<View>(viewTag)) { "The recipe is not ready to print." }
+      printing.printPage(activity, host, title)
+    }.runOnQueue(Queues.MAIN)
     Events("watchStateChanged", "activityToken")
 
     // Edge to edge (Android 15 and later) the window no longer shrinks for the keyboard

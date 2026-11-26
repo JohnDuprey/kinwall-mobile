@@ -194,6 +194,28 @@ Certificate errors still appear immediately. Only a page that renders successful
 count. Checks for a blank or unresponsive page stop when the app goes into the background
 or starts another load; old checks cannot restart a replacement page.
 
+## Web/native bridge: printing
+
+Updated iPhone, iPad and Android builds expose `window.kinwallNative.print = true` when the
+native printing module and the system's printing support are available. Older builds omit it.
+The recipe reader sends `{ type: 'print', title: 'Tacos' }` through
+`window.webkit.messageHandlers.kinwall.postMessage`. The existing main-frame shim forwards
+that call to `window.ReactNativeWebView.postMessage` on **both platforms**, adding this launch's
+nonce; Android gets a shimmed `window.webkit.messageHandlers` object. The shell ignores messages
+with a missing/wrong nonce, a different origin, or a plugin page, as it does for other native actions.
+Unknown message types do nothing. A missing, non-string or blank title uses **Kinwall recipe**.
+
+The shell tags a non-collapsable native View containing only its WebView. Expo's native view
+lookup resolves that React tag on the UI thread, then a public subview traversal finds the live
+`WKWebView`/`android.webkit.WebView` inside it. This works across React Native's Fabric wrappers
+without reaching into react-native-webview's private fields or searching another screen's views.
+iOS uses `viewPrintFormatter()` with `UIPrintInteractionController` (a popover anchored to the
+WebView on iPad); Android uses `PrintManager.print` and `createPrintDocumentAdapter(title)`.
+Both print the current document using the engine's print layout, including the recipe's
+`@media print` rules for recipe-only, black-on-white output. The app neither serializes HTML
+nor fetches another copy. Print layout belongs to the web app; both updates are needed for its
+Print button. The system owns printer/PDF choices; repeated taps during an active job are ignored.
+
 ## Development checks
 
 Run `npm run typecheck`, `npm test`, `swift test --package-path KinwallKit`, and

@@ -2,6 +2,9 @@ import { type EventSubscription, requireOptionalNativeModule } from 'expo-module
 import type { RoutineStatus } from '../../src/routineFlow'
 
 type KinwallNative = {
+  printSupported?(): boolean
+  /** Print the current WebView inside this native wrapper; no copy or fetch of the page. */
+  printCurrentPage?(viewTag: number, title: string): Promise<void>
   cookingTimerChanges?(): string
   addListener(event: 'cookingTimerChanged', listener: () => void): EventSubscription
   routineSupported?(): boolean
